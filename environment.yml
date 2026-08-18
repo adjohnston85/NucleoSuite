@@ -1,0 +1,29 @@
+name: nucleosuite
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  # Python runtime
+  - python=3.12
+  - numpy>=1.24
+  - scipy>=1.10
+  - pysam>=0.22
+  - pybigwig>=0.3.22
+  - matplotlib-base>=3.7
+  - matplotlib-venn>=1.1
+  - openpyxl>=3.1
+
+  # Command-line runtime tools
+  - bash
+  - samtools
+  - ucsc-bedtobigbed
+  - ucsc-bigbedtobed
+  - ucsc-bedgraphtobigwig
+
+  # Installation, testing and release builds
+  - pip
+  - setuptools>=68
+  - wheel
+  - python-build>=1.2
+  - pytest>=8

@@ -1,0 +1,85 @@
+{% set name = "nucleosuite" %}
+{% set version = "0.8.5" %}
+
+package:
+  name: {{ name|lower }}
+  version: {{ version }}
+
+source:
+  path: ..
+
+build:
+  noarch: python
+  number: 0
+  script: "{{ PYTHON }} -m pip install . -vv --no-deps --no-build-isolation"
+  entry_points:
+    - nucleosuite = nucleosuite.cli.main:main
+
+requirements:
+  host:
+    - python >=3.10
+    - pip
+    - setuptools >=68
+    - wheel
+  run:
+    - python >=3.10
+    - numpy >=1.24
+    - scipy >=1.10
+    - pysam >=0.22
+    - pybigwig >=0.3.22
+    - matplotlib-base >=3.7
+    - openpyxl >=3.1
+    - matplotlib-venn >=1.1
+    - bash
+    - samtools
+    - ucsc-bedtobigbed
+    - ucsc-bigbedtobed
+    - ucsc-bedgraphtobigwig
+
+test:
+  imports:
+    - nucleosuite
+    - nucleosuite.cli.main
+    - nucleosuite.align
+    - nucleosuite.dac
+    - nucleosuite.dcc
+    - nucleosuite.compare_positions
+    - nucleosuite.nrl
+    - nucleosuite.positive_runs
+    - nucleosuite.peak_score_frequency
+    - nucleosuite.filter_coverage
+    - nucleosuite.replot
+  commands:
+    - nucleosuite --version
+    - nucleosuite --help
+    - nucleosuite tracks --help
+    - nucleosuite pns --help
+    - nucleosuite dyads --help
+    - nucleosuite aggregate --help
+    - nucleosuite dac --help
+    - nucleosuite dcc --help
+    - nucleosuite compare-positions --help
+    - nucleosuite nrl --help
+    - nucleosuite positive-runs --help
+    - nucleosuite peak-score-frequency --help
+    - nucleosuite filter-coverage --help
+    - nucleosuite plot --help
+    - nucleosuite fragment-heatmap --help
+    - nucleosuite gene-sets --help
+    - nucleosuite gene-expression --help
+    - nucleosuite resources list
+    - nucleosuite resources validate --resource-set hg19-gm12878
+    - nucleosuite mnase-suite --help
+    - nucleosuite mnase-suite --help-plotting
+    - nucleosuite cfdna-suite --help
+    - nucleosuite chrom-sizes --help
+    - nucleosuite validate-inputs --help
+
+about:
+  summary: Nucleosome, chromatin and fragmentomics analysis from genomic sequencing data
+  license: MIT
+  license_file: LICENSE
+
+extra:
+  recipe-maintainers:
+    - Andrew-D-Johnston

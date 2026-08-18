@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nucleosuite"
+version = "0.8.5"
+description = "Nucleosome, chromatin and fragmentomics analysis from genomic sequencing data"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+  {name = "Andrew D. Johnston"},
+  {name = "Fiach Antaw"}
+]
+keywords = ["nucleosome", "cfDNA", "fragmentomics", "chromatin", "bioinformatics"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Bio-Informatics"
+]
+dependencies = [
+  "numpy>=1.24",
+  "scipy>=1.10",
+  "pysam>=0.22",
+  "pyBigWig>=0.3.22",
+  "matplotlib>=3.7",
+  "openpyxl>=3.1",
+  "matplotlib-venn>=1.1"
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "build>=1.2"]
+
+[project.urls]
+Repository = "https://github.com/adjohnston85/NucleoSuite"
+Documentation = "https://github.com/adjohnston85/NucleoSuite/tree/main/docs"
+
+[project.scripts]
+nucleosuite = "nucleosuite.cli.main:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+nucleosuite = ["resources/*.sh", "resources/*.tsv", "resources/*.md", "resources/*.json", "resources/hg19/*.bed", "resources/hg19/*.bed.gz", "resources/expression/*.tsv", "resources/expression/*.tsv.gz"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["nucleosuite*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["src"]

@@ -1,0 +1,89 @@
+{
+  "resources": {
+    "hg19-genes": {
+      "path": "resources/hg19/hg19_ensembl_genes.bed",
+      "description": "hg19/GRCh37 Ensembl gene BED6-like table: chrom, start, end, Ensembl gene ID, gene name, strand",
+      "assembly": "GRCh37/hg19",
+      "source": "Ensembl",
+      "source_release": "87",
+      "source_file": "Homo_sapiens.GRCh37.87.gtf",
+      "citation": "Aken et al. (2017), Ensembl 2017, Nucleic Acids Research 45:D635-D642, doi:10.1093/nar/gkw1104"
+    },
+    "gm12878-hg19-states": {
+      "path": "resources/hg19/wgEncodeBroadHmmGm12878HMM.bed",
+      "description": "GM12878 hg19 ChromHMM state BED9 with itemRgb colours",
+      "cell_type": "GM12878",
+      "source": "ChromHMM/ENCODE segmentation",
+      "citation": "Ernst et al. (2011), Nature 473:43-49, doi:10.1038/nature09906"
+    },
+    "gm12878-hg19-ctcf": {
+      "path": "resources/hg19/CTCF_fimo_MA0139.1_INTERSECT_ENCFF923ZBP_GM12878_CTCF_hg19.bed",
+      "description": "GM12878 hg19 CTCF motif/peak intersection BED6 with motif strand in column 6",
+      "cell_type": "GM12878",
+      "motif": "JASPAR MA0139.1 (CTCF)",
+      "motif_scan": "FIMO",
+      "chip_seq_accession": "ENCFF923ZBP",
+      "citations": [
+        "Grant et al. (2011), FIMO, Bioinformatics 27:1017-1018, doi:10.1093/bioinformatics/btr064",
+        "Barski et al. (2007), Cell 129:823-837, doi:10.1016/j.cell.2007.05.009",
+        "Davis et al. (2018), ENCODE data portal update, Nucleic Acids Research 46:D794-D801, doi:10.1093/nar/gkx1081"
+      ],
+      "motif_validation": "Barski et al. (2007), PMID 17512414; JASPAR MA0139.1 validation record",
+      "motif_validation_doi": "10.1016/j.cell.2007.05.009"
+    },
+    "hg19-blacklist-v2": {
+      "path": "resources/hg19/hg19-blacklist.v2.bed.gz",
+      "description": "ENCODE/Boyle Lab hg19 blacklist v2; 834 merged high-signal and low-mappability intervals",
+      "assembly": "hg19/GRCh37",
+      "version": "2",
+      "source": "Boyle-Lab/Blacklist",
+      "sha256": "1a4ba636f791936ab8952cb068f496ccbd55ec4753539547c5d3d055ed00642a",
+      "citation": "Amemiya et al. (2019), Scientific Reports 9:9354, doi:10.1038/s41598-019-45839-z"
+    },
+    "default-gene-sets": {
+      "path": "resources/default_gene_sets.tsv",
+      "description": "Default active, weak and repressed gene-category rules with candidate-set exclusions"
+    },
+    "mnase-suite-script": {
+      "path": "resources/mnase_full_suite.sh",
+      "description": "Configurable MNase full-suite Bash workflow"
+    },
+    "cfdna-suite-script": {
+      "path": "resources/cfdna_full_suite.sh",
+      "description": "Configurable cfDNA full-suite Bash workflow"
+    },
+    "hpa-tissue-expression": {
+      "path": "resources/expression/rna_tissue_consensus.tsv.gz",
+      "description": "Human Protein Atlas tissue-consensus RNA expression table with Gene, Gene name, Tissue and nTPM fields",
+      "source": "Human Protein Atlas tissue consensus RNA expression",
+      "citations": [
+        "Uhlen et al. (2015), Science 347:1260419, doi:10.1126/science.1260419",
+        "GTEx Consortium (2020), Science 369:1318-1330, doi:10.1126/science.aaz1776"
+      ],
+      "website": "https://www.proteinatlas.org/",
+      "citation_guidance": "Human Protein Atlas licence/citation policy requires HPA attribution and citation of the specific data source."
+    },
+    "hpa-cell-line-metadata": {
+      "path": "resources/expression/rna_cell_lines.tsv",
+      "description": "Human Protein Atlas cell-line metadata for annotating expression-profile rankings",
+      "source": "Human Protein Atlas cell-line metadata",
+      "citations": [
+        "Jin et al. (2023), Nature Communications 14:5417, doi:10.1038/s41467-023-41132-w",
+        "Bairoch (2018), Journal of Biomolecular Techniques 29:25-38, doi:10.7171/jbt.18-2902-002"
+      ],
+      "website": "https://www.proteinatlas.org/"
+    }
+  },
+  "resource_sets": {
+    "hg19-gm12878": {
+      "description": "GRCh37/hg19 genes with GM12878 ChromHMM and CTCF annotations",
+      "genes": "hg19-genes",
+      "states": "gm12878-hg19-states",
+      "ctcf": "gm12878-hg19-ctcf",
+      "blacklist": "hg19-blacklist-v2",
+      "gene_set_config": "default-gene-sets",
+      "tissue_expression": "hpa-tissue-expression",
+      "cell_line_metadata": "hpa-cell-line-metadata"
+    }
+  }
+}

@@ -1,0 +1,4 @@
+set_name	include_rule	exclude_if_candidate
+active_genes	1_Active_Promoter & (9_Txn_Transition | 10_Txn_Elongation)	repressed_genes
+weak_genes	2_Weak_Promoter & (9_Txn_Transition | 10_Txn_Elongation | 11_Weak_Txn)	active_genes,repressed_genes
+repressed_genes	12_Repressed	active_genes,weak_genes
