@@ -30,7 +30,15 @@ def add_aggregate_parser(subparsers: argparse._SubParsersAction) -> argparse.Arg
     )
     parser.add_argument("-n", "--nucleosome-bed", type=Path, help="Optional BED of nucleosome positions used to replace each feature midpoint with a strand-relative nucleosome centre.")
     parser.add_argument("--nucleosome-offset", type=int, default=1, help="Non-zero strand-relative nucleosome rank selected from --nucleosome-bed; positive is downstream and negative upstream (default: 1).")
-    parser.add_argument("--state-bed", type=Path, help="Optional BED mask retaining reference features that overlap at least one state interval.")
+    parser.add_argument(
+        "--state-bed",
+        type=Path,
+        help=(
+            "Optional BED mask retaining reference features that overlap at least one state interval. "
+            "State labels are not used to group the aggregate; use --category-col when categories "
+            "are stored in --region-bed."
+        ),
+    )
     parser.add_argument("--output-dir", type=Path, default=Path("."), help="Directory for outputs (default: current directory).")
     parser.add_argument("--output-prefix", help="Base output filename prefix. The window, NRL range/resolution, and effective exclusion zone are appended; default base is derived from the inputs.")
     parser.add_argument("--heatmap-output", "--output", dest="heatmap_output", type=Path, help="Explicit heatmap image stem/path; final extension follows --plot-format (default stem: <output-dir>/<prefix>_heatmap).")
@@ -45,6 +53,32 @@ def add_aggregate_parser(subparsers: argparse._SubParsersAction) -> argparse.Arg
     parser.add_argument("--end-col", type=int, default=3, help="One-based end-coordinate column in --region-bed (default: 3).")
     parser.add_argument("--strand-col", type=int, default=6, help="One-based strand column in --region-bed (default: 6).")
     parser.add_argument("--point-col", type=int, default=0, help="One-based absolute genomic centre column; 0 uses the interval midpoint (default: 0).")
+    parser.add_argument(
+        "--category-col",
+        type=int,
+        default=0,
+        help=(
+            "One-based category column in --region-bed. A value greater than 0 runs "
+            "an independent aggregate and NRL analysis for every unique category, "
+            "then writes one combined category profile plot and NRL summary "
+            "(default: 0, disabled)."
+        ),
+    )
+    parser.add_argument(
+        "--category-profile-output",
+        type=Path,
+        help="Explicit combined category-profile TSV path used with --category-col.",
+    )
+    parser.add_argument(
+        "--category-plot-output",
+        type=Path,
+        help="Explicit combined category-profile plot stem/path used with --category-col; final extension follows --plot-format.",
+    )
+    parser.add_argument(
+        "--category-nrl-summary-output",
+        type=Path,
+        help="Explicit combined per-category NRL summary TSV path used with --category-col.",
+    )
     parser.add_argument("--skip-header", action="store_true", help="Skip the first physical line of --region-bed.")
     parser.add_argument(
         "--missing-strand", choices=["forward", "random", "error"], default="forward",
@@ -175,13 +209,19 @@ def _run_serial(args: argparse.Namespace) -> int:
 
 def run_from_args(args: argparse.Namespace) -> int:
     _resolve_automatic_options(args)
+    category_col = int(getattr(args, "category_col", 0) or 0)
+    if category_col < 0:
+        raise ValueError("--category-col must be zero or greater")
+    if category_col > 0:
+        from nucleosuite.category_aggregate import run_category_aggregate
+
+        return run_category_aggregate(args, _run_serial)
     from nucleosuite.aggregate_parallel import run_aggregate_per_contig
     return run_aggregate_per_contig(args, _run_serial)
 
 
 def _resolve_automatic_options(args: argparse.Namespace) -> None:
     """Resolve suffix-aware defaults once before serial or parallel execution."""
-
     if getattr(args, "_aggregate_options_resolved", False):
         return
     inferred = infer_aggregate_track_options(args.bigwig)
