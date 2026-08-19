@@ -74,6 +74,11 @@ def _filter_coverage_main(argv: Sequence[str] | None = None) -> int:
     return main(argv)
 
 
+
+def _flank_spacing_main(argv: Sequence[str] | None = None) -> int:
+    from nucleosuite.flank_spacing import main
+    return main(argv)
+
 def _fragment_lengths_main(argv: Sequence[str] | None = None) -> int:
     from nucleosuite.fragment_lengths import main
     return main(argv)
@@ -172,6 +177,7 @@ DELEGATED_COMMANDS: dict[str, tuple[CommandMain, str]] = {
     "merge-bams": (_merge_bams_main, "Combine BAM files while keeping full alignment records."),
     "randomize-fragments": (_randomize_fragments_main, "Create a reproducible control fragment set for comparison."),
     "fragment-lengths": (_fragment_lengths_main, "Count how many fragments occur at each length."),
+    "flank-spacing": (_flank_spacing_main, "Compare nucleosome spacing around categorized reference sites."),
     "filter-coverage": (_filter_coverage_main, "Filter BED peaks by coverage at their summit or interval midpoint."),
     "fragment-heatmap": (_fragment_heatmap_main, "Compare fragment-length patterns across samples or region groups."),
     "aggregate": (_aggregate_main, "Aggregate BigWig signal around genomic features."),
@@ -204,6 +210,7 @@ DELEGATED_MODULES: dict[str, str] = {
     "merge-bams": "nucleosuite.merge_bams",
     "randomize-fragments": "nucleosuite.randomize_fragments_command",
     "fragment-lengths": "nucleosuite.fragment_lengths",
+    "flank-spacing": "nucleosuite.flank_spacing",
     "filter-coverage": "nucleosuite.filter_coverage",
     "fragment-heatmap": "nucleosuite.fragment_heatmap",
     "aggregate": "nucleosuite.cli.aggregate",
@@ -299,6 +306,7 @@ def build_parser() -> argparse.ArgumentParser:
         "merge-bams",
         "randomize-fragments",
         "fragment-lengths",
+        "flank-spacing",
         "filter-coverage",
         "fragment-heatmap",
         "aggregate",
@@ -353,6 +361,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (FileNotFoundError, OSError, ValueError, KeyError, RuntimeError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 2
+
+    from nucleosuite.plotting import configure_plot_metadata
+    configure_plot_metadata(command, args_list, vars(parsed) if parsed is not None else None)
 
     if parsed is not None and hasattr(parsed, "plot_format"):
         from nucleosuite.plotting import configure_plot_options

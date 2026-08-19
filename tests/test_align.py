@@ -62,8 +62,7 @@ def test_default_prefix_uses_all_inputs():
     )
     assert make_output_prefix(config) == (
         "regions_signal_nucleosomes_minus2_active_"
-        "win2500_zero5_maxscore300_missingzero_sortmean-absolute_"
-        "nrlres160_nrlmin0_nrlmax2500_exclneg80to80"
+        "win2500_zero5_maxscore300"
     )
 
 
@@ -75,10 +74,7 @@ def test_alignment_outputs_include_exact_heatmap_matrix(tmp_path: Path):
         output_prefix="aligned",
     )
     outputs = resolve_output_paths(config)
-    stem = (
-        "aligned_win2500_zero5_maxscore300_missingzero_sortmean-absolute_"
-        "nrlres160_nrlmin0_nrlmax2500_exclneg80to80"
-    )
+    stem = "aligned_win2500_zero5_maxscore300"
     assert outputs["heatmap"] == tmp_path / f"{stem}_heatmap.png"
     assert outputs["heatmap_matrix"] == tmp_path / f"{stem}_heatmap_matrix.tsv.gz"
     assert outputs["plotted_mean"] == tmp_path / f"{stem}_heatmap_mean.tsv"

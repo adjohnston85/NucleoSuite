@@ -2455,6 +2455,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if plot_type in dispatch: saved,fig=dispatch[plot_type](args.input,headers,rows,args,output,artist_kw)
     elif plot_type in {"generic-line","generic-scatter","generic-bar"}: saved,fig=_generic_plot(args.input,headers,rows,args,output,artist_kw,plot_type)
     else: raise ValueError(f"Unsupported plot type: {plot_type}")
+    from nucleosuite.plotting import write_plot_metadata
+    write_plot_metadata(saved, extra={"detected_plot_type": plot_type, "source_table": str(args.input)})
     import matplotlib.pyplot as plt; plt.close(fig)
     print(f"Detected plot type: {plot_type}"); print(f"Wrote: {saved}")
     return 0

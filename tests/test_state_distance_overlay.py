@@ -43,8 +43,7 @@ def test_state_overlay_is_relative_and_resets_at_interval_boundaries(tmp_path):
         ]
     ) == 0
     prefix = Path(
-        f"{prefix}_distmin1_distmax500_orders1_nrlmodesmoothed_countsg21x2_pctsg21x2_"
-        "groupsthreshold_tiessplit"
+        f"{prefix}_distmin1_distmax500_orders1"
     )
 
     stem = Path(f"{prefix}_scorepct0")
@@ -110,8 +109,7 @@ def test_state_overlay_resolves_chr_prefix_aliases(tmp_path):
         ]
     ) == 0
     prefix = Path(
-        f"{prefix}_distmin1_distmax500_orders1_nrlmodesmoothed_countsg21x2_pctsg21x2_"
-        "groupsthreshold_tiessplit"
+        f"{prefix}_distmin1_distmax500_orders1"
     )
 
     distribution = Path(f"{prefix}_scorepct0_state_relative_percent.tsv")

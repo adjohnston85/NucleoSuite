@@ -156,8 +156,7 @@ def test_distances_main_automatically_writes_regression_for_multiple_orders(tmp_
     ) == 0
 
     prefix = Path(
-        f"{prefix}_distmin1_distmax1000_orders3_nrlmodesmoothed_countsg0x2_pctsg0x2_"
-        "groupsthreshold_tiessplit"
+        f"{prefix}_distmin1_distmax1000_orders3"
     )
     stem = Path(f"{prefix}_scorepct0")
     summary = Path(f"{stem}_nrl_regression_summary.tsv")

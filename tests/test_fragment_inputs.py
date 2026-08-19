@@ -52,7 +52,7 @@ def test_fragments_command_combines_interval_inputs(tmp_path: Path):
         "--max-duplicates", "1",
         "--output-format", "bed",
     ]) == 0
-    prefix = tmp_path / "combined_fragmin1_fragmax1000_mapq0_maxdup1_dedupall-bams_subsamplenone_seednone"
+    prefix = tmp_path / "combined_fragmin1_fragmax1000_mapq0"
     assert Path(f"{prefix}.fragments.bed").read_text().splitlines() == [
         "chr1\t10\t20",
         "chr1\t30\t45",
@@ -105,7 +105,7 @@ def test_fragments_command_streams_multiple_contigs_to_combined_bed(tmp_path: Pa
         "--output-prefix", str(prefix),
         "--output-format", "bed",
     ]) == 0
-    prefix = tmp_path / "out_fragmin1_fragmax1000_mapq0_maxdup0_dedupall-bams_subsamplenone_seednone"
+    prefix = tmp_path / "out_fragmin1_fragmax1000_mapq0"
     assert Path(f"{prefix}.fragments.bed").read_text().splitlines() == [
         "chr1\t10\t20",
         "chr2\t5\t18",

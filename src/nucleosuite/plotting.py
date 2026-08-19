@@ -899,6 +899,57 @@ def apply_plot_options(figure, *, options: PlotOptions | None = None) -> None:
                     axis.legend(handles, labels, loc=_LEGEND_LOCATIONS[position], frameon=False)
 
 
+_CURRENT_PLOT_METADATA: dict[str, object] = {}
+
+
+def configure_plot_metadata(command: str, argv, parameters=None) -> None:
+    """Set command-level provenance written beside every generated plot."""
+    import shlex
+    from nucleosuite.command_logging import serializable_parameters
+    global _CURRENT_PLOT_METADATA
+    _CURRENT_PLOT_METADATA = {
+        "command": str(command),
+        "invocation": shlex.join(["nucleosuite", *list(argv)]),
+        "parameters": serializable_parameters(parameters),
+    }
+
+
+def plot_metadata_path(plot_path_value: str | Path) -> Path:
+    path = Path(plot_path_value)
+    return path.with_name(path.stem + "_metadata.tsv")
+
+
+def write_plot_metadata(plot_path_value: str | Path, *, extra=None) -> Path:
+    """Write a complete parameter sidecar for one plot output."""
+    import json
+    from nucleosuite import __version__
+    path = Path(plot_path_value)
+    metadata = plot_metadata_path(path)
+    metadata.parent.mkdir(parents=True, exist_ok=True)
+    rows = [
+        ("nucleosuite_version", __version__),
+        ("plot_output", str(path)),
+        ("command", _CURRENT_PLOT_METADATA.get("command", "")),
+        ("invocation", _CURRENT_PLOT_METADATA.get("invocation", "")),
+    ]
+    params = _CURRENT_PLOT_METADATA.get("parameters", {})
+    if isinstance(params, dict):
+        for key, value in sorted(params.items()):
+            if isinstance(value, (dict, list, tuple)):
+                value = json.dumps(value, sort_keys=True, separators=(",", ":"))
+            rows.append((f"parameter.{key}", value))
+    for key, value in sorted((extra or {}).items()):
+        if isinstance(value, (dict, list, tuple)):
+            value = json.dumps(value, sort_keys=True, separators=(",", ":"))
+        rows.append((str(key), value))
+    with metadata.open("w", encoding="utf-8", newline="") as handle:
+        handle.write("field\tvalue\n")
+        for key, value in rows:
+            text = "" if value is None else str(value).replace("\t", " ").replace("\n", " ")
+            handle.write(f"{key}\t{text}\n")
+    return metadata
+
+
 def save_figure(
     figure,
     output_path: str | Path,
@@ -927,6 +978,7 @@ def save_figure(
     # DPI can still matter for rasterized artists embedded inside an SVG.
     kwargs["dpi"] = int(options.dpi if options.dpi is not None else default_dpi)
     figure.savefig(output, **kwargs)
+    write_plot_metadata(output)
     return output
 
 

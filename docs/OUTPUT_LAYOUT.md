@@ -95,3 +95,8 @@ Each top-level command writes a timestamped log containing the command, version,
 Per-contig track directories contain completion checkpoints. Track writers use `.partial` files until an output is complete. Restarted commands report whether each checkpointed stage was completed, reused, or rerun.
 
 [Back to the documentation index](README.md)
+
+## Automatic filename parameter limit
+
+Automatic output stems include at most three central analysis-parameter tokens. This prevents long input names and parameter-rich analyses from exceeding filesystem filename limits. Plot outputs additionally receive a `*_metadata.tsv` sidecar containing the complete command invocation and parameter set.
+

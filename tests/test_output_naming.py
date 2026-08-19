@@ -25,3 +25,11 @@ def test_parameter_tokens_are_safe_and_idempotent() -> None:
         (("match", "many-to-one"), ("maxdist", None), ("lower", -80)),
     ) == prefix
     assert compact_parameter(1.5) == "1p5"
+
+
+def test_parameterized_prefix_caps_tokens_at_three() -> None:
+    prefix = parameterized_prefix(
+        "sample",
+        (("a", 1), ("b", 2), ("c", 3), ("d", 4), ("e", 5)),
+    )
+    assert prefix == Path("sample_a1_b2_c3")

@@ -43,11 +43,19 @@ def parameterized_prefix(
     parameters: Iterable[tuple[str, object]],
     *,
     marker: str | None = None,
+    max_parameters: int = 3,
 ) -> Path:
-    """Append ordered analysis parameter tokens to *base* exactly once."""
+    """Append at most ``max_parameters`` ordered analysis tokens to *base*.
 
+    Full parameter provenance belongs in plot metadata sidecars. Keeping the
+    automatic filename suffix short prevents long input names plus analysis
+    settings from exceeding filesystem component limits.
+    """
+
+    if max_parameters < 0:
+        raise ValueError("max_parameters must be zero or greater")
     path = Path(base)
-    tokens = [f"{key}{compact_parameter(value)}" for key, value in parameters]
+    tokens = [f"{key}{compact_parameter(value)}" for key, value in parameters][:max_parameters]
     if not tokens:
         return path
     sentinel = marker or tokens[0]

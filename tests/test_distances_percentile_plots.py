@@ -51,8 +51,7 @@ def test_pct_range_writes_separate_count_percentage_and_peak_count_figures(tmp_p
         ]
     ) == 0
     prefix = Path(
-        f"{prefix}_distmin1_distmax500_orders1_nrlmodesmoothed_countsg0x2_pctsg0x2_"
-        "groupsrange-0-75-25_tiessplit"
+        f"{prefix}_distmin1_distmax500_orders1"
     )
 
     stems = [
@@ -93,8 +92,7 @@ def test_explicit_percentile_values_activate_sweep_and_override_range(tmp_path):
         ]
     ) == 0
     prefix = Path(
-        f"{prefix}_distmin1_distmax500_orders1_nrlmodesmoothed_countsg21x2_pctsg21x2_"
-        "groupsvalues-10-20-50-90-99_tiessplit"
+        f"{prefix}_distmin1_distmax500_orders1"
     )
 
     table = Path(f"{prefix}_percentile_sweep_peak_counts.tsv")
@@ -130,8 +128,7 @@ def test_explicit_percentile_bins_write_non_cumulative_ranges(tmp_path):
         ]
     ) == 0
     prefix = Path(
-        f"{prefix}_distmin1_distmax500_orders1_nrlmodesmoothed_countsg21x2_pctsg21x2_"
-        "groupsbins-10-20-30_tiessplit"
+        f"{prefix}_distmin1_distmax500_orders1"
     )
 
     table = Path(f"{prefix}_percentile_sweep_peak_counts.tsv")
@@ -256,8 +253,7 @@ def test_equal_rank_distance_cli_uses_requested_group_size(tmp_path):
         ]
     ) == 0
     prefix = Path(
-        f"{prefix}_distmin1_distmax5000_orders1_nrlmodesmoothed_countsg21x2_pctsg21x2_"
-        "groupsbinsize-5_tiessplit"
+        f"{prefix}_distmin1_distmax5000_orders1"
     )
 
     rows = list(

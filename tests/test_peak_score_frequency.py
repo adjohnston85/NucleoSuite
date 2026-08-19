@@ -25,7 +25,7 @@ def test_peak_score_frequency_overlays_observed_and_randomized(tmp_path: Path):
         "--output-prefix", str(prefix),
         "--bins", "4",
     ]) == 0
-    prefix = Path(f"{prefix}_bins4_scoreminnone_scoremaxnone_normcount")
+    prefix = Path(f"{prefix}_bins4_scoreminnone_scoremaxnone")
 
     with open(f"{prefix}_score_frequency.tsv", "rt", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle, delimiter="\t"))
@@ -47,7 +47,7 @@ def test_peak_score_frequency_defaults_to_integer_score_bins(tmp_path: Path):
         "--peaks", f"observed={observed}",
         "--output-prefix", str(prefix),
     ]) == 0
-    prefix = Path(f"{prefix}_binsinteger_scoreminnone_scoremaxnone_normcount")
+    prefix = Path(f"{prefix}_binsinteger_scoreminnone_scoremaxnone")
 
     with open(f"{prefix}_score_frequency.tsv", "rt", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle, delimiter="\t"))
