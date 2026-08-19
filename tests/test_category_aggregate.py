@@ -44,7 +44,7 @@ def test_aggregate_help_exposes_category_mode():
     assert "--category-profile-output" in help_text
     assert "--category-plot-output" in help_text
     assert "--category-nrl-summary-output" in help_text
-    assert "State labels are not used to group" in help_text
+    assert "--state-bed" in help_text
 
 
 def test_category_aggregate_end_to_end(tmp_path: Path):
