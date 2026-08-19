@@ -155,6 +155,10 @@ def test_distances_main_automatically_writes_regression_for_multiple_orders(tmp_
         ]
     ) == 0
 
+    prefix = Path(
+        f"{prefix}_distmin1_distmax1000_orders3_nrlmodesmoothed_countsg0x2_pctsg0x2_"
+        "groupsthreshold_tiessplit"
+    )
     stem = Path(f"{prefix}_scorepct0")
     summary = Path(f"{stem}_nrl_regression_summary.tsv")
     assert summary.is_file()
@@ -183,6 +187,10 @@ def test_single_order_does_not_write_nrl_regression_outputs(tmp_path):
             "--output-prefix", str(prefix),
         ]
     ) == 0
+    prefix = Path(
+        f"{prefix}_distmin1_distmax10000_orders1_nrlmodesmoothed_countsg21x2_pctsg21x2_"
+        "groupsthreshold_tiessplit"
+    )
     assert not Path(f"{prefix}_scorepct0_nrl_regression_summary.tsv").exists()
 
 

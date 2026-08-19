@@ -155,6 +155,7 @@ def test_nrl_command_writes_tables_and_plots_for_dac(tmp_path):
         ]
     )
     assert status == 0
+    prefix = Path(f"{prefix}_peakres0_min1_max300")
     for suffix in (
         "_profile.tsv",
         "_peaks.tsv",
@@ -193,4 +194,5 @@ def test_nrl_command_auto_detects_dcc_value(tmp_path):
         ]
     )
     assert status == 0
+    prefix = Path(f"{prefix}_peakres0_min1_max300")
     assert Path(f"{prefix}_regression.tsv").is_file()

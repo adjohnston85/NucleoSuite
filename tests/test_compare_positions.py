@@ -482,6 +482,7 @@ def test_streaming_percentiles_resume_and_optional_pair_tables(
         ]
     )
     outputs = comparison.run_comparison(args)
+    prefix = Path(f"{prefix}_matchone-to-one_maxdistnone_scorenormzscore")
     assert "pairs" not in outputs
     assert not Path(f"{prefix}_pairs.tsv").exists()
     assert "a_percentiles_vs_all_b_distances" not in outputs

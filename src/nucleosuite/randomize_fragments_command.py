@@ -447,13 +447,25 @@ def _run_serial(args: argparse.Namespace, parser: argparse.ArgumentParser | None
                 )
             handle.write("original_position_allowed\tfalse\n")
             handle.write("candidate_sequence_requires_acgt\ttrue\n")
-        relocation_path = Path(f"{args.output_prefix}.relocation_distances.tsv")
+        from nucleosuite.output_naming import parameterized_prefix
+
+        relocation_prefix = parameterized_prefix(
+            args.output_prefix,
+            (
+                ("method", args.method),
+                ("fragmin", args.frag_lower),
+                ("fragmax", args.frag_upper),
+                ("seed", args.seed),
+                ("fallback", args.fallback),
+            ),
+        )
+        relocation_path = Path(f"{relocation_prefix}.relocation_distances.tsv")
         with relocation_path.open("wt", encoding="utf-8") as handle:
             handle.write("relocation_bp\tcount\n")
             for distance in sorted(relocation):
                 handle.write(f"{distance}\t{relocation[distance]}\n")
         from nucleosuite.plotting import plot_path
-        relocation_plot = plot_path(Path(f"{args.output_prefix}.relocation_distances.png"))
+        relocation_plot = plot_path(Path(f"{relocation_prefix}.relocation_distances.png"))
         saved_relocation_plot = plot_count_profile(
             str(relocation_path), str(relocation_plot),
             x_column="relocation_bp", y_column="count",

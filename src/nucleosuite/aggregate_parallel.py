@@ -19,8 +19,10 @@ from nucleosuite.align import (
     add_heatmap_row,
     central_crop,
     make_output_prefix,
+    no_valid_regions_message,
     plot_outputs,
     resolve_output_paths,
+    resolve_nrl_exclusion,
     sort_matrix,
     write_heatmap_matrix,
     write_heatmap_row_metadata,
@@ -267,7 +269,7 @@ def _combine(
             break
 
     if running_sum is None or valid_total == 0 or not selected_rows:
-        raise RuntimeError("No valid aggregate rows were available for combination")
+        raise RuntimeError(no_valid_regions_message(stats, config))
     stats.valid_total = valid_total
     stats.selected_for_plot = len(selected_rows)
     stats.stopped_after_valid_limit = int(stop)
@@ -283,14 +285,15 @@ def _combine(
     if config.nrl:
         from nucleosuite.align import analyse_aggregate_nrl, write_aggregate_nrl_outputs
 
+        exclusion_start, exclusion_end = resolve_nrl_exclusion(config)
         nrl_result = analyse_aggregate_nrl(
             full_mean,
             positions=reference_x,
             peak_resolution=config.nrl_peak_resolution,
             regression_min=config.nrl_regression_min,
             regression_max=config.nrl_regression_max,
-            exclusion_start=config.nrl_regression_exclusion_start,
-            exclusion_end=config.nrl_regression_exclusion_end,
+            exclusion_start=exclusion_start,
+            exclusion_end=exclusion_end,
         )
         write_aggregate_nrl_outputs(nrl_result, config, outputs)
     matrix = np.vstack(selected_rows)
@@ -345,7 +348,7 @@ def run_aggregate_per_contig(args: argparse.Namespace, serial_runner) -> int:
         return int(serial_runner(args) or 0)
 
     config_values = {key: value for key, value in vars(args).items() if key in AlignmentConfig.__dataclass_fields__}
-    base_name = str(args.output_prefix or make_output_prefix(AlignmentConfig(**config_values)))
+    base_name = make_output_prefix(AlignmentConfig(**config_values))
     root = (
         Path(args.parallel_dir)
         if getattr(args, "parallel_dir", None)

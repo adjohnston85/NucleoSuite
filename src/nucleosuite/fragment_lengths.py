@@ -684,6 +684,16 @@ def _fragment_size_output_prefixes(
     labelled = len(results) > 1 or (results and results[0].label != "all")
     prefixed: list[tuple[FragmentSizeNRLResult, Path]] = []
     for result in results:
+        from nucleosuite.output_naming import parameterized_prefix
+
+        analysis_base = parameterized_prefix(
+            base,
+            (
+                ("peakres", result.peak_resolution),
+                ("min", result.minimum),
+                ("max", result.maximum),
+            ),
+        )
         suffix = ""
         if labelled:
             safe = sanitize_filename(result.label)
@@ -695,7 +705,7 @@ def _fragment_size_output_prefixes(
             used.add(candidate)
             suffix = f"_{candidate}"
         prefixed.append(
-            (result, Path(f"{base}{suffix}_fragment_size_nrl"))
+            (result, Path(f"{analysis_base}{suffix}_fragment_size_nrl"))
         )
     return prefixed
 
@@ -713,7 +723,20 @@ def write_fragment_size_nrl_outputs(
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     outputs: list[Path] = []
-    summary_path = Path(f"{output_path.with_suffix('')}_fragment_size_nrl_summary.tsv")
+    first_result = results[0] if results else None
+    if first_result is None:
+        return []
+    from nucleosuite.output_naming import parameterized_prefix
+
+    summary_base = parameterized_prefix(
+        output_path.with_suffix(""),
+        (
+            ("peakres", first_result.peak_resolution),
+            ("min", first_result.minimum),
+            ("max", first_result.maximum),
+        ),
+    )
+    summary_path = Path(f"{summary_base}_fragment_size_nrl_summary.tsv")
     with summary_path.open("w", encoding="utf-8", newline="") as summary_handle:
         summary_writer = csv.writer(summary_handle, delimiter="\t")
         summary_writer.writerow(

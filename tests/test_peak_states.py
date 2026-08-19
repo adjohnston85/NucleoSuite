@@ -53,6 +53,7 @@ def test_peak_states_reports_coverage_density_enrichment_and_unassigned(tmp_path
             "--output-prefix", str(prefix),
         ]
     ) == 0
+    prefix = Path(f"{prefix}_groupsvalues-0-50-90_tiessplit_overlapfirst")
 
     coverage = list(
         csv.DictReader(
@@ -136,6 +137,7 @@ def test_peak_state_bin_outputs_report_ranges(tmp_path):
             "--output-prefix", str(prefix),
         ]
     ) == 0
+    prefix = Path(f"{prefix}_groupsbins-10-20-30_tieskeep_overlapfirst")
 
     rows = list(
         csv.DictReader(
@@ -218,6 +220,7 @@ def test_peak_state_equal_rank_cli_reports_rank_bins(tmp_path):
             "--output-prefix", str(prefix),
         ]
     ) == 0
+    prefix = Path(f"{prefix}_groupsbinsize-50_tiessplit_overlapfirst")
 
     rows = list(
         csv.DictReader(
@@ -449,6 +452,7 @@ def test_peak_states_are_written_in_numerical_label_order(tmp_path):
     assert peak_states.main(
         [str(peaks), "--state-bed", str(states), "--output-prefix", str(prefix)]
     ) == 0
+    prefix = Path(f"{prefix}_groupsthreshold-0_tiessplit_overlapfirst")
     rows = list(
         csv.DictReader(Path(f"{prefix}_state_coverage.tsv").open(), delimiter="\t")
     )

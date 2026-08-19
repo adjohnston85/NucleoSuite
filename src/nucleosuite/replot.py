@@ -389,6 +389,7 @@ def _finish(
     legend: bool = False,
     artist_kw: Mapping[str, Mapping[str, Any]] | None = None,
     default_size: tuple[float, float] = (10.0, 5.5),
+    preserve_canvas: bool = False,
 ) -> Path:
     if args.title is not None:
         ax.set_title(args.title)
@@ -420,9 +421,18 @@ def _finish(
     width = default_size[0] if args.width is None else args.width
     height = default_size[1] if args.height is None else args.height
     fig.set_size_inches(width, height, forward=True)
+    if preserve_canvas and ax.get_title():
+        import textwrap
+
+        ax.set_title(textwrap.fill(ax.get_title(), width=70))
     fig.tight_layout()
     output.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output, dpi=args.dpi, bbox_inches="tight", transparent=args.transparent)
+    fig.savefig(
+        output,
+        dpi=args.dpi,
+        bbox_inches=None if preserve_canvas else "tight",
+        transparent=args.transparent,
+    )
     return output
 
 
@@ -715,6 +725,7 @@ def _plot_nrl_regression(path, headers, rows, args, output, artist_kw):
         legend=True,
         artist_kw=artist_kw,
         default_size=(6.5, 6.5),
+        preserve_canvas=True,
     ), fig
 
 
@@ -862,6 +873,7 @@ def _plot_fragment_size_nrl_regression(path, headers, rows, args, output, artist
         legend=True,
         artist_kw=artist_kw,
         default_size=(6.5, 6.5),
+        preserve_canvas=True,
     ), fig
 
 
@@ -1046,6 +1058,7 @@ def _plot_aggregate_nrl_regression(path, headers, rows, args, output, artist_kw)
         legend=bool(order.size),
         artist_kw=artist_kw,
         default_size=(6.5, 6.5),
+        preserve_canvas=True,
     ), fig
 
 

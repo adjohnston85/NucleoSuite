@@ -58,7 +58,7 @@ nucleosuite filter-coverage \
 Use `--position-column 7` to measure from representative positions stored in BED column 7:
 
 ```bash
-nucleosuite distances sample_pns_mode167_lower137_upper197_nucleosome_regions.bed \
+nucleosuite distances sample_methodpns_mode167_lower137_upper197_smooth0x2_nucleosome_regions.bed \
   --position-column 7 \
   --min-distance 120 \
   --max-distance 250 \
@@ -73,7 +73,7 @@ The main histogram shows how often each peak-to-peak spacing occurs.
 Pass the installed path of the bundled GM12878 state BED directly:
 
 ```bash
-nucleosuite distances sample_pns_mode167_lower137_upper197_nucleosome_regions.bed \
+nucleosuite distances sample_methodpns_mode167_lower137_upper197_smooth0x2_nucleosome_regions.bed \
   --position-column 7 \
   --state-bed "$(nucleosuite resources path gm12878-hg19-states)" \
   --min-distance 120 \
@@ -86,7 +86,7 @@ nucleosuite distances sample_pns_mode167_lower137_upper197_nucleosome_regions.be
 
 ```bash
 nucleosuite aggregate \
-  --bigwig sample_pns_mode167_lower137_upper197_pns.bw \
+  --bigwig sample_methodpns_mode167_lower137_upper197_smooth0x2_pns.bw \
   --region-bed "$(nucleosuite resources path gm12878-hg19-ctcf)" \
   --strand-col 6 \
   --out-prefix sample_ctcf

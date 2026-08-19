@@ -45,6 +45,12 @@ nucleosuite nrl sample_dac.tsv \
 
 The default is already 160 bp, so the option can be omitted when that resolution is appropriate.
 
+The written stem always records the analysis-defining settings. For example,
+`--output-prefix Gaffney32_145_147_NRL --peak-resolution 1 --min-distance 2
+--max-distance 140` writes files beginning
+`Gaffney32_145_147_NRL_peakres1_min2_max140_`. This prevents a second fit with
+different bounds or resolution from overwriting the first.
+
 To use a different long-range resolution, change one value:
 
 ```bash

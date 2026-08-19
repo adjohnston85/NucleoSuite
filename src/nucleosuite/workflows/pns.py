@@ -70,10 +70,9 @@ def run(args) -> int:
     set_random_seed(args.seed)
     if args.out_prefix is None:
         args.out_prefix = default_output_prefix(input_paths_from_args(args), args.contigs)
-    method_token = "" if args.scoring_method == "pns" else f"_{args.scoring_method}"
     args.out_prefix = (
-        f"{args.out_prefix}{method_token}_mode{args.mode_length}_lower{args.frag_lower}"
-        f"_upper{args.frag_upper}"
+        f"{args.out_prefix}_method{args.scoring_method}_mode{args.mode_length}_lower{args.frag_lower}"
+        f"_upper{args.frag_upper}_smooth{args.smooth_window}x{args.smooth_order}"
     )
     ensure_output_parent(args.out_prefix)
 

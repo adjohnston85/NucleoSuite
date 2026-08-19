@@ -206,7 +206,7 @@ mamba env update -n nucleosuite -f environment.yml --prune
 ### Wheel installation
 
 ```bash
-python -m pip install nucleosuite-0.8.5-py3-none-any.whl
+python -m pip install nucleosuite-0.8.6-py3-none-any.whl
 ```
 
 Complete installation instructions are available in [Installation](docs/INSTALLATION.md).

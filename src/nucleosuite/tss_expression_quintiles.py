@@ -447,8 +447,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             blacklist_bed=args.blacklist_bed,
         )
         reporter.stage("Writing quintile profiles, summary, metadata, and plot")
+        from nucleosuite.output_naming import parameterized_prefix
+
         outputs = write_outputs(
-            output_prefix=Path(args.output_prefix),
+            output_prefix=parameterized_prefix(
+                args.output_prefix,
+                (
+                    ("window", args.window),
+                    ("missing", "preserve" if args.preserve_missing else "zero"),
+                ),
+            ),
             sample=args.sample,
             tissue=tissue,
             signal_label=args.signal_label,

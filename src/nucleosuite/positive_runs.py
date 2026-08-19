@@ -585,12 +585,36 @@ def run(args: argparse.Namespace) -> int:
     if args.plot_x_max < 0:
         parser.error("--plot-x-max must be at least 0")
 
+    from nucleosuite.output_naming import parameterized_prefix
+
+    requested_prefix = args.output_prefix or Path(args.bigwig).name.removesuffix(".bw").removesuffix(".bigWig")
+    args.output_prefix = str(
+        parameterized_prefix(
+            requested_prefix,
+            (
+                ("threshold", args.threshold),
+                ("runmin", args.min_run_length),
+                ("runmax", args.max_run_length or "none"),
+                ("norm", args.normalization),
+            ),
+        )
+    )
+
     from nucleosuite.parallel import run_bigwig_per_contig
 
     def serial(namespace: argparse.Namespace) -> int:
         reporter = ProgressReporter("positive-runs")
         reporter.stage(f"Opening signal track: {namespace.bigwig}")
         output_prefix = namespace.output_prefix or Path(namespace.bigwig).name.removesuffix(".bw").removesuffix(".bigWig")
+        output_prefix = parameterized_prefix(
+            output_prefix,
+            (
+                ("threshold", namespace.threshold),
+                ("runmin", namespace.min_run_length),
+                ("runmax", namespace.max_run_length or "none"),
+                ("norm", namespace.normalization),
+            ),
+        )
         outputs = run_analysis(
             namespace.bigwig,
             output_prefix,

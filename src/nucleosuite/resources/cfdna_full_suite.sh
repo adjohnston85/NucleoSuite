@@ -1206,7 +1206,7 @@ fi
 fi
 
 PNS_BASE="$PNS_DIR/${SAMPLE}_PNS"
-PNS_PREFIX="${PNS_BASE}_mode${PNS_MODE_LENGTH}_lower${PNS_FRAG_LOWER}_upper${PNS_FRAG_UPPER}"
+PNS_PREFIX="${PNS_BASE}_methodpns_mode${PNS_MODE_LENGTH}_lower${PNS_FRAG_LOWER}_upper${PNS_FRAG_UPPER}_smooth${PNS_SMOOTH_WINDOW}x${PNS_SMOOTH_ORDER}"
 PNS_BW="${PNS_PREFIX}_pns.bw"
 PNS_TRACK_LIST="pns,posPNS,coverage,dyad,fragment_ends,fragment_left_ends,fragment_right_ends,pns_peaks"
 if [[ "$PNS_SMOOTH_WINDOW" -gt 0 ]]; then
@@ -1218,7 +1218,7 @@ PNS_COVERAGE_BW="${PNS_PREFIX}_coverage.bw"
 WPS_BW=""; WPS_PREFIX=""
 if [[ "$SKIP_WPS" -eq 0 ]]; then
   WPS_BASE="$WPS_DIR/${SAMPLE}_WPS"
-  WPS_PREFIX="${WPS_BASE}_prot${WPS_PROTECTION}_lower${WPS_FRAG_LOWER}_upper${WPS_FRAG_UPPER}"
+  WPS_PREFIX="${WPS_BASE}_prot${WPS_PROTECTION}_lower${WPS_FRAG_LOWER}_upper${WPS_FRAG_UPPER}_baseline${WPS_BASELINE_WINDOW}_sg${WPS_SG_WINDOW}x${WPS_SG_ORDER}_callerwps"
   WPS_BW="${WPS_PREFIX}_sm_mWPS.bw"
 fi
 
@@ -1402,12 +1402,13 @@ wait_queued_steps
 # 04_nrl: estimate NRL and periodicities from both DAC and DCC curves.
 run_nrl_analysis() {
   local input_tsv="$1" output_dir="$2" analysis_label="$3" min_distance="$4" max_distance="$5" peak_resolution="$6"
-  local input_stem safe_stem output_prefix step_name
+  local input_stem safe_stem output_prefix parameter_prefix step_name
   mkdir -p "$output_dir"
   input_stem="$(basename "$input_tsv" .tsv)"; safe_stem="${input_stem//[^A-Za-z0-9._-]/_}"
   output_prefix="$output_dir/${input_stem}_${analysis_label}"
+  parameter_prefix="${output_prefix}_peakres${peak_resolution}_min${min_distance}_max${max_distance}"
   step_name="04_nrl_${safe_stem}_${analysis_label}"
-  queue_step "$step_name" "${output_prefix}_regression.tsv" "$NUCLEOSUITE_BIN" nrl "$input_tsv" \
+  queue_step "$step_name" "${parameter_prefix}_regression.tsv" "$NUCLEOSUITE_BIN" nrl "$input_tsv" \
     --min-distance "$min_distance" --max-distance "$max_distance" --peak-resolution "$peak_resolution" \
     --output-prefix "$output_prefix" --title "$input_stem"
 }
@@ -1439,10 +1440,10 @@ aggregate_track() {
   [[ "$label" == dyad_* || "$label" == type* ]] && sparse_args+=(--max-score 1000000000000)
   mkdir -p "$output_dir"
   local prefix="${SAMPLE}_CTCF_${label}"
-  queue_step "$step" "$output_dir/${prefix}_heatmap.${PLOT_EXT}" "$NUCLEOSUITE_BIN" aggregate \
+  queue_step "$step" "$output_dir/${prefix}_win*_heatmap.${PLOT_EXT}" "$NUCLEOSUITE_BIN" aggregate \
     "${BLACKLIST_ARGS[@]}" --bigwig "$track" --region-bed "$CTCF_FILTERED" --output-dir "$output_dir" --output-prefix "$prefix" \
     --window-half "$AGGREGATE_WINDOW_HALF" --strand-col 6 --missing-strand error "${sparse_args[@]}" \
-    --axis-label "CTCF centre" --mean-ylabel "$ylabel" --colorbar-label "$ylabel"
+    --mean-ylabel "$ylabel" --colorbar-label "$ylabel"
 }
 aggregate_track "05_ctcf_pns" pns "$PNS_BW" "$AGG_DIR/pns" "Mean PNS"
 if [[ -n "$WPS_BW" ]]; then aggregate_track "05_ctcf_wps" wps "$WPS_BW" "$AGG_DIR/wps" "Mean WPS"; fi
@@ -1480,8 +1481,8 @@ tss_aggregate_track() {
     profile="$set_dir/${prefix}_aggregate_all.tsv"; mean_png="$set_dir/${prefix}_mean.${PLOT_EXT}"
     queue_step "06_tss_${label}_${set_name}" "$profile" "$NUCLEOSUITE_BIN" aggregate \
       "${BLACKLIST_ARGS[@]}" --bigwig "$track" --region-bed "$tss_interval" --output-dir "$set_dir" --output-prefix "$prefix" \
-      --mean-plot-output "$mean_png" --window-half "$AGGREGATE_WINDOW_HALF" --strand-col 6 \
-      --missing-strand error "${sparse_args[@]}" --axis-label TSS --mean-ylabel "$ylabel" --colorbar-label "$ylabel"
+      --aggregate-output "$profile" --mean-plot-output "$mean_png" --window-half "$AGGREGATE_WINDOW_HALF" --strand-col 6 \
+      --missing-strand error "${sparse_args[@]}" --mean-ylabel "$ylabel" --colorbar-label "$ylabel"
     profile_specs+=("${set_name}=${profile}")
   done < <("$PYTHON_BIN" - "$summary" <<'PYTSS'
 import csv,sys
@@ -1536,7 +1537,7 @@ if [[ "$SKIP_TSS_EXPRESSION_QUINTILES" -eq 0 ]]; then
     local label="$1" signal="$2" output_dir="$3"
     mkdir -p "$output_dir"
     local prefix="$output_dir/${SAMPLE}_${label}_TSS_${TSS_TISSUE_KEY}_expression_quintiles"
-    queue_step "06_tss_expression_quintiles_${label,,}" "${prefix}_tss_expression_quintiles_metadata.tsv" \
+    queue_step "06_tss_expression_quintiles_${label,,}" "${prefix}_window*_tss_expression_quintiles_metadata.tsv" \
       "$NUCLEOSUITE_BIN" tss-expression-quintiles --signal "$signal" --sample "$SAMPLE" \
       "${BLACKLIST_ARGS[@]}" --signal-label "$label" --expression "$TSS_EXPRESSION_RESOURCE" --tissue "$TSS_EXPRESSION_TISSUE" \
       --genes-bed "$GENES_BED" --window "$TSS_EXPRESSION_WINDOW" --output-prefix "$prefix"
@@ -1626,7 +1627,7 @@ if [[ "$SKIP_FRAGMENT_HEATMAP" -eq 0 ]]; then
     heatmap_dir="$HEATMAP_DIR/combined"; mkdir -p "$heatmap_dir"
     args=(--input "Combined_chromosomes=$WHOLE_FRAG_TSV")
     [[ -z "$STATE_FRAG_TSV" ]] || args+=(--input "$STATE_FRAG_TSV")
-    run_step "10_fragment_heatmap" "$heatmap_dir/${SAMPLE}_fragment_lengths_heatmap.${PLOT_EXT}" \
+    run_step "10_fragment_heatmap" "$heatmap_dir/${SAMPLE}_fragment_lengths_fragmin*_heatmap.${PLOT_EXT}" \
       "$NUCLEOSUITE_BIN" fragment-heatmap "${args[@]}" --out-prefix "$heatmap_dir/${SAMPLE}_fragment_lengths" \
       --min-frag "$HEATMAP_MIN_FRAG" --max-frag "$HEATMAP_MAX_FRAG" --normalization "$HEATMAP_NORMALIZATION" \
       --title "${SAMPLE}: cfDNA fragment-length profiles"
@@ -1639,7 +1640,7 @@ if [[ -n "$EXPRESSION" && "$SKIP_GENE_EXPRESSION" -eq 0 ]]; then
   run_gene_expression() {
     local label="$1" signal_type="$2" peaks="$3" signal="$4"; local output_dir="$GENE_EXPRESSION_DIR/${label,,}"
     mkdir -p "$output_dir"; local prefix="$output_dir/${SAMPLE}_${label}_gene_expression"
-    queue_memory_step "11_gene_expression_${label,,}" "${prefix}_metadata.tsv" "$NUCLEOSUITE_BIN" gene-expression \
+    queue_memory_step "11_gene_expression_${label,,}" "${prefix}_analysis*_metadata.tsv" "$NUCLEOSUITE_BIN" gene-expression \
       "${BLACKLIST_ARGS[@]}" --expression "$EXPRESSION" --genes-bed "$GENES_BED" --peaks "${SAMPLE}=${peaks}" --signal "${SAMPLE}=${signal}" \
       --signal-type "$signal_type" --analysis all --output-prefix "$prefix" --expression-gene-column "$EXPRESSION_GENE_COLUMN" \
       --expression-name-column "$EXPRESSION_NAME_COLUMN" --expression-profile-column "$EXPRESSION_PROFILE_COLUMN" \
@@ -1656,7 +1657,7 @@ wait_queued_steps
 if [[ "$COMBINE_PREREQUISITES_ONLY" -eq 0 && "$SKIP_POSITIVE_RUNS" -eq 0 ]]; then
   pns_positive_dir="$POSITIVE_RUNS_DIR/pns"; mkdir -p "$pns_positive_dir"
   PNS_POSITIVE_PREFIX="$pns_positive_dir/${SAMPLE}_PNS_positive_runs"
-  queue_step "12_positive_runs_pns" "${PNS_POSITIVE_PREFIX}_summary.tsv" "$NUCLEOSUITE_BIN" positive-runs \
+  queue_step "12_positive_runs_pns" "${PNS_POSITIVE_PREFIX}_threshold*_summary.tsv" "$NUCLEOSUITE_BIN" positive-runs \
     "${BLACKLIST_ARGS[@]}" --bigwig "$PNS_BW" --output-prefix "$PNS_POSITIVE_PREFIX" --contigs "${CONTIGS[@]}" \
     --threshold "$POSITIVE_RUNS_THRESHOLD" --chunk-size "$POSITIVE_RUNS_CHUNK_SIZE" \
     --min-run-length "$POSITIVE_RUNS_MIN_LENGTH" --max-run-length "$POSITIVE_RUNS_MAX_LENGTH" \
@@ -1665,7 +1666,7 @@ if [[ "$COMBINE_PREREQUISITES_ONLY" -eq 0 && "$SKIP_POSITIVE_RUNS" -eq 0 ]]; the
   if [[ "$SKIP_WPS" -eq 0 ]]; then
     wps_positive_dir="$POSITIVE_RUNS_DIR/wps"; mkdir -p "$wps_positive_dir"
     WPS_POSITIVE_PREFIX="$wps_positive_dir/${SAMPLE}_sm_mWPS_positive_runs"
-    queue_step "12_positive_runs_wps" "${WPS_POSITIVE_PREFIX}_summary.tsv" "$NUCLEOSUITE_BIN" positive-runs \
+    queue_step "12_positive_runs_wps" "${WPS_POSITIVE_PREFIX}_threshold*_summary.tsv" "$NUCLEOSUITE_BIN" positive-runs \
       "${BLACKLIST_ARGS[@]}" --bigwig "$WPS_BW" --output-prefix "$WPS_POSITIVE_PREFIX" --contigs "${CONTIGS[@]}" \
       --threshold "$POSITIVE_RUNS_THRESHOLD" --chunk-size "$POSITIVE_RUNS_CHUNK_SIZE" \
       --min-run-length "$POSITIVE_RUNS_MIN_LENGTH" --max-run-length "$POSITIVE_RUNS_MAX_LENGTH" \
@@ -1681,7 +1682,7 @@ run_peak_score_frequency() {
   local output_dir="$output_root/$label"; mkdir -p "$output_dir"
   local prefix output
     prefix="$output_dir/${SAMPLE}_${label}"
-    output="${prefix}_score_frequency.tsv"
+    output="${prefix}_bins*_score_frequency.tsv"
   local -a peak_args=(--peaks "${RUN_MODE}=$peaks")
   queue_memory_step "$step" "$output" "$NUCLEOSUITE_BIN" peak-score-frequency "${peak_args[@]}" \
     "${BLACKLIST_ARGS[@]}" --output-prefix "$prefix" --score-column 5 --integer-bins \
@@ -1711,9 +1712,10 @@ blacklist_args=(); [[ -z "$blacklist" ]] || blacklist_args=(--blacklist-bed "$bl
   --score-column-a 5 --score-column-b 5 --label-a PNS --label-b WPS --matching many-to-one \
   --percentile-interval "$interval" --score-z-limit "$score_z" --histogram-x-max "$hist_x" \
   --percentile-boxplot-y-max "$box_y" "${blacklist_args[@]}" --output-prefix "$prefix"
-outputs=("${prefix}_A_percentiles_vs_all_B_distances.tsv" "${prefix}_A_percentiles_vs_all_B_summary.tsv" \
-         "${prefix}_A_percentiles_vs_all_B_boxplot.${PLOT_EXT}" "${prefix}_B_percentiles_vs_all_A_distances.tsv" \
-         "${prefix}_B_percentiles_vs_all_A_summary.tsv" "${prefix}_B_percentiles_vs_all_A_boxplot.${PLOT_EXT}")
+analysis_prefix="${prefix}_matchmany-to-one_maxdistnone_scorenormzscore"
+outputs=("${analysis_prefix}_A_percentiles_vs_all_B_distances.tsv" "${analysis_prefix}_A_percentiles_vs_all_B_summary.tsv" \
+         "${analysis_prefix}_A_percentiles_vs_all_B_boxplot.${PLOT_EXT}" "${analysis_prefix}_B_percentiles_vs_all_A_distances.tsv" \
+         "${analysis_prefix}_B_percentiles_vs_all_A_summary.tsv" "${analysis_prefix}_B_percentiles_vs_all_A_boxplot.${PLOT_EXT}")
 for path in "${outputs[@]}"; do [[ -s "$path" ]] || exit 1; done
 printf "direction\tdistances_tsv\tsummary_tsv\tboxplot\n" > "$complete"
 printf "PNS_percentiles_vs_all_WPS\t%s\t%s\t%s\n" "${outputs[0]}" "${outputs[1]}" "${outputs[2]}" >> "$complete"

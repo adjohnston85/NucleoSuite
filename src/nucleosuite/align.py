@@ -64,15 +64,16 @@ class AlignmentConfig:
     vmin: float | None = None
     vmax: float | None = None
     sort_mode: SortMode = "mean_absolute"
-    axis_label: str = "+1 NPS peak"
+    axis_label: str = "Distance from reference-site centre"
     mean_ylim: float | None = None
-    colorbar_label: str = "Nucleosome Protection Score (NPS)"
-    mean_ylabel: str = "Mean NPS"
+    colorbar_label: str = "Score"
+    mean_ylabel: str = "Mean score"
     dpi: int = 300
     nrl: bool = True
     nrl_peak_resolution: float = 160.0
     nrl_regression_min: float = 0.0
     nrl_regression_max: float | None = None
+    nrl_exclusion: bool = True
     nrl_regression_exclusion_start: float | None = None
     nrl_regression_exclusion_end: float | None = None
 
@@ -137,6 +138,43 @@ class AlignmentStats:
         if name not in {item.name for item in fields(self)}:
             raise KeyError(f"Unknown statistic: {name}")
         setattr(self, name, getattr(self, name) + amount)
+
+
+def no_valid_regions_message(stats: AlignmentStats, config: AlignmentConfig) -> str:
+    """Describe why aggregate windows were rejected and suggest likely fixes."""
+
+    rejection_fields = (
+        ("missing chromosome field", stats.skipped_missing_chromosome),
+        ("missing chromosome", stats.skipped_chromosome_not_in_bigwig),
+        ("invalid or out-of-range coordinates", stats.skipped_invalid_coordinates),
+        ("missing BigWig data", stats.skipped_nan),
+        ("non-finite signal", stats.skipped_nonfinite),
+        ("consecutive zeros", stats.skipped_consecutive_zeros),
+        ("score above maximum", stats.skipped_above_max_score),
+        ("BigWig read error", stats.skipped_bigwig_error),
+        ("blacklisted anchor", stats.skipped_blacklisted_anchor),
+        ("missing requested nucleosome", stats.skipped_missing_requested_nucleosome),
+        ("no state overlap", stats.skipped_no_state_overlap),
+    )
+    observed = [f"{label}={count:,}" for label, count in rejection_fields if count]
+    lines = ["No valid regions remained after aggregate filtering."]
+    if observed:
+        lines.append("Rejection counts: " + "; ".join(observed) + ".")
+    else:
+        lines.append(f"Region lines examined: {stats.input_lines:,}.")
+    suggestions: list[str] = []
+    if stats.skipped_consecutive_zeros:
+        suggestions.append(
+            f"--zero-thresh 0 disables consecutive-zero rejection (current: {config.zero_thresh})"
+        )
+    if stats.skipped_above_max_score:
+        current = "inf" if config.max_score is None or math.isinf(config.max_score) else f"{config.max_score:g}"
+        suggestions.append(
+            f"--max-score inf disables upper-signal rejection (current: {current})"
+        )
+    if suggestions:
+        lines.append("Possible filter adjustments: " + "; ".join(suggestions) + ".")
+    return " ".join(lines)
 
 
 def validate_config(config: AlignmentConfig) -> None:
@@ -204,20 +242,115 @@ def validate_config(config: AlignmentConfig) -> None:
             )
 
 
+def infer_aggregate_track_options(path: str | Path) -> dict[str, object]:
+    """Infer filtering and labels from NucleoSuite BigWig filename suffixes."""
+
+    name = Path(path).name.lower()
+    suffixes: tuple[tuple[str, str, str], ...] = (
+        ("_sm_mwps", "Smoothed median-adjusted WPS", "Mean smoothed median-adjusted WPS"),
+        ("_mwps", "Median-adjusted WPS", "Mean median-adjusted WPS"),
+        ("_pospns", "Positive probabilistic nucleosome score (posPNS)", "Mean positive probabilistic nucleosome score (posPNS)"),
+        ("_pns_smoothed", "Probabilistic nucleosome score (PNS)", "Mean probabilistic nucleosome score (PNS)"),
+        ("_pns", "Probabilistic nucleosome score (PNS)", "Mean probabilistic nucleosome score (PNS)"),
+        ("_posbns", "Positive boxcar nucleosome score (posBNS)", "Mean positive boxcar nucleosome score (posBNS)"),
+        ("_bns_smoothed", "Boxcar nucleosome score (BNS)", "Mean boxcar nucleosome score (BNS)"),
+        ("_bns", "Boxcar nucleosome score (BNS)", "Mean boxcar nucleosome score (BNS)"),
+        ("_postns", "Positive triangular nucleosome score (posTNS)", "Mean positive triangular nucleosome score (posTNS)"),
+        ("_tns_smoothed", "Triangular nucleosome score (TNS)", "Mean triangular nucleosome score (TNS)"),
+        ("_tns", "Triangular nucleosome score (TNS)", "Mean triangular nucleosome score (TNS)"),
+        ("_wps", "Windowed protection score (WPS)", "Mean windowed protection score (WPS)"),
+        ("_fragment_left_ends", "Left fragment-end count", "Mean left fragment-end count"),
+        ("_fragment_right_ends", "Right fragment-end count", "Mean right fragment-end count"),
+        ("_fragment_ends", "Fragment-end count", "Mean fragment-end count"),
+        ("_fragment_coverage", "Fragment coverage", "Mean fragment coverage"),
+        ("_coverage", "Fragment coverage", "Mean fragment coverage"),
+        ("_dyad", "Dyad count", "Mean dyad count"),
+    )
+    stem = name
+    for extension in (".bigwig", ".bw"):
+        if stem.endswith(extension):
+            stem = stem[: -len(extension)]
+            break
+    inferred: dict[str, object] = {
+        "track_type": "generic",
+        "zero_thresh": 5,
+        "max_score": 300.0,
+        "colorbar_label": "Score",
+        "mean_ylabel": "Mean score",
+    }
+    for suffix, colorbar, mean_ylabel in suffixes:
+        if stem.endswith(suffix):
+            inferred.update(
+                track_type=suffix.removeprefix("_"),
+                colorbar_label=colorbar,
+                mean_ylabel=mean_ylabel,
+            )
+            if suffix == "_dyad":
+                inferred.update(zero_thresh=0, max_score=float("inf"))
+            break
+    return inferred
+
+
+def resolve_nrl_exclusion(config: AlignmentConfig) -> tuple[float | None, float | None]:
+    """Return the effective regression-only exclusion interval."""
+
+    start = config.nrl_regression_exclusion_start
+    end = config.nrl_regression_exclusion_end
+    if start is not None and end is not None:
+        return float(start), float(end)
+    if not config.nrl_exclusion:
+        return None, None
+    half_resolution = float(config.nrl_peak_resolution) / 2.0
+    return -half_resolution, half_resolution
+
+
 def make_output_prefix(config: AlignmentConfig) -> str:
     if config.output_prefix:
-        return config.output_prefix
-    parts = [strip_known_suffix(config.region_bed), strip_known_suffix(config.bigwig)]
-    if config.nucleosome_bed is not None:
-        label = (
-            f"plus{config.nucleosome_offset}"
-            if config.nucleosome_offset > 0
-            else f"minus{abs(config.nucleosome_offset)}"
+        base = config.output_prefix
+    else:
+        parts = [strip_known_suffix(config.region_bed), strip_known_suffix(config.bigwig)]
+        if config.nucleosome_bed is not None:
+            label = (
+                f"plus{config.nucleosome_offset}"
+                if config.nucleosome_offset > 0
+                else f"minus{abs(config.nucleosome_offset)}"
+            )
+            parts.extend([strip_known_suffix(config.nucleosome_bed), label])
+        if config.state_bed is not None:
+            parts.append(strip_known_suffix(config.state_bed))
+        base = "_".join(parts)
+    from nucleosuite.output_naming import parameter_range, parameterized_prefix
+
+    parameters: list[tuple[str, object]] = [
+        ("win", config.window_half),
+        ("zero", config.zero_thresh),
+        ("maxscore", config.max_score),
+        ("missing", "zero" if config.nan_to_zero else "reject"),
+        ("sort", config.sort_mode),
+    ]
+    if config.nrl:
+        exclusion_start, exclusion_end = resolve_nrl_exclusion(config)
+        regression_max = (
+            config.window_half
+            if config.nrl_regression_max is None
+            else config.nrl_regression_max
         )
-        parts.extend([strip_known_suffix(config.nucleosome_bed), label])
-    if config.state_bed is not None:
-        parts.append(strip_known_suffix(config.state_bed))
-    return "_".join(parts)
+        parameters.extend(
+            [
+                ("nrlres", config.nrl_peak_resolution),
+                ("nrlmin", config.nrl_regression_min),
+                ("nrlmax", regression_max),
+                (
+                    "excl",
+                    "none"
+                    if exclusion_start is None
+                    else parameter_range(exclusion_start, exclusion_end),
+                ),
+            ]
+        )
+    else:
+        parameters.append(("nrl", "off"))
+    return str(parameterized_prefix(base, parameters))
 
 
 def resolve_output_paths(config: AlignmentConfig) -> dict[str, Path]:
@@ -1384,7 +1517,8 @@ def run_alignment(
                     break
 
     if running_sum is None or stats.valid_total == 0:
-        raise RuntimeError("No valid records remained after filtering")
+        write_summary(outputs["summary"], config, stats, outputs)
+        raise RuntimeError(no_valid_regions_message(stats, config))
     if not selected_rows:
         raise RuntimeError("No vectors were retained for plotting")
 
@@ -1408,13 +1542,14 @@ def run_alignment(
                 "Calling aggregate peaks across the complete alignment and fitting "
                 "positive/negative repeat lengths"
             )
+        exclusion_start, exclusion_end = resolve_nrl_exclusion(config)
         nrl_result = analyse_aggregate_nrl(
             full_mean,
             peak_resolution=config.nrl_peak_resolution,
             regression_min=config.nrl_regression_min,
             regression_max=config.nrl_regression_max,
-            exclusion_start=config.nrl_regression_exclusion_start,
-            exclusion_end=config.nrl_regression_exclusion_end,
+            exclusion_start=exclusion_start,
+            exclusion_end=exclusion_end,
         )
         write_aggregate_nrl_outputs(nrl_result, config, outputs)
     matrix, x_values = central_crop(matrix, config.breadth)

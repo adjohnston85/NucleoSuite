@@ -144,6 +144,9 @@ def test_gene_expression_all_outputs(tmp_path, monkeypatch):
         ]
     )
     assert gene_expression.run(args) == 0
+    prefix = Path(
+        f"{prefix}_analysisall_flank100_fftwin500_period40to80_corrpearson"
+    )
 
     expected = [
         f"{prefix}_gene_peak_spacing.tsv",
@@ -220,6 +223,9 @@ def test_combined_profiles_use_profile_type_for_cell_line_metadata(tmp_path, mon
         ]
     )
     assert gene_expression.run(args) == 0
+    prefix = Path(
+        f"{prefix}_analysisfft_flank10000_fftwin500_period40to80_corrpearson"
+    )
 
     rows = list(
         csv.DictReader(

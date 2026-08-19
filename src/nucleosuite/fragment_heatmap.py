@@ -863,7 +863,18 @@ def run(args: argparse.Namespace) -> int:
             print(f"Warning: clustering failed; retaining natural order. Reason: {exc}", file=sys.stderr)
             order, linkage_matrix = np.arange(len(profiles)), None
 
-    prefix = Path(args.out_prefix)
+    from nucleosuite.output_naming import parameterized_prefix
+
+    prefix = parameterized_prefix(
+        args.out_prefix,
+        (
+            ("fragmin", args.min_frag),
+            ("fragmax", args.max_frag),
+            ("norm", args.normalisation),
+            ("cluster", "none" if args.no_cluster else f"{args.cluster_method}-{args.cluster_metric}"),
+            ("downsample", args.downsample_to),
+        ),
+    )
     prefix.parent.mkdir(parents=True, exist_ok=True)
     from nucleosuite.plotting import plot_path
     heatmap_path = plot_path(Path(f"{prefix}_heatmap.png"))

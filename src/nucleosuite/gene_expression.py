@@ -1444,7 +1444,18 @@ def _run_serial(args: argparse.Namespace) -> int:
     if any(period < args.fft_period_min or period > args.fft_period_max for period in ranking_periods):
         raise ValueError("Every --fft-ranking-periods value must be inside the FFT period range")
 
-    output_prefix = Path(args.output_prefix)
+    from nucleosuite.output_naming import parameter_range, parameterized_prefix
+
+    output_prefix = parameterized_prefix(
+        args.output_prefix,
+        (
+            ("analysis", args.analysis),
+            ("flank", args.gene_flank),
+            ("fftwin", args.fft_window),
+            ("period", parameter_range(args.fft_period_min, args.fft_period_max)),
+            ("corr", args.correlation),
+        ),
+    )
     output_prefix.parent.mkdir(parents=True, exist_ok=True)
 
     if args.genes_bed:
@@ -1604,6 +1615,20 @@ def _run_partitioned_with_genes(args: argparse.Namespace) -> int:
 
 
 def run(args: argparse.Namespace) -> int:
+    from nucleosuite.output_naming import parameter_range, parameterized_prefix
+
+    args.output_prefix = str(
+        parameterized_prefix(
+            args.output_prefix,
+            (
+                ("analysis", args.analysis),
+                ("flank", args.gene_flank),
+                ("fftwin", args.fft_window),
+                ("period", parameter_range(args.fft_period_min, args.fft_period_max)),
+                ("corr", args.correlation),
+            ),
+        )
+    )
     cores = int(getattr(args, "cores", 1) or 1)
     if cores <= 1 or getattr(args, "_per_contig_worker", False):
         return _run_serial(args)

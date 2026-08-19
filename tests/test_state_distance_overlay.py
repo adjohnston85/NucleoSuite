@@ -42,6 +42,10 @@ def test_state_overlay_is_relative_and_resets_at_interval_boundaries(tmp_path):
             "--output-prefix", str(prefix),
         ]
     ) == 0
+    prefix = Path(
+        f"{prefix}_distmin1_distmax500_orders1_nrlmodesmoothed_countsg21x2_pctsg21x2_"
+        "groupsthreshold_tiessplit"
+    )
 
     stem = Path(f"{prefix}_scorepct0")
     distribution = Path(f"{stem}_state_relative_percent.tsv")
@@ -105,6 +109,10 @@ def test_state_overlay_resolves_chr_prefix_aliases(tmp_path):
             "--output-prefix", str(prefix),
         ]
     ) == 0
+    prefix = Path(
+        f"{prefix}_distmin1_distmax500_orders1_nrlmodesmoothed_countsg21x2_pctsg21x2_"
+        "groupsthreshold_tiessplit"
+    )
 
     distribution = Path(f"{prefix}_scorepct0_state_relative_percent.tsv")
     rows = list(csv.DictReader(distribution.open(), delimiter="\t"))

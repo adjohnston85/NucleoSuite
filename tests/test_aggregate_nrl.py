@@ -177,6 +177,7 @@ def test_aggregate_cli_nrl_defaults_and_range_options() -> None:
     assert defaults.nrl_regression_max is None
     assert defaults.nrl_regression_exclusion_start is None
     assert defaults.nrl_regression_exclusion_end is None
+    assert defaults.nrl_exclusion is True
 
     custom = parser.parse_args(
         [
@@ -201,6 +202,25 @@ def test_aggregate_cli_nrl_defaults_and_range_options() -> None:
     assert custom.nrl_regression_max == 1200
     assert custom.nrl_regression_exclusion_start == -100
     assert custom.nrl_regression_exclusion_end == 100
+
+
+def test_resolution_derived_exclusion_can_be_disabled_or_overridden() -> None:
+    from nucleosuite.align import resolve_nrl_exclusion
+
+    base = dict(bigwig=Path("signal.bw"), region_bed=Path("regions.bed"))
+    assert resolve_nrl_exclusion(
+        AlignmentConfig(**base, nrl_peak_resolution=200)
+    ) == (-100.0, 100.0)
+    assert resolve_nrl_exclusion(
+        AlignmentConfig(**base, nrl_exclusion=False)
+    ) == (None, None)
+    assert resolve_nrl_exclusion(
+        AlignmentConfig(
+            **base,
+            nrl_regression_exclusion_start=-25,
+            nrl_regression_exclusion_end=40,
+        )
+    ) == (-25.0, 40.0)
 
 
 def test_aggregate_nrl_exclusion_bounds_must_be_paired_and_ordered() -> None:

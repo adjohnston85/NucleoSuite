@@ -52,7 +52,7 @@ nucleosuite pns \
   --fasta hg19.fa \
   --out-prefix sample_pns
 
-nucleosuite distances sample_pns_mode167_lower137_upper197_nucleosome_regions.bed \
+nucleosuite distances sample_methodpns_mode167_lower137_upper197_smooth0x2_nucleosome_regions.bed \
   --position-column 7 \
   --min-distance 120 \
   --max-distance 250 \

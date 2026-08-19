@@ -2241,12 +2241,45 @@ def run(args: argparse.Namespace) -> int:
 
     parser = build_parser()
     validate_args(args, parser)
+    selected_chromosomes = split_comma_values(args.chromosome)
+    if args.mode == "bigwig":
+        naming_files_a = expand_file_inputs(args.bigwig_a, "bigWig")
+        naming_files_b = expand_file_inputs(args.bigwig_b, "bigWig")
+    elif args.fragments_a:
+        naming_files_a = expand_file_inputs(args.fragments_a, "fragment interval")
+        naming_files_b = expand_file_inputs(args.fragments_b, "fragment interval")
+    else:
+        naming_files_a = expand_file_inputs(args.bam_a, "BAM")
+        naming_files_b = expand_file_inputs(args.bam_b, "BAM")
+    requested_prefix = args.out_prefix or default_output_prefix(
+        naming_files_a,
+        naming_files_b,
+        args.regions_bed,
+        args.scope,
+        selected_chromosomes,
+        args.label_a,
+        args.label_b,
+    )
+    from nucleosuite.output_naming import parameterized_prefix
+
+    normalization = "raw" if args.no_normalize_dcc else "opportunity"
+    if args.normalize_by_signal_totals:
+        normalization += "-signal"
+    args.out_prefix = str(
+        parameterized_prefix(
+            requested_prefix,
+            (
+                ("dmax", args.dmax),
+                ("lags", "signed" if args.signed_lags else "absolute"),
+                ("norm", normalization),
+            ),
+        )
+    )
     from nucleosuite.parallel import run_region_per_contig
     if not getattr(args, "_per_contig_worker", False) and int(getattr(args, "cores", 1) or 1) > 1:
         return run_region_per_contig("dcc", args, run)
 
     reporter = ProgressReporter("dcc")
-    selected_chromosomes = split_comma_values(args.chromosome)
     try:
         category_rules = parse_state_category_rules(args.category)
     except ValueError as exc:
@@ -2321,6 +2354,21 @@ def run(args: argparse.Namespace) -> int:
         selected_chromosomes,
         args.label_a,
         args.label_b,
+    )
+    from nucleosuite.output_naming import parameterized_prefix
+
+    normalization = "raw" if args.no_normalize_dcc else "opportunity"
+    if args.normalize_by_signal_totals:
+        normalization += "-signal"
+    output_prefix = str(
+        parameterized_prefix(
+            output_prefix,
+            (
+                ("dmax", args.dmax),
+                ("lags", "signed" if args.signed_lags else "absolute"),
+                ("norm", normalization),
+            ),
+        )
     )
 
     if not args.quiet:

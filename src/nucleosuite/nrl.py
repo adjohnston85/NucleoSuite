@@ -106,7 +106,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output-prefix",
         default=None,
-        help="Output prefix. Default: INPUT stem plus analysis range.",
+        help=(
+            "Base output prefix. Peak resolution and minimum/maximum distance "
+            "are appended. Default base: INPUT stem plus _nrl."
+        ),
     )
     parser.add_argument("--title", default=None, help="Optional plot title prefix.")
     parser.add_argument("--dpi", type=int, default=300, help="Figure resolution setting; --plot-dpi takes precedence when supplied.")
@@ -764,23 +767,38 @@ def create_regression_plot(
     apply_integer_y_axis(axis)
     axis.set_xlabel(x_label)
     axis.set_ylabel(y_label)
-    axis.set_title(title)
+    import textwrap
+
+    axis.set_title(textwrap.fill(title, width=70))
     if peaks:
         axis.legend(frameon=False)
     axis.grid(False)
     from nucleosuite.plotting import save_figure
     figure.tight_layout()
-    saved = save_figure(figure, path, default_dpi=dpi)
+    saved = save_figure(figure, path, default_dpi=dpi, bbox_inches=None)
     plt.close(figure)
     return saved
 
 
-def default_output_prefix(input_path: Path, min_distance: float, max_distance: float) -> Path:
-    def compact(value: float) -> str:
-        return str(int(value)) if float(value).is_integer() else f"{value:g}".replace(".", "p")
+def default_output_prefix(
+    input_path: Path,
+    min_distance: float,
+    max_distance: float,
+    peak_resolution: float = 160.0,
+    base: str | Path | None = None,
+) -> Path:
+    """Build the NRL stem, including every fit-defining parameter."""
 
-    return input_path.with_name(
-        f"{input_path.stem}_nrl_{compact(min_distance)}_{compact(max_distance)}"
+    from nucleosuite.output_naming import parameterized_prefix
+
+    root = Path(base) if base is not None else input_path.with_name(f"{input_path.stem}_nrl")
+    return parameterized_prefix(
+        root,
+        (
+            ("peakres", peak_resolution),
+            ("min", min_distance),
+            ("max", max_distance),
+        ),
     )
 
 
@@ -813,8 +831,13 @@ def run(args: argparse.Namespace) -> int:
     )
     regression = regress_peak_distances(peaks)
 
-    prefix = Path(args.output_prefix).resolve() if args.output_prefix else default_output_prefix(
-        input_path, args.min_distance, args.max_distance
+    requested_prefix = Path(args.output_prefix).resolve() if args.output_prefix else None
+    prefix = default_output_prefix(
+        input_path,
+        args.min_distance,
+        args.max_distance,
+        args.peak_resolution,
+        base=requested_prefix,
     )
     prefix.parent.mkdir(parents=True, exist_ok=True)
     profile_tsv = Path(f"{prefix}_profile.tsv")

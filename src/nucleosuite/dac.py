@@ -1643,19 +1643,36 @@ Examples:
 def run(args: argparse.Namespace) -> int:
     parser = build_parser()
     validate_args(args, parser)
+    selected_chromosomes = split_comma_values(args.chromosome)
+    bigwig_files = expand_bigwig_inputs(args.bigwig)
+    requested_prefix = args.out_prefix or default_output_prefix(
+        bigwig_files=bigwig_files,
+        region_source_path=args.regions_bed or args.genes_bed,
+        scope=args.scope,
+        selected_chromosomes=selected_chromosomes,
+    )
+    from nucleosuite.output_naming import parameterized_prefix
+
+    args.out_prefix = str(
+        parameterized_prefix(
+            requested_prefix,
+            (
+                ("dmax", args.dmax),
+                ("norm", "raw" if args.no_normalize_dac else "opportunity"),
+            ),
+        )
+    )
     from nucleosuite.parallel import run_region_per_contig
     if not getattr(args, "_per_contig_worker", False) and int(getattr(args, "cores", 1) or 1) > 1:
         return run_region_per_contig("dac", args, run)
 
     reporter = ProgressReporter("dac")
-    selected_chromosomes = split_comma_values(args.chromosome)
     try:
         category_rules = parse_state_category_rules(args.category)
     except ValueError as exc:
         parser.error(str(exc))
 
     reporter.stage("Loading analysis regions")
-    bigwig_files = expand_bigwig_inputs(args.bigwig)
     os.makedirs(args.output_dir, exist_ok=True)
 
     gene_selection_rows: List[Mapping[str, object]] = []
@@ -1727,6 +1744,17 @@ def run(args: argparse.Namespace) -> int:
         region_source_path=args.regions_bed or args.genes_bed,
         scope=args.scope,
         selected_chromosomes=selected_chromosomes,
+    )
+    from nucleosuite.output_naming import parameterized_prefix
+
+    base_prefix = str(
+        parameterized_prefix(
+            base_prefix,
+            (
+                ("dmax", args.dmax),
+                ("norm", "raw" if args.no_normalize_dac else "opportunity"),
+            ),
+        )
     )
 
     if gene_selection_rows:

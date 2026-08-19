@@ -421,10 +421,17 @@ def _resolved_output_prefix(command: str, base: str, args: Mapping[str, object])
     lower = int(args.get("frag_lower", 0))
     upper = int(args.get("frag_upper", 0))
     if command == "pns":
-        return f"{base}_mode{int(args['mode_length'])}_lower{lower}_upper{upper}"
+        return (
+            f"{base}_method{args.get('scoring_method', 'pns')}"
+            f"_mode{int(args['mode_length'])}_lower{lower}_upper{upper}"
+            f"_smooth{int(args.get('smooth_window', 0))}x{int(args.get('smooth_order', 2))}"
+        )
     if command == "wps":
         value = (
             f"{base}_prot{int(args['protection'])}_lower{lower}_upper{upper}"
+            f"_baseline{int(args.get('baseline_window', 1000))}"
+            f"_sg{int(args.get('sg_window', 21))}x{int(args.get('sg_order', 2))}"
+            f"_caller{args.get('peak_caller', 'wps')}"
         )
         if args.get("randomize_mode") != "none":
             value += f"_rand{args.get('randomize_mode')}"

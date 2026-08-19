@@ -39,7 +39,8 @@ def run(args) -> int:
         args.out_prefix = default_output_prefix(input_paths_from_args(args), args.contigs)
     args.out_prefix = (
         f"{args.out_prefix}_prot{args.protection}_lower{args.frag_lower}"
-        f"_upper{args.frag_upper}"
+        f"_upper{args.frag_upper}_baseline{args.baseline_window}"
+        f"_sg{args.sg_window}x{args.sg_order}_caller{args.peak_caller}"
     )
     if args.randomize_mode != "none":
         args.out_prefix += f"_rand{args.randomize_mode}"

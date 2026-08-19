@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 
 from nucleosuite.cli.formatting import NucleoSuiteHelpFormatter
-from nucleosuite.align import AlignmentConfig, run_alignment
+from nucleosuite.align import AlignmentConfig, infer_aggregate_track_options, run_alignment
 from nucleosuite.progress import ProgressReporter
 
 
@@ -32,7 +32,7 @@ def add_aggregate_parser(subparsers: argparse._SubParsersAction) -> argparse.Arg
     parser.add_argument("--nucleosome-offset", type=int, default=1, help="Non-zero strand-relative nucleosome rank selected from --nucleosome-bed; positive is downstream and negative upstream (default: 1).")
     parser.add_argument("--state-bed", type=Path, help="Optional BED mask retaining reference features that overlap at least one state interval.")
     parser.add_argument("--output-dir", type=Path, default=Path("."), help="Directory for outputs (default: current directory).")
-    parser.add_argument("--output-prefix", help="Output filename prefix; default: derived from the region, signal, and optional selector inputs.")
+    parser.add_argument("--output-prefix", help="Base output filename prefix. The window, NRL range/resolution, and effective exclusion zone are appended; default base is derived from the inputs.")
     parser.add_argument("--heatmap-output", "--output", dest="heatmap_output", type=Path, help="Explicit heatmap image stem/path; final extension follows --plot-format (default stem: <output-dir>/<prefix>_heatmap).")
     parser.add_argument("--heatmap-matrix-output", type=Path, help="Explicit sorted/plotted matrix path; default: <output-dir>/<prefix>_heatmap_matrix.tsv.gz.")
     parser.add_argument("--aggregate-output", type=Path, help="Explicit complete mean-profile path; default: <output-dir>/<prefix>_aggregate_all.tsv.")
@@ -50,8 +50,8 @@ def add_aggregate_parser(subparsers: argparse._SubParsersAction) -> argparse.Arg
         "--missing-strand", choices=["forward", "random", "error"], default="forward",
         help="How to handle missing or invalid strand values.",
     )
-    parser.add_argument("--zero-thresh", "--zero_thresh", dest="zero_thresh", type=int, default=5, help="Reject vectors containing this many consecutive zeros; 0 disables the filter (default: 5).")
-    parser.add_argument("--max-score", "--max_score", dest="max_score", type=float, default=300.0, help="Reject vectors containing a value greater than this threshold (default: 300).")
+    parser.add_argument("--zero-thresh", "--zero_thresh", dest="zero_thresh", type=int, default=None, help="Reject vectors containing this many consecutive zeros; 0 disables the filter. Default: 5, or 0 for a NucleoSuite *_dyad.bw input.")
+    parser.add_argument("--max-score", "--max_score", dest="max_score", type=float, default=None, help="Reject vectors containing a value greater than this threshold; 'inf' disables the filter. Default: 300, or inf for a NucleoSuite *_dyad.bw input.")
     parser.add_argument(
         "--nan-to-zero", "--nan_to_zero",
         dest="nan_to_zero", action=argparse.BooleanOptionalAction, default=True,
@@ -72,10 +72,10 @@ def add_aggregate_parser(subparsers: argparse._SubParsersAction) -> argparse.Arg
         default="mean_absolute",
         help="Heatmap-row ordering: centre value, rise after upstream minimum, mean absolute signal, maximum, or input order (default: mean_absolute).",
     )
-    parser.add_argument("--axis-label", "--label-replace", dest="axis_label", default="+1 NPS peak", help="Feature label used on relative-position axes (default: +1 NPS peak).")
+    parser.add_argument("--axis-label", "--label-replace", dest="axis_label", default=None, help="Feature label used on relative-position axes (default: Distance from reference-site centre).")
     parser.add_argument("--mean-ylim", "--mean_ylim", dest="mean_ylim", type=float, help="Optional symmetric positive y-axis limit for the plotted mean.")
-    parser.add_argument("--colorbar-label", default="Nucleosome Protection Score (NPS)", help="Heatmap colour-bar label.")
-    parser.add_argument("--mean-ylabel", default="Mean NPS", help="Y-axis label for the mean-profile plot (default: Mean NPS).")
+    parser.add_argument("--colorbar-label", default=None, help="Heatmap colour-bar label. Default: inferred for recognized NucleoSuite tracks, otherwise Score.")
+    parser.add_argument("--mean-ylabel", dest="mean_ylabel", default=None, help="Y-axis label for the mean-profile plot. Default: inferred for recognized NucleoSuite tracks, otherwise Mean score.")
     parser.add_argument(
         "--nrl",
         action=argparse.BooleanOptionalAction,
@@ -93,7 +93,8 @@ def add_aggregate_parser(subparsers: argparse._SubParsersAction) -> argparse.Arg
             "Minimum separation for unified aggregate peak calling. The default "
             "160 bp resolution gives 51 bp detection smoothing and 21 bp summit "
             "refinement. The called peak nearest 0 within half this resolution is "
-            "shared as peak number 0 by both directional regressions."
+            "assigned peak number 0 in both directions before the effective "
+            "regression exclusion is applied."
         ),
     )
     parser.add_argument(
@@ -121,8 +122,8 @@ def add_aggregate_parser(subparsers: argparse._SubParsersAction) -> argparse.Arg
         type=float,
         default=None,
         help=(
-            "Inclusive signed start position of an optional interval excluded from "
-            "both directional regressions. Supply together with "
+            "Inclusive signed start position overriding the resolution-derived "
+            "interval excluded from both directional regressions. Supply together with "
             "--nrl-regression-exclusion-end. Peak calling and the unified profile "
             "are unchanged."
         ),
@@ -133,9 +134,21 @@ def add_aggregate_parser(subparsers: argparse._SubParsersAction) -> argparse.Arg
         type=float,
         default=None,
         help=(
-            "Inclusive signed end position of an optional interval excluded from "
-            "both directional regressions. Supply together with "
+            "Inclusive signed end position overriding the resolution-derived interval "
+            "excluded from both directional regressions. Supply together with "
             "--nrl-regression-exclusion-start."
+        ),
+    )
+    parser.add_argument(
+        "--no-nrl-exclusion",
+        dest="nrl_exclusion",
+        action="store_false",
+        default=True,
+        help=(
+            "Disable the automatic regression-only exclusion zone. By default the "
+            "zone is plus/minus half --nrl-peak-resolution (for example, -80 to "
+            "+80 bp at 160 bp resolution). Explicit --nrl-exclusion-start/end "
+            "replace the automatic zone."
         ),
     )
     parser.add_argument("--dpi", type=int, default=300, help="Heatmap raster resolution in dots per inch (default: 300).")
@@ -151,6 +164,7 @@ def add_aggregate_parser(subparsers: argparse._SubParsersAction) -> argparse.Arg
 
 
 def _run_serial(args: argparse.Namespace) -> int:
+    _resolve_automatic_options(args)
     config = AlignmentConfig(**{
         key: value for key, value in vars(args).items()
         if key in AlignmentConfig.__dataclass_fields__
@@ -160,8 +174,29 @@ def _run_serial(args: argparse.Namespace) -> int:
 
 
 def run_from_args(args: argparse.Namespace) -> int:
+    _resolve_automatic_options(args)
     from nucleosuite.aggregate_parallel import run_aggregate_per_contig
     return run_aggregate_per_contig(args, _run_serial)
+
+
+def _resolve_automatic_options(args: argparse.Namespace) -> None:
+    """Resolve suffix-aware defaults once before serial or parallel execution."""
+
+    if getattr(args, "_aggregate_options_resolved", False):
+        return
+    inferred = infer_aggregate_track_options(args.bigwig)
+    if args.zero_thresh is None:
+        args.zero_thresh = int(inferred["zero_thresh"])
+    if args.max_score is None:
+        args.max_score = float(inferred["max_score"])
+    if args.axis_label is None:
+        args.axis_label = "Distance from reference-site centre"
+    if args.colorbar_label is None:
+        args.colorbar_label = str(inferred["colorbar_label"])
+    if args.mean_ylabel is None:
+        args.mean_ylabel = str(inferred["mean_ylabel"])
+    args._aggregate_track_type = str(inferred["track_type"])
+    args._aggregate_options_resolved = True
 
 
 def main(argv=None) -> int:

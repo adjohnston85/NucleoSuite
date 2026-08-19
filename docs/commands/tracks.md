@@ -60,8 +60,8 @@ A tab-separated spec file is easier to maintain when many ranges or exact output
 
 ```text
 fragment_range  output_prefix                                  tracks                                      basic_scope
-137-197         results/sample_PNS_mode167_lower137_upper197   pns,posPNS,coverage,pns_peaks              range
-120-180         results/sample_WPS_prot120_lower120_upper180   coverage,wps,wps_smoothed,mWPS,sm_mWPS    range
+137-197         results/sample_PNS_methodpns_mode167_lower137_upper197_smooth0x2   pns,posPNS,coverage,pns_peaks              range
+120-180         results/sample_WPS_prot120_lower120_upper180_baseline1000_sg21x2_callerwps   coverage,wps,wps_smoothed,mWPS,sm_mWPS    range
 145             results/sample_145_dyads_lower145_upper145     dyad                                        range
 ```
 

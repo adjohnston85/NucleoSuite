@@ -1145,6 +1145,19 @@ def default_output_prefix(peak_path: str | Path, state_path: str | Path) -> Path
     )
 
 
+def output_grouping_token(args: argparse.Namespace) -> str:
+    """Describe the complete percentile grouping for output filenames."""
+
+    if args.pct_bin_size is not None:
+        return f"binsize-{args.pct_bin_size:g}"
+    if args.pct_values:
+        raw = "-".join(str(value).replace(",", "-") for value in args.pct_values)
+        return f"{'bins' if args.pct_bins else 'values'}-{raw}"
+    if args.pct_range:
+        return f"range-{args.pct_lower:g}-{args.pct_upper:g}-{args.pct_step:g}"
+    return f"threshold-{args.score_percentile:g}"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="nucleosuite peak-states",
@@ -1351,6 +1364,17 @@ def run(args: argparse.Namespace) -> int:
     )
 
     prefix = Path(args.output_prefix) if args.output_prefix else default_output_prefix(args.peaks, args.state_bed)
+    from nucleosuite.output_naming import parameterized_prefix
+
+    grouping = output_grouping_token(args)
+    prefix = parameterized_prefix(
+        prefix,
+        (
+            ("groups", grouping),
+            ("ties", args.bin_tie_mode),
+            ("overlap", args.overlap_policy),
+        ),
+    )
     reporter.stage("Writing state coverage, enrichment, and threshold tables")
     outputs = write_outputs(
         prefix,

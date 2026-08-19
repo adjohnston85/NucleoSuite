@@ -16,7 +16,9 @@ Each accepted BED feature defines an aggregation centre. NucleoSuite extracts Bi
 
 The complete aggregate profile is the mean of the valid signal values at each relative position. The exact handling of missing and blacklisted positions is described in [Regional aggregation](../ALGORITHMS.md#regional-aggregation).
 
-By default, `aggregate` also calls long-range peaks once across the complete negative-to-positive aggregate alignment. With the default 160 bp peak resolution, the complete profile is smoothed continuously across position 0 using 51 bp detection smoothing and 21 bp summit refinement. The resulting unified peak set is then divided by direction for two independent repeat-length regressions. The called peak nearest 0 within half the peak-calling resolution is shared as order 0 by both regressions; remaining positive and negative peaks are ordered outward from it.
+By default, `aggregate` also calls long-range peaks once across the complete negative-to-positive aggregate alignment. With the default 160 bp peak resolution, the complete profile is smoothed continuously across position 0 using 51 bp detection smoothing and 21 bp summit refinement. The resulting unified peak set is then divided by direction for two independent repeat-length regressions. The called peak nearest 0 within half the peak-calling resolution is assigned order 0 on both sides before regression filtering; remaining positive and negative peaks are ordered outward from it.
+
+Every default x-axis is labelled `Distance from reference-site centre (bp)`. `--axis-label` remains available for an explicit alternative.
 
 ## Typical use around CTCF sites
 
@@ -38,7 +40,7 @@ The CTCF BED stores motif strand in column 6, so the aggregated windows can be o
 
 The peak caller always operates across the complete aggregate alignment. It is not run separately on the two sides, and smoothing is not interrupted at position 0. After peak calling, positive and negative peaks are selected for separate regressions. Negative positions are converted to their absolute distance from 0 and ordered outward, so both fitted slopes are positive repeat lengths.
 
-The called summit closest to 0 is treated as the shared order-0 peak when its absolute position is no greater than half `--nrl-peak-resolution` (±80 bp with the 160 bp default). This includes a central peak whose refined summit is slightly offset from exactly 0. If no called peak lies in that central interval, neither regression receives an order-0 peak.
+The called summit closest to 0 is treated as the shared order-0 peak when its absolute position is no greater than half `--nrl-peak-resolution` (±80 bp with the 160 bp default). This includes a central peak whose refined summit is slightly offset from exactly 0. If no called peak lies in that central interval, neither regression has an order-0 candidate.
 
 Use `--nrl-regression-min` and `--nrl-regression-max` to control only the absolute-distance range entering both regressions. For example:
 
@@ -53,9 +55,11 @@ nucleosuite aggregate \
   --output-prefix sample_ctcf
 ```
 
-This fits positive peaks from +200 to +1200 bp and negative peaks from −200 to −1200 bp. Peaks outside that range remain present in the unified peak table and plot. The defaults are 0 bp through the complete `--window-half`, so a central order-0 peak is included by default.
+This fits positive peaks from +200 to +1200 bp and negative peaks from −200 to −1200 bp. Peaks outside that range remain present in the unified peak table and plot.
 
-An optional inclusive signed-coordinate exclusion interval can remove a selected part of the aggregate from both regressions:
+By default, an inclusive regression-only exclusion interval spans half the peak resolution on either side of 0. It is therefore −80 to +80 bp at the default 160 bp resolution and changes automatically when `--nrl-peak-resolution` changes. This avoids making the reference-centred peak determine both outward fits. Use `--no-nrl-exclusion` to include an eligible central peak as order 0 in both regressions.
+
+Explicit bounds replace the resolution-derived default:
 
 ```bash
 nucleosuite aggregate \
@@ -67,7 +71,7 @@ nucleosuite aggregate \
   --output-prefix sample_ctcf
 ```
 
-Both exclusion limits must be supplied. The shorter aliases `--nrl-exclusion-start` and `--nrl-exclusion-end` are also accepted. The interval affects regression membership only: smoothing, unified peak calling and the complete peak plot remain unchanged. Excluded peaks retain their directional order numbers, so later peaks are not renumbered and the fitted repeat length is not compressed across the omitted interval. The unified profile plot shades the regression exclusion interval.
+Both exclusion limits must be supplied. The shorter aliases `--nrl-exclusion-start` and `--nrl-exclusion-end` are also accepted. The explicit interval overrides the resolution-derived interval. Exclusion affects regression membership only: smoothing, unified peak calling and the complete peak plot remain unchanged. Excluded peaks retain their directional order numbers, so later peaks are not renumbered and the fitted repeat length is not compressed across the omitted interval. The unified profile plot shades the effective regression exclusion interval.
 
 `--nrl-peak-resolution` controls the unified caller and defaults to 160 bp. Use `--no-nrl` to suppress aggregate peak calling and repeat-length outputs.
 
@@ -88,6 +92,8 @@ The complete aggregate profile uses **all accepted regions**. `--max-heatmap-row
 By default, ordinary missing BigWig positions become zero, which supports sparse signals such as dyads. `--no-nan-to-zero` makes missing signal invalidate a window.
 
 `--zero-thresh` can reject windows containing long zero runs. Set it to `0` when long zero stretches are expected and should not be treated as low-quality windows.
+
+Recognized NucleoSuite BigWig suffixes set track-specific labels automatically. Unknown tracks use `Score` and `Mean score`. Dyad inputs ending in `_dyad.bw` also default to `--zero-thresh 0` and `--max-score inf`; explicit options always win. If every region is rejected, the error reports rejection counts and suggests these disabling values only when the corresponding filters rejected data.
 
 ## What it writes
 
@@ -110,6 +116,8 @@ With aggregate NRL enabled, it additionally writes:
 The two regression plots are separate square figures with open circles and dotted fitted lines. All three figures can be recreated with [`nucleosuite plot`](plot.md).
 
 The default half-window is 2500 bp, giving 5001 relative positions at base resolution.
+
+Automatic output stems include the half-window, zero/maximum-score and missing-value filters, row sorting, NRL resolution, regression range, and effective exclusion interval. A supplied `--output-prefix` is a base prefix and receives the same tokens; plot-specific exact output options remain exact.
 
 ## Multicontig use
 

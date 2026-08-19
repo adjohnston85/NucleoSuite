@@ -2321,6 +2321,21 @@ def default_output_prefix(
     return Path(f"{input_stem}_{strip_known_suffix(state_path)}")
 
 
+def output_grouping_token(args: argparse.Namespace) -> str:
+    """Describe the complete score-group definition for output filenames."""
+
+    if args.pct_bin_size is not None:
+        return f"binsize-{args.pct_bin_size:g}"
+    if args.pct_values:
+        raw = "-".join(str(value).replace(",", "-") for value in args.pct_values)
+        return f"{'bins' if args.pct_bins else 'values'}-{raw}"
+    if args.pct_range:
+        return f"range-{args.pct_lower:g}-{args.pct_upper:g}-{args.pct_step:g}"
+    if args.target_peaks is not None:
+        return f"target-{args.target_peaks}"
+    return "threshold"
+
+
 def validate_smoothing_arguments(args: argparse.Namespace) -> None:
     """Validate Savitzky-Golay CLI settings before processing input."""
     for option, value in (
@@ -2791,6 +2806,22 @@ def _run_serial(args: argparse.Namespace) -> int:
             if args.output_prefix
             else default_output_prefix(args.input, state_path)
         )
+        from nucleosuite.output_naming import parameterized_prefix
+
+        grouping = output_grouping_token(args)
+        base_prefix = parameterized_prefix(
+            base_prefix,
+            (
+                ("distmin", args.min_distance),
+                ("distmax", args.max_distance),
+                ("orders", args.max_order),
+                ("nrlmode", args.nrl_mode),
+                ("countsg", f"{args.count_smooth_window}x{args.count_smooth_polyorder}"),
+                ("pctsg", f"{args.percent_smooth_window}x{args.percent_smooth_polyorder}"),
+                ("groups", grouping),
+                ("ties", args.bin_tie_mode),
+            ),
+        )
         base_prefix.parent.mkdir(parents=True, exist_ok=True)
 
         include_chromosomes = args.scope in {"all", "chromosome"}
@@ -2994,6 +3025,25 @@ def _run_serial(args: argparse.Namespace) -> int:
 
 def run(args: argparse.Namespace) -> int:
     from nucleosuite.partitioned import run_partitioned_command
+    from nucleosuite.output_naming import parameterized_prefix
+
+    requested = args.output_prefix or default_output_prefix(args.input, args.state_bed)
+    grouping = output_grouping_token(args)
+    args.output_prefix = str(
+        parameterized_prefix(
+            requested,
+            (
+                ("distmin", args.min_distance),
+                ("distmax", args.max_distance),
+                ("orders", args.max_order),
+                ("nrlmode", args.nrl_mode),
+                ("countsg", f"{args.count_smooth_window}x{args.count_smooth_polyorder}"),
+                ("pctsg", f"{args.percent_smooth_window}x{args.percent_smooth_polyorder}"),
+                ("groups", grouping),
+                ("ties", args.bin_tie_mode),
+            ),
+        )
+    )
     percentage_bins = (
         args.bin_tie_mode == "split"
         and (args.pct_bin_size is not None or args.pct_bins)

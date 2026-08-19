@@ -46,14 +46,14 @@ python -m pip install -e . --no-deps
 A wheel is a built Python package file:
 
 ```bash
-python -m pip install nucleosuite-0.8.5-py3-none-any.whl
+python -m pip install nucleosuite-0.8.6-py3-none-any.whl
 ```
 
 To reinstall the wheel explicitly:
 
 ```bash
 python -m pip install --upgrade --force-reinstall --no-cache-dir \
-  nucleosuite-0.8.5-py3-none-any.whl
+  nucleosuite-0.8.6-py3-none-any.whl
 hash -r
 ```
 
@@ -84,8 +84,8 @@ python -m build
 Expected outputs include:
 
 ```text
-dist/nucleosuite-0.8.5-py3-none-any.whl
-dist/nucleosuite-0.8.5.tar.gz
+dist/nucleosuite-0.8.6-py3-none-any.whl
+dist/nucleosuite-0.8.6.tar.gz
 ```
 
 ## Build a Conda package

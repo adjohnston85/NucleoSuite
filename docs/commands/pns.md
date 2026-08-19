@@ -113,13 +113,13 @@ This setting affects the bigBed score field, not the floating-point text BED sco
 
 For PNS, the selected score tracks are `pns`, `posPNS`, and optionally `pns_smoothed`. For BNS they are `bns`, `posBNS`, and optionally `bns_smoothed`. For TNS they are `tns`, `posTNS`, and optionally `tns_smoothed`.
 
-BNS and TNS output prefixes include `_bns` or `_tns` so they are distinct from PNS outputs. For example:
+BNS and TNS output prefixes include the scoring method, mode, and accepted fragment range so they are distinct from PNS outputs. For example:
 
 ```text
-sample_bns_mode167_lower137_upper197_bns.bw
-sample_bns_mode167_lower137_upper197_nucleosome_regions.bed
-sample_tns_mode167_lower137_upper197_tns.bw
-sample_tns_mode167_lower137_upper197_nucleosome_regions.bed
+sample_methodbns_mode167_lower137_upper197_smooth0x2_bns.bw
+sample_methodbns_mode167_lower137_upper197_smooth0x2_nucleosome_regions.bed
+sample_methodtns_mode167_lower137_upper197_smooth0x2_tns.bw
+sample_methodtns_mode167_lower137_upper197_smooth0x2_nucleosome_regions.bed
 ```
 
 BED column 7 stores the midpoint of the retained score region. Downstream `distances` can read that representative position with `--position-column 7`.
@@ -129,7 +129,7 @@ BED column 7 stores the midpoint of the retained score region. Downstream `dista
 Measure spacing between called nucleosome regions:
 
 ```bash
-nucleosuite distances sample_pns_mode167_lower137_upper197_nucleosome_regions.bed \
+nucleosuite distances sample_methodpns_mode167_lower137_upper197_smooth0x2_nucleosome_regions.bed \
   --position-column 7 \
   --output-prefix sample_spacing
 ```
@@ -138,10 +138,10 @@ Or compare signal around bundled CTCF sites:
 
 ```bash
 nucleosuite aggregate \
-  --bigwig sample_pns_mode167_lower137_upper197_pns.bw \
+  --bigwig sample_methodpns_mode167_lower137_upper197_smooth0x2_pns.bw \
   --region-bed "$(nucleosuite resources path gm12878-hg19-ctcf)" \
   --strand-col 6 \
-  --out-prefix sample_ctcf
+  --output-prefix sample_ctcf
 ```
 
 [Back to the command reference](../COMMAND_REFERENCE.md)

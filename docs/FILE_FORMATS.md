@@ -375,6 +375,16 @@ Dinucleotide-profile commands write `_dinuc_profile_counts.tsv` alongside the fr
 
 Chromosome-specific filenames include the chromosome or scaffold identifier. Combined filenames omit that identifier because they represent the complete selected reference-sequence set.
 
+## Parameterized output stems
+
+Plot-producing analyses append their result-defining settings to automatic output
+stems, including when `--output-prefix` or `--out-prefix` supplies the base name.
+Examples include NRL resolution and fit bounds, DAC/DCC distance and normalization,
+distance neighbour orders and score grouping, aggregate window/NRL/exclusion settings,
+position-matching policy, fragment ranges, and signal-processing mode. Cosmetic
+settings such as DPI, colours, fonts, and tick spacing are not included. An option
+that names one exact output path remains exact.
+
 ## Indexed interval inputs and `--cores`
 
 Fragment and region commands split work by contig when the primary input has a random-access index. Supported forms are bigBed and bgzip-compressed BED/TSV with a `.tbi` or `.csi` index. Tabix-indexed fragment files also require `--chrom-sizes` or `--fasta` because tabix does not store chromosome lengths. Plain BED, ordinary gzip, and unindexed TSV inputs run serially.

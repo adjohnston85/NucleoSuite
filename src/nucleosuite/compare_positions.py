@@ -2284,6 +2284,16 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Path]:
         getattr(args, "skip_percentile_distance_analysis", False)
     )
     prefix = Path(args.output_prefix) if args.output_prefix else _default_prefix(args.bed_a, args.bed_b)
+    from nucleosuite.output_naming import parameterized_prefix
+
+    prefix = parameterized_prefix(
+        prefix,
+        (
+            ("match", "one-to-one" if args.matching == "unique" else args.matching),
+            ("maxdist", args.max_distance),
+            ("scorenorm", args.score_normalization),
+        ),
+    )
     prefix.parent.mkdir(parents=True, exist_ok=True)
     reporter = ProgressReporter(
         "compare-positions", quiet=bool(getattr(args, "quiet", False))
@@ -2597,6 +2607,19 @@ def _run_serial(args: argparse.Namespace) -> int:
 
 def run(args: argparse.Namespace) -> int:
     from nucleosuite.partitioned import run_partitioned_command
+    from nucleosuite.output_naming import parameterized_prefix
+
+    requested = args.output_prefix or _default_prefix(args.bed_a, args.bed_b)
+    args.output_prefix = str(
+        parameterized_prefix(
+            requested,
+            (
+                ("match", "one-to-one" if args.matching == "unique" else args.matching),
+                ("maxdist", args.max_distance),
+                ("scorenorm", args.score_normalization),
+            ),
+        )
+    )
     prefix = Path(args.output_prefix).name if args.output_prefix else _default_prefix(args.bed_a, args.bed_b).name
     return run_partitioned_command(
         "compare-positions", args, _run_serial,

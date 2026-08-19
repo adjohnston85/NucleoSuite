@@ -8,9 +8,12 @@ from nucleosuite.align import (
     find_relative_nucleosome_center,
     has_consecutive_zeros,
     make_output_prefix,
+    no_valid_regions_message,
     overlaps_any,
     resolve_output_paths,
+    resolve_nrl_exclusion,
     sort_matrix,
+    AlignmentStats,
 )
 
 
@@ -57,7 +60,11 @@ def test_default_prefix_uses_all_inputs():
         nucleosome_offset=-2,
         state_bed=Path("active.bed"),
     )
-    assert make_output_prefix(config) == "regions_signal_nucleosomes_minus2_active"
+    assert make_output_prefix(config) == (
+        "regions_signal_nucleosomes_minus2_active_"
+        "win2500_zero5_maxscore300_missingzero_sortmean-absolute_"
+        "nrlres160_nrlmin0_nrlmax2500_exclneg80to80"
+    )
 
 
 def test_alignment_outputs_include_exact_heatmap_matrix(tmp_path: Path):
@@ -68,9 +75,13 @@ def test_alignment_outputs_include_exact_heatmap_matrix(tmp_path: Path):
         output_prefix="aligned",
     )
     outputs = resolve_output_paths(config)
-    assert outputs["heatmap"] == tmp_path / "aligned_heatmap.png"
-    assert outputs["heatmap_matrix"] == tmp_path / "aligned_heatmap_matrix.tsv.gz"
-    assert outputs["plotted_mean"] == tmp_path / "aligned_heatmap_mean.tsv"
+    stem = (
+        "aligned_win2500_zero5_maxscore300_missingzero_sortmean-absolute_"
+        "nrlres160_nrlmin0_nrlmax2500_exclneg80to80"
+    )
+    assert outputs["heatmap"] == tmp_path / f"{stem}_heatmap.png"
+    assert outputs["heatmap_matrix"] == tmp_path / f"{stem}_heatmap_matrix.tsv.gz"
+    assert outputs["plotted_mean"] == tmp_path / f"{stem}_heatmap_mean.tsv"
 
 
 def test_mean_absolute_sort_places_highest_signal_first():
@@ -86,6 +97,52 @@ def test_alignment_defaults_use_2500_mean_absolute_and_nan_to_zero():
     assert config.window_half == 2500
     assert config.sort_mode == "mean_absolute"
     assert config.nan_to_zero is True
+    assert config.axis_label == "Distance from reference-site centre"
+    assert config.colorbar_label == "Score"
+    assert config.mean_ylabel == "Mean score"
+    assert resolve_nrl_exclusion(config) == (-80.0, 80.0)
+
+
+def test_aggregate_suffix_defaults_and_explicit_filter_overrides():
+    import argparse
+    from nucleosuite.cli.aggregate import add_aggregate_parser, _resolve_automatic_options
+
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    add_aggregate_parser(subparsers)
+    inferred = parser.parse_args([
+        "aggregate", "--bigwig", "sample_dyad.bw", "--region-bed", "regions.bed"
+    ])
+    _resolve_automatic_options(inferred)
+    assert inferred.zero_thresh == 0
+    assert inferred.max_score == float("inf")
+    assert inferred.colorbar_label == "Dyad count"
+    assert inferred.mean_ylabel == "Mean dyad count"
+
+    explicit = parser.parse_args([
+        "aggregate", "--bigwig", "sample_dyad.bw", "--region-bed", "regions.bed",
+        "--zero-thresh", "7", "--max-score", "42",
+        "--colorbar-label", "Custom", "--mean-ylabel", "Mean custom",
+    ])
+    _resolve_automatic_options(explicit)
+    assert explicit.zero_thresh == 7
+    assert explicit.max_score == 42
+    assert explicit.colorbar_label == "Custom"
+    assert explicit.mean_ylabel == "Mean custom"
+
+
+def test_no_valid_message_reports_counts_and_only_relevant_filter_suggestions():
+    config = AlignmentConfig(bigwig=Path("signal.bw"), region_bed=Path("regions.bed"))
+    stats = AlignmentStats(
+        input_lines=12,
+        skipped_consecutive_zeros=8,
+        skipped_above_max_score=4,
+    )
+    message = no_valid_regions_message(stats, config)
+    assert "consecutive zeros=8" in message
+    assert "score above maximum=4" in message
+    assert "--zero-thresh 0" in message
+    assert "--max-score inf" in message
 
 
 def test_aggregate_cli_can_disable_default_nan_to_zero():
@@ -147,7 +204,7 @@ def test_sparse_bigwig_nan_values_are_zero_filled_by_default(tmp_path, monkeypat
     ))
     assert outputs["summary"].exists()
 
-    with pytest.raises(RuntimeError, match="No valid records remained"):
+    with pytest.raises(RuntimeError, match="No valid regions remained"):
         run_alignment(AlignmentConfig(
             bigwig=bigwig_path,
             region_bed=region_bed,

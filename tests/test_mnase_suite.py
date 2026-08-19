@@ -334,7 +334,7 @@ def test_peak_score_frequency_output_is_derived_after_prefix_assignment():
         text = files("nucleosuite").joinpath("resources", script_name).read_text()
         assert 'local prefix="$output_dir/${SAMPLE}_${label}" output="${prefix}_score_frequency.tsv"' not in text
         assert 'local prefix output' in text
-        assert 'output="${prefix}_score_frequency.tsv"' in text
+        assert 'output="${prefix}_bins*_score_frequency.tsv"' in text
 
 
 def test_cfdna_dac_validation_uses_current_dac_columns():

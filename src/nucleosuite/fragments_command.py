@@ -193,6 +193,23 @@ def run(args: argparse.Namespace) -> int:
     if args.seed is not None:
         random.seed(args.seed)
 
+    from nucleosuite.output_naming import parameterized_prefix
+
+    args.output_prefix = str(
+        parameterized_prefix(
+            args.output_prefix,
+            (
+                ("fragmin", args.frag_lower),
+                ("fragmax", args.frag_upper),
+                ("mapq", args.min_mapq),
+                ("maxdup", args.max_duplicates),
+                ("dedup", args.dedup_scope),
+                ("subsample", args.subsample),
+                ("seed", args.seed),
+            ),
+        )
+    )
+
     from nucleosuite.parallel import run_native_per_contig
     if not getattr(args, "_per_contig_worker", False) and int(getattr(args, "cores", 1) or 1) > 1:
         return run_native_per_contig("fragments", args, run)

@@ -1148,7 +1148,7 @@ d_j^+=\lvert p_j^+\rvert,
 d_j^-=\lvert p_j^-\rvert.
 ```
 
-An optional inclusive signed exclusion interval $E=[e_{start},e_{end}]$ removes peaks from the regressions after numbering. Regression membership additionally requires $d_{min}\le\lvert p\rvert\le d_{max}$. Directional numbers are not reassigned when an excluded peak is removed.
+An inclusive signed exclusion interval $E=[e_{start},e_{end}]$ removes peaks from the regressions after numbering. By default, $E=[-R/2,+R/2]$ (−80 to +80 bp for $R=160$ bp). Explicit `--nrl-exclusion-start` and `--nrl-exclusion-end` bounds replace that interval, while `--no-nrl-exclusion` removes it. Regression membership additionally requires $d_{min}\le\lvert p\rvert\le d_{max}$. Directional numbers are not reassigned when an excluded peak is removed.
 
 The retained distances are fitted independently:
 
@@ -1160,7 +1160,7 @@ d_j^+=\alpha_+ + \lambda_+j+\varepsilon_j,
 d_j^-=\alpha_- + \lambda_-j+\varepsilon_j.
 ```
 
-The slopes $\lambda_+$ and $\lambda_-$ are the positive- and negative-direction repeat lengths. The regression minimum, maximum and optional exclusion interval affect only regression membership; they do not crop the profile used for smoothing, peak calling or the unified peak plot. The profile plot marks every unified peak and shades the exclusion interval when one was supplied.
+The slopes $\lambda_+$ and $\lambda_-$ are the positive- and negative-direction repeat lengths. The regression minimum, maximum and effective exclusion interval affect only regression membership; they do not crop the profile used for smoothing, peak calling or the unified peak plot. The profile plot marks every unified peak and shades the interval when exclusion is enabled.
 
 ## Gene-set assignment
 

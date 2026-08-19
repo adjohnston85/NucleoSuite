@@ -80,14 +80,15 @@ def test_fragment_size_nrl_outputs_are_replottable(tmp_path: Path) -> None:
     assert len(outputs) == 6
     assert all(path.is_file() for path in outputs)
 
-    profile = tmp_path / "sample_fragment_lengths_fragment_size_nrl_profile.tsv"
-    peaks = tmp_path / "sample_fragment_lengths_fragment_size_nrl_peaks.tsv"
+    stem = tmp_path / "sample_fragment_lengths_peakres160_min100_max1000"
+    profile = Path(f"{stem}_fragment_size_nrl_profile.tsv")
+    peaks = Path(f"{stem}_fragment_size_nrl_peaks.tsv")
     profile_headers, _ = _read_table(profile)
     peak_headers, _ = _read_table(peaks)
     assert detect_plot_type(profile, profile_headers) == "fragment-size-nrl-profile"
     assert detect_plot_type(peaks, peak_headers) == "fragment-size-nrl-regression"
 
-    with (tmp_path / "sample_fragment_lengths_fragment_size_nrl_summary.tsv").open() as handle:
+    with Path(f"{stem}_fragment_size_nrl_summary.tsv").open() as handle:
         row = next(csv.DictReader(handle, delimiter="\t"))
     assert row["nrl_method"] == "fragment_size_distribution"
     assert float(row["nrl_bp"]) == pytest.approx(180.0)

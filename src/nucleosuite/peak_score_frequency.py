@@ -428,7 +428,24 @@ def _run_serial(args: argparse.Namespace) -> int:
         score_max=args.score_max,
         integer_bins=integer_bins,
     )
-    prefix = Path(args.output_prefix)
+    from nucleosuite.output_naming import parameterized_prefix
+
+    bin_parameter = (
+        ("bins", args.bins)
+        if args.bins is not None
+        else ("binwidth", args.bin_width)
+        if args.bin_width is not None
+        else ("bins", "integer")
+    )
+    prefix = parameterized_prefix(
+        args.output_prefix,
+        (
+            bin_parameter,
+            ("scoremin", args.score_min),
+            ("scoremax", args.score_max),
+            ("norm", args.normalization),
+        ),
+    )
     values_path = Path(f"{prefix}_scores.tsv.gz")
     frequency_path = Path(f"{prefix}_score_frequency.tsv")
     summary_path = Path(f"{prefix}_score_summary.tsv")
@@ -457,6 +474,26 @@ def _run_serial(args: argparse.Namespace) -> int:
 
 
 def run(args: argparse.Namespace) -> int:
+    from nucleosuite.output_naming import parameterized_prefix
+
+    bin_parameter = (
+        ("bins", args.bins)
+        if args.bins is not None
+        else ("binwidth", args.bin_width)
+        if args.bin_width is not None
+        else ("bins", "integer")
+    )
+    args.output_prefix = str(
+        parameterized_prefix(
+            args.output_prefix,
+            (
+                bin_parameter,
+                ("scoremin", args.score_min),
+                ("scoremax", args.score_max),
+                ("norm", args.normalization),
+            ),
+        )
+    )
     return run_partitioned_command(
         "peak-score-frequency",
         args,
