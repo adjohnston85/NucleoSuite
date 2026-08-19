@@ -26,7 +26,7 @@ The command recognises the major NucleoSuite plot families, including:
 - positive-run distributions;
 - peak-score frequency distributions;
 - peak-state stacked compositions;
-- compare-positions distance histograms, score scatters, distance-bin correlations, and percentile boxplots;
+- compare-positions multi-callset distance distributions, score scatters, main-score-versus-distance plots, distance-bin correlations, and grouped percentile boxplots;
 - gene-expression spacing summaries/scatters, FFT trajectories, and ranking plots;
 - TSS-expression-quintile profiles;
 - dinucleotide and WW/SS profiles;

@@ -159,6 +159,29 @@ nucleosuite peak-states sample_nucleosome_regions.bed \
   --output-prefix peak_state_counts
 ```
 
+## Compare flanking nucleosome spacing across reference-site categories
+
+```mermaid
+flowchart LR
+    A[Nucleosome call BED] --> C[flank-spacing]
+    B[Categorized reference-site BED] --> C
+    C --> D[Per-site flanking spacings]
+    C --> E[Category distributions]
+    C --> F[Ranked category summary]
+```
+
+Use [`flank-spacing`](commands/flank-spacing.md) when each reference site belongs to a category and the biological quantity of interest is the distance between the nearest nucleosome strictly upstream and the nearest nucleosome strictly downstream. Categories are read from BED column 4 by default.
+
+```bash
+nucleosuite flank-spacing \
+  --nucleosome-bed sample_nucleosome_regions.bed \
+  --region-bed categorized_sites.bed \
+  --category-col 4 \
+  --output-prefix categorized_flank_spacing
+```
+
+The default figure uses density curves, evaluates each curve at 190 and 260 bp, ranks categories by `y(190) / y(260)` from lowest to highest, highlights the top seven categories, and shows 0-500 bp on the x-axis. Raw count curves are available with `--distribution count`.
+
 ## Detect repeating spacing with DAC and estimate NRL
 
 ```mermaid
@@ -236,18 +259,23 @@ nucleosuite aggregate \
 
 [`region-extract`](commands/region-extract.md) exports every region's signal vector and nearby peak records.
 
-## Compare two peak callsets
+## Compare one main peak callset with multiple callsets
 
 ```mermaid
 flowchart LR
-    A[Peak BED A] --> C[compare-positions]
-    B[Peak BED B] --> C
-    C --> D[Matched summit pairs]
-    C --> E[Distance distribution]
-    C --> F[Score agreement]
+    A[Main nucleosome BED] --> C[compare-positions]
+    B1[Comparison BED 1] --> C
+    B2[Comparison BED 2] --> C
+    B3[Comparison BED ...] --> C
+    C --> D[One-to-one matched pairs per comparison]
+    C --> E[Combined distance distributions]
+    C --> F[Main-score percentile groups]
+    F --> G[Grouped percentile boxplot]
+    F --> H[Optional within-percentile pairwise tests]
+    C --> I[Main score vs matched distance per comparison]
 ```
 
-[`compare-positions`](commands/compare-positions.md) compares peak BED files from two methods or parameter settings. The default `unique` mode creates one-to-one pairs. `many-to-one` maps every query call to its nearest target call.
+[`compare-positions`](commands/compare-positions.md) uses one main nucleosome BED and one or more repeated `--compare-bed` inputs. Each comparison is searched once, using whichever of the two callsets has fewer positions as the query while retaining one-to-one unique pairs. The matched pairs are ranked by the main BED score and divided into quartiles by default. Multiple comparisons are overlaid or grouped where practical, and `--stats` performs pairwise tests separately within each percentile group.
 
 ## Analyse fragment sequence periodicity
 

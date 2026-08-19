@@ -182,7 +182,7 @@ DELEGATED_COMMANDS: dict[str, tuple[CommandMain, str]] = {
     "fragment-heatmap": (_fragment_heatmap_main, "Compare fragment-length patterns across samples or region groups."),
     "aggregate": (_aggregate_main, "Aggregate BigWig signal around genomic features."),
     "region-extract": (_region_extract_main, "Export signal values and nearby peaks for each region in a BED file."),
-    "compare-positions": (_compare_positions_main, "Measure how closely two sets of called positions agree."),
+    "compare-positions": (_compare_positions_main, "Compare one main callset with one or more called-position sets."),
     "combine": (_combine_main, "Combine per-contig outputs using raw counts and denominators."),
     "chrom-sizes": (_chrom_sizes_main, "Write chromosome names and lengths from a BAM or CRAM header."),
     "distances": (_distances_main, "Measure spacing between neighbouring or higher-order peaks."),

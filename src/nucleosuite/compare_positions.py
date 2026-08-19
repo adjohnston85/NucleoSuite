@@ -1,19 +1,14 @@
 #!/usr/bin/env python3
-"""Compare summit positions and scores between two BED interval sets."""
+"""Compare one main nucleosome callset with one or more comparison callsets."""
 
 from __future__ import annotations
 
 import argparse
-import bisect
 import csv
-import gc
-import heapq
-import json
+import itertools
 import math
-import os
+import re
 import sys
-from array import array
-from collections import defaultdict, deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -21,309 +16,199 @@ from typing import Iterable, Sequence
 import numpy as np
 from scipy import stats
 
-from nucleosuite.io import open_text as open_interval_text
-from nucleosuite.core.regions import canonical_contig_key
-from nucleosuite.core.blacklist import BlacklistIndex, load_blacklist_unbounded
-from nucleosuite.progress import ProgressReporter
 from nucleosuite.cli.formatting import NucleoSuiteHelpFormatter
+from nucleosuite.progress import ProgressReporter
+from nucleosuite.compare_positions_legacy import (
+    PositionRecord,
+    MatchedPair,
+    MatchResult,
+    _CandidateCursor,
+    _records_by_chrom,
+    match_many_to_one,
+    match_positions,
+    match_unique,
+    read_positions,
+)
 
 
 @dataclass(frozen=True)
-class PositionRecord:
-    """One BED interval with a resolved absolute summit and numeric score."""
-
-    source: str
-    chrom: str
-    start: int
-    end: int
-    summit: int
-    score: float
-    name: str
-    line_number: int
+class ComparisonSpec:
+    label: str
+    path: Path
 
 
-@dataclass(frozen=True)
-class MatchedPair:
-    """One matched A/B position pair."""
-
-    a: PositionRecord
-    b: PositionRecord
+@dataclass
+class ComparisonArrays:
+    label: str
+    path: Path
+    main_count: int
+    compare_count: int
     query_source: str
-
-    @property
-    def signed_distance(self) -> int:
-        return self.b.summit - self.a.summit
-
-    @property
-    def absolute_distance(self) -> int:
-        return abs(self.signed_distance)
-
-
-@dataclass(frozen=True)
-class MatchResult:
-    """Matched records and matching diagnostics."""
-
-    pairs: list[MatchedPair]
-    query_source: str
-    target_source: str
     query_count: int
     target_count: int
     unmatched_no_target_chrom: int
     unmatched_distance: int
     unmatched_unique: int
-
-
-@dataclass(frozen=True)
-class PercentileAssignment:
-    """Independent score-percentile assignment for one input position."""
-
-    percentile: int
-    group_lower: int
-    group_upper: int
+    main_line: np.ndarray
+    main_scores: np.ndarray
+    compare_scores: np.ndarray
+    signed_distance: np.ndarray
+    absolute_distance: np.ndarray
+    percentile: np.ndarray
+    group_labels: np.ndarray
 
     @property
-    def label(self) -> str:
-        return f"{self.group_lower}-{self.group_upper}"
-
-
-@dataclass
-class _CandidateCursor:
-    """Generate target indices in increasing distance from one query summit."""
-
-    query: PositionRecord
-    targets: list[PositionRecord]
-    positions: list[int]
-    left: int
-    right: int
-
-    @classmethod
-    def create(
-        cls,
-        query: PositionRecord,
-        targets: list[PositionRecord],
-        positions: list[int],
-    ) -> "_CandidateCursor":
-        right = bisect.bisect_left(positions, query.summit)
-        return cls(query, targets, positions, right - 1, right)
-
-    def next(self) -> tuple[int, int] | None:
-        """Return ``(absolute_distance, target_index)`` for the next candidate."""
-
-        if self.left < 0 and self.right >= len(self.targets):
-            return None
-        if self.left < 0:
-            index = self.right
-            self.right += 1
-            return abs(self.positions[index] - self.query.summit), index
-        if self.right >= len(self.targets):
-            index = self.left
-            self.left -= 1
-            return abs(self.positions[index] - self.query.summit), index
-
-        left_distance = abs(self.positions[self.left] - self.query.summit)
-        right_distance = abs(self.positions[self.right] - self.query.summit)
-        if left_distance <= right_distance:
-            index = self.left
-            self.left -= 1
-            return left_distance, index
-        index = self.right
-        self.right += 1
-        return right_distance, index
-
-
-@dataclass
-class _PositionNode:
-    """One coordinate group in the ordered one-to-one matching frontier."""
-
-    kind: str
-    coordinate: int
-    record_indices: deque[int]
-    previous: int | None = None
-    following: int | None = None
-    version: int = 0
-    alive: bool = True
+    def pair_count(self) -> int:
+        return int(self.main_scores.size)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="nucleosuite compare-positions",
         description=(
-            "Match the smaller of two BED position sets to nearest positions in "
-            "the other set and quantify positional and score agreement."
+            "Compare one main nucleosome BED with one or more comparison BEDs. "
+            "Each comparison is matched once using the smaller callset as the query, "
+            "with one-to-one unique matching. Matched pairs are ranked by the main "
+            "BED score and divided into percentile groups (quartiles by default)."
         ),
         formatter_class=NucleoSuiteHelpFormatter,
     )
-    parser.add_argument("--bed-a", required=True, help="Method A BED, BED.gz, or bigBed file.")
-    parser.add_argument("--bed-b", required=True, help="Method B BED, BED.gz, or bigBed file.")
     parser.add_argument(
-        "--blacklist-bed",
-        help="BED blacklist; complete overlapping records are excluded from both inputs.",
+        "--main-bed",
+        help="Main nucleosome BED, BED.gz, or bigBed file.",
     )
     parser.add_argument(
-        "--summit-column-a",
-        type=int,
-        default=None,
-        help="One-based absolute summit column for BED A; default uses the BED midpoint.",
-    )
-    parser.add_argument(
-        "--summit-column-b",
-        type=int,
-        default=None,
-        help="One-based absolute summit column for BED B; default uses the BED midpoint.",
-    )
-    parser.add_argument(
-        "--score-column-a",
-        type=int,
-        default=5,
-        help="One-based numeric score column for BED A.",
-    )
-    parser.add_argument(
-        "--score-column-b",
-        type=int,
-        default=5,
-        help="One-based numeric score column for BED B.",
-    )
-    parser.add_argument("--label-a", default=None, help="Display label for method A.")
-    parser.add_argument("--label-b", default=None, help="Display label for method B.")
-    parser.add_argument(
-        "--matching",
-        choices=("one-to-one", "many-to-one", "unique"),
-        default="one-to-one",
+        "--compare-bed",
+        dest="compare_beds",
+        action="append",
+        default=[],
+        metavar="[LABEL=]BED",
         help=(
-            "Nearest-neighbour matching policy. 'one-to-one' uses distance-prioritized "
-            "greedy matching without target reuse; 'many-to-one' permits reuse. "
-            "'unique' is an accepted alias for one-to-one."
+            "Comparison BED. Repeat for multiple callsets. Prefix a path with LABEL= "
+            "to set its plot/legend label; otherwise the basename is used."
         ),
     )
+    # Backward-compatible two-file aliases. They are intentionally omitted from
+    # the documentation; the redesigned interface is --main-bed/--compare-bed.
+    parser.add_argument("--bed-a", dest="legacy_bed_a", help=argparse.SUPPRESS)
+    parser.add_argument("--bed-b", dest="legacy_bed_b", help=argparse.SUPPRESS)
+    parser.add_argument("--main-label", default=None, help="Display label for the main BED.")
     parser.add_argument(
-        "--max-distance",
-        type=float,
-        default=None,
+        "--main-summit-column", type=int, default=None,
+        help="One-based absolute summit column for the main BED; default uses the BED midpoint.",
+    )
+    parser.add_argument(
+        "--compare-summit-column", type=int, default=None,
+        help="One-based absolute summit column used for all comparison BEDs; default uses BED midpoints.",
+    )
+    parser.add_argument(
+        "--main-score-column", type=int, default=5,
+        help="One-based numeric score column for the main BED (default: 5).",
+    )
+    parser.add_argument(
+        "--compare-score-column", type=int, default=5,
+        help="One-based numeric score column used for comparison BEDs (default: 5).",
+    )
+    parser.add_argument(
+        "--blacklist-bed",
+        help="BED blacklist; complete overlapping records are excluded from all inputs.",
+    )
+    parser.add_argument(
+        "--max-distance", type=float, default=None,
         help="Maximum allowed absolute summit distance in bp; omit for no limit.",
     )
     parser.add_argument(
-        "--distance-bins",
-        default="5,10,20,50,100",
+        "--percentile-interval", type=int, default=25,
         help=(
-            "Comma-separated upper bounds for distance-bin summaries. A final "
-            "open-ended bin is added automatically."
+            "Width of main-score percentile groups among matched pairs. The default "
+            "25 gives quartiles: 0-25, 25-50, 50-75, and 75-100."
         ),
     )
     parser.add_argument(
-        "--plot-max-points",
-        type=int,
-        default=200000,
-        help="Maximum matched pairs drawn in scatter plots; 0 draws all pairs.",
-    )
-    parser.add_argument("--plot-seed", type=int, default=1, help="Scatter-plot subsampling seed.")
-    parser.add_argument(
-        "--score-normalization",
-        choices=("raw", "zscore", "percentile"),
-        default="zscore",
-        help="Score representation used for plots, correlations, regression, and distance-bin statistics.",
+        "--distance-bins", default="5,10,20,50,100",
+        help="Comma-separated upper bounds for score-correlation-by-distance summaries.",
     )
     parser.add_argument(
-        "--correlation-method",
-        choices=("spearman", "pearson", "both"),
-        default="spearman",
-        help="Correlation statistic shown in the distance-bin plot and emphasized in summaries.",
+        "--histogram-bin-width", type=float, default=1.0,
+        help="Distance-distribution bin width in bp (default: 1).",
     )
     parser.add_argument(
-        "--score-z-limit",
-        type=float,
-        default=10.0,
-        help=(
-            "Symmetric absolute x- and y-axis limit for the score-correlation plot "
-            "when --score-normalization zscore is used. Use 0 to disable the limit."
-        ),
+        "--histogram-x-min", type=float, default=0.0,
+        help="Displayed lower x-axis limit for distance distributions (default: 0).",
     )
     parser.add_argument(
-        "--histogram-bin-width",
-        type=float,
-        default=1.0,
-        help="Distance-histogram bin width in bp.",
+        "--histogram-x-max", type=float, default=300.0,
+        help="Displayed upper x-axis limit for distance distributions (default: 300).",
     )
     parser.add_argument(
-        "--histogram-x-min",
-        type=float,
-        default=0.0,
-        help="Displayed lower x-axis limit for the distance histogram in bp.",
-    )
-    parser.add_argument(
-        "--histogram-x-max",
-        type=float,
-        default=300.0,
-        help="Displayed upper x-axis limit for the distance histogram in bp.",
-    )
-    parser.add_argument(
-        "--distance-x-major-tick",
-        type=float,
-        default=None,
+        "--distance-x-major-tick", type=float, default=None,
         help="Major x-axis tick interval in bp for numeric distance plots; default is automatic.",
     )
     parser.add_argument(
-        "--distance-x-minor-tick",
-        type=float,
-        default=None,
+        "--distance-x-minor-tick", type=float, default=None,
+        help="Minor x-axis tick interval in bp for numeric distance plots; default is automatic.",
+    )
+    parser.add_argument(
+        "--score-normalization", choices=("raw", "zscore", "percentile"), default="zscore",
+        help="Score representation for main-vs-comparison score-agreement plots (default: zscore).",
+    )
+    parser.add_argument(
+        "--score-correlation", choices=("spearman", "pearson", "both"), default="spearman",
+        help="Correlation displayed for main-vs-comparison score agreement (default: spearman).",
+    )
+    parser.add_argument(
+        "--score-z-limit", type=float, default=10.0,
+        help="Symmetric score z-axis limit for score-agreement plots; 0 disables (default: 10).",
+    )
+    parser.add_argument(
+        "--score-distance-type", choices=("absolute", "signed"), default="absolute",
+        help="Distance used for main-score-versus-distance plots (default: absolute).",
+    )
+    parser.add_argument(
+        "--score-distance-correlation", choices=("spearman", "pearson", "both"), default="spearman",
+        help="Correlation displayed for main peak score versus matched distance (default: spearman).",
+    )
+    parser.add_argument(
+        "--score-distance-plot", choices=("hexbin", "scatter"), default="hexbin",
+        help="Rendering for main-score-versus-distance plots (default: hexbin).",
+    )
+    parser.add_argument(
+        "--plot-max-points", type=int, default=200000,
+        help="Maximum pairs drawn in scatter/hexbin plots; 0 draws all pairs (default: 200000).",
+    )
+    parser.add_argument("--plot-seed", type=int, default=1, help="Plot subsampling seed (default: 1).")
+    parser.add_argument(
+        "--percentile-boxplot-y-max", type=float, default=500.0,
+        help="Displayed upper y-axis limit for percentile distance boxplots; 0 disables (default: 500).",
+    )
+    parser.add_argument(
+        "--stats", action="store_true",
+        help="Perform pairwise comparison tests within each percentile group and annotate the boxplot.",
+    )
+    parser.add_argument(
+        "--stats-test", choices=("nonparametric", "parametric"), default="nonparametric",
         help=(
-            "Minor x-axis tick interval in bp. Automatic defaults use 5 bp for a "
-            "10 bp major interval, 10 bp when the major interval is greater than 50 bp, "
-            "and half the major interval otherwise."
+            "Statistical family for within-percentile pairwise tests. Nonparametric "
+            "uses paired Wilcoxon where shared main calls permit pairing, otherwise "
+            "Mann-Whitney U; parametric uses paired t-tests or Welch t-tests (default: nonparametric)."
         ),
     )
     parser.add_argument(
-        "--percentile-interval",
-        type=int,
-        default=25,
-        help=(
-            "Width of independently calculated score-percentile groups. The default "
-            "quartiles are 0-25, 25-50, 50-75, and 75-100. Groups use lower-exclusive, "
-            "upper-inclusive boundaries except at zero. Two directional analyses are "
-            "produced: each A percentile group versus all B positions, and each B "
-            "percentile group versus all A positions."
-        ),
+        "--p-adjust", choices=("holm", "none"), default="holm",
+        help="Multiple-testing correction applied independently within each percentile group (default: holm).",
     )
     parser.add_argument(
-        "--percentile-boxplot-y-max",
-        type=float,
-        default=500.0,
-        help=(
-            "Displayed upper y-axis limit in bp for directional percentile-distance "
-            "boxplots. Use 0 to disable the limit."
-        ),
+        "--p-display", choices=("value", "stars"), default="value",
+        help="Display adjusted/raw p-values or significance stars above boxplots (default: value).",
     )
     parser.add_argument(
-        "--skip-percentile-distance-analysis",
-        action="store_true",
-        help=(
-            "Skip the two directional score-percentile distance analyses and their "
-            "box-and-whisker plots."
-        ),
+        "--skip-pairs-tsv", action="store_true",
+        help="Do not write the detailed matched-pair TSV for each comparison.",
     )
+    parser.add_argument("--dpi", type=int, default=300, help="Figure DPI; --plot-dpi takes precedence.")
     parser.add_argument(
-        "--skip-pairs-tsv",
-        action="store_true",
-        help="Run the main analyses without writing the potentially large main pair TSV.",
-    )
-    parser.add_argument(
-        "--skip-percentile-pairs-tsv",
-        action="store_true",
-        help=(
-            "Run directional percentile summaries and plots without writing their "
-            "potentially large detailed pair TSVs."
-        ),
-    )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Ignore compatible stage checkpoints and recompute every analysis stage.",
-    )
-    parser.add_argument("--dpi", type=int, default=300, help="Figure resolution setting; --plot-dpi takes precedence when supplied.")
-    parser.add_argument(
-        "-o",
-        "--output-prefix",
-        default=None,
-        help="Output prefix. Default combines the two input basenames.",
+        "-o", "--output-prefix", default=None,
+        help="Output prefix. Default uses the main BED basename followed by _compare_positions.",
     )
     parser.add_argument("--quiet", action="store_true", help="Suppress progress messages.")
     from nucleosuite.parallel import add_parallel_arguments
@@ -340,2256 +225,865 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _positive_column(value: int | None, option: str) -> int | None:
-    if value is not None and value < 1:
-        raise ValueError(f"{option} must be a one-based column number of at least 1.")
-    return value
+def _default_label(path: str | Path) -> str:
+    name = Path(path).name
+    for suffix in (".bed.gz", ".bed.bgz", ".bigBed", ".bigbed", ".bed", ".bb", ".gz"):
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return Path(name).stem
 
 
-def _parse_integer_coordinate(value: str, context: str) -> int:
-    try:
-        numeric = float(value)
-    except ValueError as exc:
-        raise ValueError(f"{context}: expected a numeric summit coordinate, found {value!r}.") from exc
-    if not math.isfinite(numeric) or not numeric.is_integer():
-        raise ValueError(f"{context}: summit coordinates must be finite integers, found {value!r}.")
-    return int(numeric)
+def _safe_token(value: str) -> str:
+    token = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip()).strip("_.-")
+    return token or "comparison"
 
 
-def read_positions(
-    path: str | Path,
-    source: str,
-    summit_column: int | None,
-    score_column: int,
-    blacklist: BlacklistIndex | None = None,
-    excluded_counter: list[int] | None = None,
-    progress: ProgressReporter | None = None,
-) -> list[PositionRecord]:
-    """Read positions from BED, BED.gz, or bigBed using one-based column options."""
-
-    input_path = Path(path)
-    if not input_path.exists():
-        raise FileNotFoundError(f"Input interval file not found: {input_path}")
-    _positive_column(summit_column, f"--summit-column-{source.lower()}")
-    _positive_column(score_column, f"--score-column-{source.lower()}")
-
-    required_column = max(3, score_column, summit_column or 0)
-    records: list[PositionRecord] = []
-    if progress is not None:
-        progress.file_start(source, input_path)
-    seen_contigs: set[str] = set()
-    with open_interval_text(input_path) as handle:
-        for line_number, raw in enumerate(handle, start=1):
-            text = raw.strip()
-            if not text or text.startswith(("#", "track", "browser")):
-                continue
-            fields = text.split("\t") if "\t" in text else text.split()
-            if len(fields) < required_column:
-                raise ValueError(
-                    f"{input_path}:{line_number}: requires at least {required_column} "
-                    f"columns for the selected summit and score fields; found {len(fields)}."
-                )
-            chrom = fields[0]
-            if progress is not None and chrom not in seen_contigs:
-                seen_contigs.add(chrom)
-                progress.reading_contig(source, chrom)
-            try:
-                start = int(fields[1])
-                end = int(fields[2])
-            except ValueError as exc:
-                raise ValueError(
-                    f"{input_path}:{line_number}: BED start and end must be integers."
-                ) from exc
-            if start < 0 or end <= start:
-                raise ValueError(
-                    f"{input_path}:{line_number}: require 0 <= start < end."
-                )
-            if blacklist is not None and blacklist.overlaps(chrom, start, end):
-                if excluded_counter is not None:
-                    excluded_counter[0] += 1
-                continue
-            if summit_column is None:
-                summit = (start + end) // 2
-            else:
-                summit = _parse_integer_coordinate(
-                    fields[summit_column - 1],
-                    f"{input_path}:{line_number}",
-                )
-            try:
-                score = float(fields[score_column - 1])
-            except ValueError as exc:
-                raise ValueError(
-                    f"{input_path}:{line_number}: score column {score_column} "
-                    f"must be numeric."
-                ) from exc
-            if not math.isfinite(score):
-                raise ValueError(
-                    f"{input_path}:{line_number}: score column {score_column} must be finite."
-                )
-            name = fields[3] if len(fields) >= 4 else f"{chrom}:{start}-{end}"
-            records.append(
-                PositionRecord(
-                    source=source,
-                    chrom=chrom,
-                    start=start,
-                    end=end,
-                    summit=summit,
-                    score=score,
-                    name=name,
-                    line_number=line_number,
-                )
-            )
-
-    if not records:
-        raise ValueError(f"No interval records were read from {input_path}.")
-    if progress is not None:
-        progress.file_complete(source, input_path, len(records))
-    return records
-
-
-def _records_by_chrom(records: Iterable[PositionRecord]) -> dict[str, list[PositionRecord]]:
-    grouped: dict[str, list[PositionRecord]] = defaultdict(list)
-    for record in records:
-        grouped[canonical_contig_key(record.chrom)].append(record)
-    for chrom in grouped:
-        grouped[chrom].sort(
-            key=lambda record: (
-                record.summit,
-                record.start,
-                record.end,
-                record.line_number,
-            )
-        )
-    return dict(grouped)
-
-
-def _nearest_index(query: PositionRecord, targets: list[PositionRecord], positions: list[int]) -> int:
-    insertion = bisect.bisect_left(positions, query.summit)
-    candidates: list[int] = []
-    if insertion > 0:
-        candidates.append(insertion - 1)
-    if insertion < len(targets):
-        candidates.append(insertion)
-    return min(
-        candidates,
-        key=lambda index: (
-            abs(targets[index].summit - query.summit),
-            targets[index].summit,
-            targets[index].start,
-            targets[index].end,
-            targets[index].line_number,
-        ),
-    )
-
-
-def _make_pair(query: PositionRecord, target: PositionRecord, query_source: str) -> MatchedPair:
-    if query_source == "A":
-        return MatchedPair(a=query, b=target, query_source="A")
-    return MatchedPair(a=target, b=query, query_source="B")
-
-
-def match_many_to_one(
-    query_records: list[PositionRecord],
-    target_records: list[PositionRecord],
-    query_source: str,
-    max_distance: float | None,
-    progress: ProgressReporter | None = None,
-    progress_stage: str = "Matching many-to-one",
-) -> MatchResult:
-    target_by_chrom = _records_by_chrom(target_records)
-    target_positions = {
-        chrom: [record.summit for record in records]
-        for chrom, records in target_by_chrom.items()
-    }
-    pairs: list[MatchedPair] = []
-    unmatched_no_target_chrom = 0
-    unmatched_distance = 0
-
-    ordered_queries = sorted(
-        query_records,
-        key=lambda record: (
-            canonical_contig_key(record.chrom),
-            record.summit,
-            record.line_number,
-        ),
-    )
-    last_chrom = None
-    contig_index = 0
-    total_contigs = len({canonical_contig_key(record.chrom) for record in ordered_queries})
-    for query in ordered_queries:
-        query_chrom_key = canonical_contig_key(query.chrom)
-        if progress is not None and query_chrom_key != last_chrom:
-            contig_index += 1
-            last_chrom = query_chrom_key
-            progress.contig(
-                progress_stage, query.chrom, contig_index, total_contigs
-            )
-        targets = target_by_chrom.get(query_chrom_key)
-        if not targets:
-            unmatched_no_target_chrom += 1
-            continue
-        target_index = _nearest_index(query, targets, target_positions[query_chrom_key])
-        target = targets[target_index]
-        distance = abs(target.summit - query.summit)
-        if max_distance is not None and distance > max_distance:
-            unmatched_distance += 1
-            continue
-        pairs.append(_make_pair(query, target, query_source))
-
-    return MatchResult(
-        pairs=pairs,
-        query_source=query_source,
-        target_source="B" if query_source == "A" else "A",
-        query_count=len(query_records),
-        target_count=len(target_records),
-        unmatched_no_target_chrom=unmatched_no_target_chrom,
-        unmatched_distance=unmatched_distance,
-        unmatched_unique=0,
-    )
-
-
-def match_unique(
-    query_records: list[PositionRecord],
-    target_records: list[PositionRecord],
-    query_source: str,
-    max_distance: float | None,
-    progress: ProgressReporter | None = None,
-    progress_stage: str = "Matching one-to-one",
-) -> MatchResult:
-    """Distance-prioritized greedy one-to-one matching in near-linear space.
-
-    After exact-coordinate pairs are resolved, the closest remaining
-    query/target pair must lie on a boundary between adjacent opposite-type
-    coordinate groups. A heap stores only those boundaries. Removing a matched
-    pair exposes at most two new boundaries, giving approximately
-    ``O((Q + T) log(Q + T))`` time instead of repeatedly scanning targets that
-    have already been assigned.
-    """
-
-    query_by_chrom = _records_by_chrom(query_records)
-    target_by_chrom = _records_by_chrom(target_records)
-    pairs: list[MatchedPair] = []
-    unmatched_no_target_chrom = 0
-    unmatched_distance = 0
-    unmatched_unique = 0
-
-    contigs = list(query_by_chrom)
-    for chrom_index, (chrom, queries) in enumerate(query_by_chrom.items(), start=1):
-        if progress is not None:
-            progress.contig(
-                progress_stage,
-                queries[0].chrom if queries else chrom,
-                chrom_index,
-                len(contigs),
-                len(queries),
-            )
-        targets = target_by_chrom.get(chrom)
-        if not targets:
-            unmatched_no_target_chrom += len(queries)
-            continue
-
-        queries_at: dict[int, deque[int]] = defaultdict(deque)
-        targets_at: dict[int, deque[int]] = defaultdict(deque)
-        for query_index, record in enumerate(queries):
-            queries_at[record.summit].append(query_index)
-        for target_index, record in enumerate(targets):
-            targets_at[record.summit].append(target_index)
-
-        matched_query_count = 0
-        nodes: list[_PositionNode] = []
-        for coordinate in sorted(set(queries_at) | set(targets_at)):
-            query_indexes = queries_at.get(coordinate, deque())
-            target_indexes = targets_at.get(coordinate, deque())
-            while query_indexes and target_indexes:
-                query_index = query_indexes.popleft()
-                target_index = target_indexes.popleft()
-                pairs.append(
-                    _make_pair(
-                        queries[query_index], targets[target_index], query_source
-                    )
-                )
-                matched_query_count += 1
-            if query_indexes:
-                nodes.append(_PositionNode("Q", coordinate, query_indexes))
-            elif target_indexes:
-                nodes.append(_PositionNode("T", coordinate, target_indexes))
-
-        for node_index, node in enumerate(nodes):
-            node.previous = node_index - 1 if node_index else None
-            node.following = node_index + 1 if node_index + 1 < len(nodes) else None
-
-        boundary_heap: list[tuple[int, int, int, int, int, int, int]] = []
-
-        def push_boundary(left_index: int | None) -> None:
-            if left_index is None:
-                return
-            left = nodes[left_index]
-            right_index = left.following
-            if not left.alive or right_index is None:
-                return
-            right = nodes[right_index]
-            if not right.alive or left.kind == right.kind:
-                return
-            if left.kind == "Q":
-                query_index = left.record_indices[0]
-                target_index = right.record_indices[0]
-            else:
-                query_index = right.record_indices[0]
-                # The bisect cursor approaches a duplicate target
-                # coordinate from the right by walking leftward, so it selects
-                # the last target at that coordinate first.
-                target_index = left.record_indices[-1]
-            heapq.heappush(
-                boundary_heap,
-                (
-                    abs(right.coordinate - left.coordinate),
-                    query_index,
-                    target_index,
-                    left_index,
-                    right_index,
-                    left.version,
-                    right.version,
-                ),
-            )
-
-        for node_index in range(max(0, len(nodes) - 1)):
-            push_boundary(node_index)
-
-        def unlink(node_index: int) -> None:
-            node = nodes[node_index]
-            previous = node.previous
-            following = node.following
-            if previous is not None:
-                nodes[previous].following = following
-            if following is not None:
-                nodes[following].previous = previous
-            node.alive = False
-            node.previous = None
-            node.following = None
-            node.version += 1
-
-        while boundary_heap:
-            (
-                distance,
-                query_index,
-                target_index,
-                left_index,
-                right_index,
-                left_version,
-                right_version,
-            ) = heapq.heappop(boundary_heap)
-            left = nodes[left_index]
-            right = nodes[right_index]
-            if (
-                not left.alive
-                or not right.alive
-                or left.following != right_index
-                or right.previous != left_index
-                or left.version != left_version
-                or right.version != right_version
-            ):
-                continue
-            if max_distance is not None and distance > max_distance:
-                break
-            current_query = (
-                left.record_indices[0]
-                if left.kind == "Q"
-                else right.record_indices[0]
-            )
-            current_target = (
-                right.record_indices[0]
-                if left.kind == "Q"
-                else left.record_indices[-1]
-            )
-            if current_query != query_index or current_target != target_index:
-                continue
-
-            pairs.append(
-                _make_pair(
-                    queries[query_index], targets[target_index], query_source
-                )
-            )
-            matched_query_count += 1
-            affected = {
-                left.previous,
-                left_index,
-                right_index,
-                right.following,
-            }
-            if left.kind == "Q":
-                left.record_indices.popleft()
-                right.record_indices.popleft()
-            else:
-                left.record_indices.pop()
-                right.record_indices.popleft()
-            left.version += 1
-            right.version += 1
-            if not left.record_indices:
-                unlink(left_index)
-            if not right.record_indices:
-                unlink(right_index)
-            for candidate_index in list(affected):
-                if candidate_index is None or not nodes[candidate_index].alive:
-                    continue
-                push_boundary(nodes[candidate_index].previous)
-                push_boundary(candidate_index)
-
-        remaining_query_indices: list[int] = []
-        for node in nodes:
-            if not node.alive:
-                continue
-            if node.kind == "Q":
-                remaining_query_indices.extend(node.record_indices)
-        if max_distance is None:
-            unmatched_unique += len(remaining_query_indices)
-        else:
-            # Preserve the former candidate-cursor diagnostic semantics: an
-            # unmatched query kept expanding through consumed targets.  It was
-            # classified as distance-rejected when that expansion first reached
-            # any candidate beyond the limit, and as a pure uniqueness conflict
-            # only when every original target was within the limit.
-            first_target = targets[0].summit
-            last_target = targets[-1].summit
-            for query_index in remaining_query_indices:
-                summit = queries[query_index].summit
-                farthest = max(
-                    abs(first_target - summit), abs(last_target - summit)
-                )
-                if farthest > max_distance:
-                    unmatched_distance += 1
-                else:
-                    unmatched_unique += 1
-
-        expected_unmatched = len(queries) - matched_query_count
-        observed_unmatched = (
-            len(remaining_query_indices)
-        )
-        if expected_unmatched != observed_unmatched:
-            raise RuntimeError(
-                "Internal one-to-one matching count mismatch: "
-                f"expected {expected_unmatched}, observed {observed_unmatched}"
-            )
-
-    return MatchResult(
-        pairs=sorted(
-            pairs,
-            key=lambda pair: (
-                pair.a.chrom,
-                pair.a.summit if query_source == "A" else pair.b.summit,
-                pair.a.line_number,
-                pair.b.line_number,
-            ),
-        ),
-        query_source=query_source,
-        target_source="B" if query_source == "A" else "A",
-        query_count=len(query_records),
-        target_count=len(target_records),
-        unmatched_no_target_chrom=unmatched_no_target_chrom,
-        unmatched_distance=unmatched_distance,
-        unmatched_unique=unmatched_unique,
-    )
-
-
-def match_positions(
-    records_a: list[PositionRecord],
-    records_b: list[PositionRecord],
-    matching: str,
-    max_distance: float | None,
-    progress: ProgressReporter | None = None,
-    progress_stage: str | None = None,
-) -> MatchResult:
-    """Use the smaller valid record set as query and match by chromosome."""
-
-    if max_distance is not None and max_distance < 0:
-        raise ValueError("--max-distance must be zero or greater.")
-    if len(records_a) <= len(records_b):
-        query_records, target_records, query_source = records_a, records_b, "A"
+def _parse_compare_spec(value: str) -> ComparisonSpec:
+    if "=" in value:
+        label, path_text = value.split("=", 1)
+        label = label.strip()
+        if not label:
+            raise ValueError("--compare-bed LABEL=BED requires a non-empty label.")
     else:
-        query_records, target_records, query_source = records_b, records_a, "B"
-
-    if matching == "many-to-one":
-        return match_many_to_one(
-            query_records,
-            target_records,
-            query_source,
-            max_distance,
-            progress=progress,
-            progress_stage=progress_stage or "Matching many-to-one",
-        )
-    if matching in {"unique", "one-to-one"}:
-        return match_unique(
-            query_records,
-            target_records,
-            query_source,
-            max_distance,
-            progress=progress,
-            progress_stage=progress_stage or "Matching one-to-one",
-        )
-    raise ValueError(f"Unknown matching policy: {matching}")
+        path_text = value
+        label = _default_label(path_text)
+    path = Path(path_text)
+    return ComparisonSpec(label=label, path=path)
 
 
-def match_positions_directional(
-    query_records: Sequence[PositionRecord],
-    target_records: Sequence[PositionRecord],
-    query_source: str,
-    matching: str,
-    max_distance: float | None,
-    progress: ProgressReporter | None = None,
-    progress_stage: str | None = None,
-) -> MatchResult:
-    """Match a designated query set against a designated complete target set.
-
-    Unlike :func:`match_positions`, this function never swaps the two inputs based
-    on their sizes. It is used by the directional percentile analyses, where the
-    percentile group must remain the query and the complete opposite callset must
-    remain the target.
-    """
-
-    if max_distance is not None and max_distance < 0:
-        raise ValueError("--max-distance must be zero or greater.")
-    if query_source not in {"A", "B"}:
-        raise ValueError("query_source must be 'A' or 'B'.")
-
-    query_list = list(query_records)
-    target_list = list(target_records)
-    if matching == "many-to-one":
-        return match_many_to_one(
-            query_list,
-            target_list,
-            query_source,
-            max_distance,
-            progress=progress,
-            progress_stage=progress_stage or "Matching many-to-one",
-        )
-    if matching in {"unique", "one-to-one"}:
-        return match_unique(
-            query_list,
-            target_list,
-            query_source,
-            max_distance,
-            progress=progress,
-            progress_stage=progress_stage or "Matching one-to-one",
-        )
-    raise ValueError(f"Unknown matching policy: {matching}")
+def _resolve_inputs(args: argparse.Namespace) -> tuple[Path, list[ComparisonSpec]]:
+    main_value = getattr(args, "main_bed", None)
+    compare_values = list(getattr(args, "compare_beds", None) or [])
+    legacy_a = getattr(args, "legacy_bed_a", None)
+    legacy_b = getattr(args, "legacy_bed_b", None)
+    if main_value is None and legacy_a:
+        main_value = legacy_a
+    if not compare_values and legacy_b:
+        compare_values = [legacy_b]
+    if not main_value:
+        raise ValueError("--main-bed is required.")
+    if not compare_values:
+        raise ValueError("At least one --compare-bed is required.")
+    specs = [_parse_compare_spec(str(value)) for value in compare_values]
+    labels = [spec.label for spec in specs]
+    if len(labels) != len(set(labels)):
+        duplicates = sorted({label for label in labels if labels.count(label) > 1})
+        raise ValueError("Comparison labels must be unique: " + ", ".join(duplicates))
+    return Path(main_value), specs
 
 
-def _validate_percentile_interval(interval: int) -> int:
-    if interval < 1 or interval > 100:
+def _validate_args(args: argparse.Namespace) -> None:
+    if not 1 <= int(args.percentile_interval) <= 100:
         raise ValueError("--percentile-interval must be between 1 and 100.")
-    return interval
+    if args.max_distance is not None and (not math.isfinite(float(args.max_distance)) or float(args.max_distance) < 0):
+        raise ValueError("--max-distance must be finite and zero or greater.")
+    if not math.isfinite(float(args.histogram_bin_width)) or float(args.histogram_bin_width) <= 0:
+        raise ValueError("--histogram-bin-width must be greater than zero.")
+    if float(args.histogram_x_min) < 0 or float(args.histogram_x_max) <= float(args.histogram_x_min):
+        raise ValueError("Histogram limits require 0 <= x-min < x-max.")
+    if int(args.plot_max_points) < 0:
+        raise ValueError("--plot-max-points must be zero or greater.")
+    if int(args.dpi) < 1:
+        raise ValueError("--dpi must be at least 1.")
+    if not math.isfinite(float(args.score_z_limit)) or float(args.score_z_limit) < 0:
+        raise ValueError("--score-z-limit must be finite and zero or greater.")
+    if not math.isfinite(float(args.percentile_boxplot_y_max)) or float(args.percentile_boxplot_y_max) < 0:
+        raise ValueError("--percentile-boxplot-y-max must be finite and zero or greater.")
+    for value, option in (
+        (args.main_score_column, "--main-score-column"),
+        (args.compare_score_column, "--compare-score-column"),
+        (args.main_summit_column, "--main-summit-column"),
+        (args.compare_summit_column, "--compare-summit-column"),
+    ):
+        if value is not None and int(value) < 1:
+            raise ValueError(f"{option} must be a one-based column number of at least 1.")
 
 
 def _percentile_group_bounds(interval: int) -> list[tuple[int, int, str]]:
-    """Return boundary-labelled groups such as 0-25, 25-50, 50-75, 75-100.
-
-    Membership is lower-exclusive and upper-inclusive, except that the first
-    boundary begins at zero. Score percentiles themselves remain integer values
-    from 1 through 100.
-    """
-
-    _validate_percentile_interval(interval)
     groups: list[tuple[int, int, str]] = []
     lower = 0
     while lower < 100:
-        upper = min(100, lower + interval)
+        upper = min(100, lower + int(interval))
         groups.append((lower, upper, f"{lower}-{upper}"))
         lower = upper
     return groups
 
 
-def assign_score_percentiles(
-    records: Sequence[PositionRecord],
+def _assign_matched_percentiles(main_scores: np.ndarray, interval: int) -> tuple[np.ndarray, np.ndarray]:
+    """Rank matched pairs by main score and return percentile + group label arrays."""
+    n = int(main_scores.size)
+    if n == 0:
+        return np.asarray([], dtype=np.uint8), np.asarray([], dtype=object)
+    # Stable sorting keeps ties deterministic without changing the user's explicit
+    # requirement that matched pairs are sorted by main BED score.
+    order = np.argsort(main_scores, kind="stable")
+    percentile = np.empty(n, dtype=np.uint8)
+    ranks = np.arange(1, n + 1, dtype=float)
+    percentile[order] = np.ceil(ranks * 100.0 / n).astype(np.uint8)
+    labels = np.empty(n, dtype=object)
+    for lower, upper, label in _percentile_group_bounds(interval):
+        mask = (percentile > lower) & (percentile <= upper)
+        labels[mask] = label
+    return percentile, labels
+
+
+def _arrays_from_match(
+    label: str,
+    path: Path,
+    result: MatchResult,
+    main_count: int,
+    compare_count: int,
     interval: int,
-) -> dict[int, PercentileAssignment]:
-    """Assign equal-frequency score percentiles independently within one BED.
-
-    Scores are ordered from low to high. Ties are resolved deterministically by
-    genomic position and input line number so groups remain close to equal size.
-    The returned mapping is keyed by the input line number, which is unique within
-    each BED file.
-    """
-
-    _validate_percentile_interval(interval)
-    ordered = sorted(
-        records,
-        key=lambda record: (
-            record.score,
-            record.chrom,
-            record.summit,
-            record.start,
-            record.end,
-            record.line_number,
-        ),
+) -> ComparisonArrays:
+    pairs = result.pairs
+    n = len(pairs)
+    main_line = np.fromiter((pair.a.line_number for pair in pairs), dtype=np.int64, count=n)
+    main_scores = np.fromiter((pair.a.score for pair in pairs), dtype=np.float64, count=n)
+    compare_scores = np.fromiter((pair.b.score for pair in pairs), dtype=np.float64, count=n)
+    signed = np.fromiter((pair.signed_distance for pair in pairs), dtype=np.int64, count=n)
+    absolute = np.abs(signed).astype(np.float64)
+    percentile, group_labels = _assign_matched_percentiles(main_scores, interval)
+    return ComparisonArrays(
+        label=label,
+        path=path,
+        main_count=main_count,
+        compare_count=compare_count,
+        query_source="main" if result.query_source == "A" else "comparison",
+        query_count=result.query_count,
+        target_count=result.target_count,
+        unmatched_no_target_chrom=result.unmatched_no_target_chrom,
+        unmatched_distance=result.unmatched_distance,
+        unmatched_unique=result.unmatched_unique,
+        main_line=main_line,
+        main_scores=main_scores,
+        compare_scores=compare_scores,
+        signed_distance=signed,
+        absolute_distance=absolute,
+        percentile=percentile,
+        group_labels=group_labels,
     )
-    count = len(ordered)
-    assignments: dict[int, PercentileAssignment] = {}
-    for rank, record in enumerate(ordered, start=1):
-        percentile = int(math.ceil(rank * 100.0 / count))
-        lower = ((percentile - 1) // interval) * interval
-        upper = min(100, lower + interval)
-        assignments[record.line_number] = PercentileAssignment(
-            percentile=percentile,
-            group_lower=lower,
-            group_upper=upper,
-        )
-    return assignments
 
 
-def assign_score_percentiles_compact(
-    records: Sequence[PositionRecord],
-    interval: int,
-) -> np.ndarray:
-    """Assign 1-100 score percentiles in a compact line-number-indexed array.
-
-    Numeric lexicographic sorting preserves the public tie rule (genomic
-    position followed by input line number) without constructing millions of
-    Python mapping entries.
-    """
-
-    _validate_percentile_interval(interval)
-    if not records:
-        return np.zeros(0, dtype=np.uint8)
-    count = len(records)
-    scores = np.fromiter(
-        (record.score for record in records), dtype=np.float64, count=count
-    )
-    chrom_codes = {chrom: index for index, chrom in enumerate(
-        sorted({record.chrom for record in records})
-    )}
-    chroms = np.fromiter(
-        (chrom_codes[record.chrom] for record in records), dtype=np.int32, count=count
-    )
-    summits = np.fromiter(
-        (record.summit for record in records), dtype=np.int64, count=count
-    )
-    starts = np.fromiter(
-        (record.start for record in records), dtype=np.int64, count=count
-    )
-    ends = np.fromiter(
-        (record.end for record in records), dtype=np.int64, count=count
-    )
-    line_numbers = np.fromiter(
-        (record.line_number for record in records), dtype=np.int64, count=count
-    )
-    # Use deterministic ordering by score, chromosome,
-    # summit, interval start/end, then input line number.
-    order = np.lexsort((line_numbers, ends, starts, summits, chroms, scores))
-    percentiles_by_record = np.empty(len(records), dtype=np.uint8)
-    ranks = np.arange(1, len(records) + 1, dtype=np.float64)
-    percentiles_by_record[order] = np.ceil(
-        ranks * 100.0 / len(records)
-    ).astype(np.uint8)
-    assignments = np.zeros(
-        max(record.line_number for record in records) + 1, dtype=np.uint8
-    )
-    assignments[line_numbers] = percentiles_by_record
-    return assignments
+def _zscores(values: np.ndarray) -> np.ndarray:
+    if values.size == 0:
+        return values.astype(float)
+    std = float(np.std(values))
+    if not math.isfinite(std) or std == 0:
+        return np.zeros(values.size, dtype=float)
+    return (values - float(np.mean(values))) / std
 
 
-def directional_percentile_distance_rows(
-    records_a: Sequence[PositionRecord],
-    records_b: Sequence[PositionRecord],
-    percentile_source: str,
-    matching: str,
-    max_distance: float | None,
-    interval: int,
-) -> tuple[list[dict[str, object]], list[dict[str, object]], dict[str, np.ndarray]]:
-    """Compare each percentile group from one source with all opposite positions.
+def _percentile_ranks(values: np.ndarray) -> np.ndarray:
+    if values.size == 0:
+        return values.astype(float)
+    ranks = stats.rankdata(values, method="average")
+    if values.size == 1:
+        return np.asarray([100.0])
+    return 100.0 * (ranks - 1.0) / (values.size - 1.0)
 
-    ``percentile_source='A'`` produces A percentile groups versus the complete B
-    callset. ``percentile_source='B'`` produces the reciprocal analysis. The
-    opposite callset is never split or filtered by percentile for matching.
-    """
 
-    if percentile_source not in {"A", "B"}:
-        raise ValueError("percentile_source must be 'A' or 'B'.")
+def _selected_scores(result: ComparisonArrays, normalization: str) -> tuple[np.ndarray, np.ndarray, str]:
+    if normalization == "raw":
+        return result.main_scores, result.compare_scores, "raw score"
+    if normalization == "percentile":
+        return _percentile_ranks(result.main_scores), _percentile_ranks(result.compare_scores), "score percentile rank"
+    return _zscores(result.main_scores), _zscores(result.compare_scores), "score z-score"
 
-    groups = _percentile_group_bounds(interval)
-    assignment_a = assign_score_percentiles(records_a, interval)
-    assignment_b = assign_score_percentiles(records_b, interval)
-    source_records = list(records_a if percentile_source == "A" else records_b)
-    target_records = list(records_b if percentile_source == "A" else records_a)
-    source_assignments = assignment_a if percentile_source == "A" else assignment_b
-    target_source = "B" if percentile_source == "A" else "A"
 
-    grouped_source: dict[str, list[PositionRecord]] = defaultdict(list)
-    for record in source_records:
-        grouped_source[source_assignments[record.line_number].label].append(record)
-
-    detail_rows: list[dict[str, object]] = []
-    summary_rows: list[dict[str, object]] = []
-    distances_by_group: dict[str, np.ndarray] = {}
-    pair_number = 0
-
-    for lower, upper, label in groups:
-        query_group = grouped_source.get(label, [])
-        pairs: list[MatchedPair] = []
-        unmatched_no_target = 0
-        unmatched_distance = 0
-        unmatched_unique = 0
-        if query_group:
-            result = match_positions_directional(
-                query_group,
-                target_records,
-                percentile_source,
-                matching,
-                max_distance,
-            )
-            pairs = result.pairs
-            unmatched_no_target = result.unmatched_no_target_chrom
-            unmatched_distance = result.unmatched_distance
-            unmatched_unique = result.unmatched_unique
-
-        matched_source = {
-            pair.a.line_number if percentile_source == "A" else pair.b.line_number
-            for pair in pairs
-        }
-        matched_target = {
-            pair.b.line_number if percentile_source == "A" else pair.a.line_number
-            for pair in pairs
-        }
-        distances = np.asarray([pair.absolute_distance for pair in pairs], dtype=np.float64)
-        distances_by_group[label] = distances
-
-        for pair in pairs:
-            pair_number += 1
-            a_assignment = assignment_a[pair.a.line_number]
-            b_assignment = assignment_b[pair.b.line_number]
-            signed_target_minus_query = (
-                pair.signed_distance
-                if percentile_source == "A"
-                else -pair.signed_distance
-            )
-            detail_rows.append(
-                {
-                    "pair_id": f"percentile_pair_{pair_number:07d}",
-                    "analysis_direction": f"{percentile_source}_percentiles_vs_all_{target_source}",
-                    "percentile_source": percentile_source,
-                    "target_source": target_source,
-                    "percentile_group": label,
-                    "group_lower_percentile": lower,
-                    "group_upper_percentile": upper,
-                    "query_source": percentile_source,
-                    "chrom": pair.a.chrom,
-                    "a_start": pair.a.start,
-                    "a_end": pair.a.end,
-                    "a_name": pair.a.name,
-                    "a_summit": pair.a.summit,
-                    "a_score": pair.a.score,
-                    "a_score_percentile": a_assignment.percentile,
-                    "b_start": pair.b.start,
-                    "b_end": pair.b.end,
-                    "b_name": pair.b.name,
-                    "b_summit": pair.b.summit,
-                    "b_score": pair.b.score,
-                    "b_score_percentile": b_assignment.percentile,
-                    "signed_distance_b_minus_a": pair.signed_distance,
-                    "signed_distance_target_minus_query": signed_target_minus_query,
-                    "absolute_distance": pair.absolute_distance,
-                }
-            )
-
-        if distances.size:
-            q1, median, q3 = np.percentile(distances, [25, 50, 75])
-            minimum = float(np.min(distances))
-            maximum = float(np.max(distances))
-            mean = float(np.mean(distances))
-            standard_deviation = float(np.std(distances, ddof=0))
+def _safe_corr(x: np.ndarray, y: np.ndarray, method: str) -> tuple[float, float]:
+    mask = np.isfinite(x) & np.isfinite(y)
+    x = x[mask]
+    y = y[mask]
+    if x.size < 2 or np.all(x == x[0]) or np.all(y == y[0]):
+        return math.nan, math.nan
+    try:
+        if method == "spearman":
+            output = stats.spearmanr(x, y)
+        elif method == "pearson":
+            output = stats.pearsonr(x, y)
         else:
-            minimum = q1 = median = mean = q3 = maximum = standard_deviation = float("nan")
+            raise ValueError(method)
+        return float(output.statistic), float(output.pvalue)
+    except Exception:
+        return math.nan, math.nan
 
-        summary_rows.append(
-            {
-                "analysis_direction": f"{percentile_source}_percentiles_vs_all_{target_source}",
-                "percentile_source": percentile_source,
-                "target_source": target_source,
+
+def _linear_stats(x: np.ndarray, y: np.ndarray) -> tuple[float, float, float, float]:
+    mask = np.isfinite(x) & np.isfinite(y)
+    x = x[mask]
+    y = y[mask]
+    if x.size < 2 or np.all(x == x[0]):
+        return math.nan, math.nan, math.nan, math.nan
+    try:
+        regression = stats.linregress(x, y)
+        return float(regression.slope), float(regression.intercept), float(regression.rvalue ** 2), float(regression.pvalue)
+    except Exception:
+        return math.nan, math.nan, math.nan, math.nan
+
+
+def _plot_indices(count: int, maximum: int, seed: int) -> np.ndarray:
+    if maximum <= 0 or count <= maximum:
+        return np.arange(count, dtype=np.int64)
+    rng = np.random.default_rng(int(seed))
+    return np.sort(rng.choice(count, size=int(maximum), replace=False))
+
+
+def _parse_distance_bins(text: str) -> list[float]:
+    try:
+        values = sorted({float(value.strip()) for value in str(text).split(",") if value.strip()})
+    except ValueError as exc:
+        raise ValueError("--distance-bins must be comma-separated numeric upper bounds.") from exc
+    if not values or any(not math.isfinite(value) or value < 0 for value in values):
+        raise ValueError("--distance-bins requires finite non-negative upper bounds.")
+    return values
+
+
+def _distance_label(lower: float | None, upper: float | None) -> str:
+    def fmt(value: float) -> str:
+        return str(int(value)) if float(value).is_integer() else f"{value:g}"
+    if lower is None:
+        return f"0-{fmt(upper or 0)}"
+    if upper is None:
+        return f">{fmt(lower)}"
+    return f"{fmt(lower)}-{fmt(upper)}"
+
+
+def _distance_bin_rows(result: ComparisonArrays, normalization: str, bounds: Sequence[float]) -> list[dict[str, object]]:
+    main_scores, compare_scores, score_label = _selected_scores(result, normalization)
+    rows: list[dict[str, object]] = []
+    lower: float | None = None
+    for upper in [*bounds, None]:
+        if lower is None:
+            mask = result.absolute_distance <= float(upper) if upper is not None else np.ones(result.pair_count, dtype=bool)
+        elif upper is None:
+            mask = result.absolute_distance > float(lower)
+        else:
+            mask = (result.absolute_distance > float(lower)) & (result.absolute_distance <= float(upper))
+        x = main_scores[mask]
+        y = compare_scores[mask]
+        spearman, _ = _safe_corr(x, y, "spearman")
+        pearson, _ = _safe_corr(x, y, "pearson")
+        rows.append({
+            "comparison": result.label,
+            "distance_bin": _distance_label(lower, upper),
+            "lower_exclusive": "" if lower is None else lower,
+            "upper_inclusive": "" if upper is None else upper,
+            "pair_count": int(mask.sum()),
+            "spearman_score_correlation": spearman,
+            "pearson_score_correlation": pearson,
+            "plot_score_axis_label": score_label,
+        })
+        lower = upper
+    return rows
+
+
+def _histogram_rows(result: ComparisonArrays, x_min: float, x_max: float, width: float) -> list[dict[str, object]]:
+    edges = np.arange(float(x_min), float(x_max) + float(width), float(width), dtype=float)
+    if edges[-1] < float(x_max):
+        edges = np.append(edges, float(x_max))
+    counts, edges = np.histogram(result.absolute_distance, bins=edges)
+    rows: list[dict[str, object]] = []
+    total = max(1, int(result.pair_count))
+    for index, count in enumerate(counts):
+        rows.append({
+            "comparison": result.label,
+            "bin_start_inclusive": edges[index],
+            "bin_end_exclusive": edges[index + 1],
+            "pair_count": int(count),
+            "density": float(count) / (total * float(edges[index + 1] - edges[index])),
+        })
+    return rows
+
+
+def _write_tsv(path: Path, rows: Sequence[dict[str, object]], fields: Sequence[str] | None = None) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if fields is None:
+        fields = list(rows[0].keys()) if rows else []
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(fields), delimiter="\t", extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+    return path
+
+
+def _write_pairs(path: Path, result: ComparisonArrays, pairs: Sequence[MatchedPair], main_label: str, args: argparse.Namespace) -> Path:
+    selected_main, selected_compare, _ = _selected_scores(result, args.score_normalization)
+    indices = set(_plot_indices(result.pair_count, args.plot_max_points, args.plot_seed).tolist())
+    fields = [
+        "comparison", "pair_id", "query_source", "chrom",
+        "main_start", "main_end", "main_name", "main_summit", "main_score", "main_score_normalized", "main_line_number",
+        "compare_start", "compare_end", "compare_name", "compare_summit", "compare_score", "compare_score_normalized", "compare_line_number",
+        "signed_distance_compare_minus_main", "absolute_distance", "main_score_percentile", "percentile_group",
+        "plot_selected", "plot_score_normalization", "plot_score_z_limit", "plot_correlation_method", "plot_label_a", "plot_label_b",
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields, delimiter="\t")
+        writer.writeheader()
+        for index, pair in enumerate(pairs):
+            writer.writerow({
+                "comparison": result.label,
+                "pair_id": f"pair_{index + 1:09d}",
+                "query_source": result.query_source,
+                "chrom": pair.a.chrom,
+                "main_start": pair.a.start,
+                "main_end": pair.a.end,
+                "main_name": pair.a.name,
+                "main_summit": pair.a.summit,
+                "main_score": pair.a.score,
+                "main_score_normalized": selected_main[index],
+                "main_line_number": pair.a.line_number,
+                "compare_start": pair.b.start,
+                "compare_end": pair.b.end,
+                "compare_name": pair.b.name,
+                "compare_summit": pair.b.summit,
+                "compare_score": pair.b.score,
+                "compare_score_normalized": selected_compare[index],
+                "compare_line_number": pair.b.line_number,
+                "signed_distance_compare_minus_main": pair.signed_distance,
+                "absolute_distance": pair.absolute_distance,
+                "main_score_percentile": int(result.percentile[index]),
+                "percentile_group": str(result.group_labels[index]),
+                "plot_selected": 1 if index in indices else 0,
+                "plot_score_normalization": args.score_normalization,
+                "plot_score_z_limit": args.score_z_limit,
+                "plot_correlation_method": args.score_correlation,
+                "plot_label_a": main_label,
+                "plot_label_b": result.label,
+            })
+    return path
+
+
+def _percentile_rows(result: ComparisonArrays) -> list[dict[str, object]]:
+    return [
+        {
+            "comparison": result.label,
+            "main_line_number": int(result.main_line[index]),
+            "main_score": float(result.main_scores[index]),
+            "main_score_percentile": int(result.percentile[index]),
+            "percentile_group": str(result.group_labels[index]),
+            "signed_distance_compare_minus_main": int(result.signed_distance[index]),
+            "absolute_distance": float(result.absolute_distance[index]),
+        }
+        for index in range(result.pair_count)
+    ]
+
+
+def _percentile_summary_rows(results: Sequence[ComparisonArrays], interval: int) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for result in results:
+        for lower, upper, label in _percentile_group_bounds(interval):
+            mask = result.group_labels == label
+            values = result.absolute_distance[mask]
+            if values.size:
+                q1, median, q3 = np.percentile(values, [25, 50, 75])
+                mean = float(np.mean(values))
+                minimum = float(np.min(values))
+                maximum = float(np.max(values))
+            else:
+                minimum = q1 = median = mean = q3 = maximum = math.nan
+            rows.append({
+                "comparison": result.label,
                 "percentile_group": label,
                 "group_lower_percentile": lower,
                 "group_upper_percentile": upper,
-                "percentile_source_position_count": len(query_group),
-                "all_target_position_count": len(target_records),
-                "matched_pair_count": len(pairs),
-                "matched_unique_source_positions": len(matched_source),
-                "matched_unique_target_positions": len(matched_target),
-                "unmatched_source_positions": len(query_group) - len(matched_source),
-                "target_positions_not_used": len(target_records) - len(matched_target),
-                "unmatched_query_no_target_chromosome": unmatched_no_target,
-                "unmatched_query_beyond_maximum_distance": unmatched_distance,
-                "unmatched_query_unique_assignment": unmatched_unique,
+                "matched_pair_count": int(values.size),
                 "minimum_absolute_distance": minimum,
                 "q1_absolute_distance": q1,
                 "median_absolute_distance": median,
                 "mean_absolute_distance": mean,
                 "q3_absolute_distance": q3,
                 "maximum_absolute_distance": maximum,
-                "absolute_distance_standard_deviation": standard_deviation,
-            }
-        )
-
-    return detail_rows, summary_rows, distances_by_group
-
-
-PERCENTILE_DETAIL_FIELDS = [
-    "pair_id",
-    "analysis_direction",
-    "percentile_source",
-    "target_source",
-    "percentile_group",
-    "group_lower_percentile",
-    "group_upper_percentile",
-    "query_source",
-    "chrom",
-    "a_start",
-    "a_end",
-    "a_name",
-    "a_summit",
-    "a_score",
-    "a_score_percentile",
-    "b_start",
-    "b_end",
-    "b_name",
-    "b_summit",
-    "b_score",
-    "b_score_percentile",
-    "signed_distance_b_minus_a",
-    "signed_distance_target_minus_query",
-    "absolute_distance",
-]
-
-PERCENTILE_SUMMARY_FIELDS = [
-    "analysis_direction",
-    "percentile_source",
-    "target_source",
-    "percentile_group",
-    "group_lower_percentile",
-    "group_upper_percentile",
-    "percentile_source_position_count",
-    "all_target_position_count",
-    "matched_pair_count",
-    "matched_unique_source_positions",
-    "matched_unique_target_positions",
-    "unmatched_source_positions",
-    "target_positions_not_used",
-    "unmatched_query_no_target_chromosome",
-    "unmatched_query_beyond_maximum_distance",
-    "unmatched_query_unique_assignment",
-    "minimum_absolute_distance",
-    "q1_absolute_distance",
-    "median_absolute_distance",
-    "mean_absolute_distance",
-    "q3_absolute_distance",
-    "maximum_absolute_distance",
-    "absolute_distance_standard_deviation",
-]
-
-
-def _atomic_json(path: Path, payload: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".partial")
-    temporary.write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
-    os.replace(temporary, path)
-
-
-def _save_numpy_atomic(path: Path, values: np.ndarray) -> None:
-    temporary = path.with_name(path.name + ".partial")
-    with temporary.open("wb") as handle:
-        np.save(handle, values, allow_pickle=False)
-    os.replace(temporary, path)
-
-
-def _file_signature(path: str | Path) -> dict[str, object]:
-    value = Path(path).resolve()
-    stat = value.stat()
-    return {
-        "path": str(value),
-        "size_bytes": int(stat.st_size),
-        "mtime_ns": int(stat.st_mtime_ns),
-    }
-
-
-def _comparison_signature(args: argparse.Namespace) -> str:
-    payload = {
-        "schema_version": 1,
-        "bed_a": _file_signature(args.bed_a),
-        "bed_b": _file_signature(args.bed_b),
-        "blacklist": (
-            _file_signature(args.blacklist_bed)
-            if getattr(args, "blacklist_bed", None)
-            else None
-        ),
-        "summit_column_a": args.summit_column_a,
-        "summit_column_b": args.summit_column_b,
-        "score_column_a": args.score_column_a,
-        "score_column_b": args.score_column_b,
-        "label_a": args.label_a,
-        "label_b": args.label_b,
-        "matching": "one-to-one" if args.matching == "unique" else args.matching,
-        "max_distance": args.max_distance,
-        "percentile_interval": int(getattr(args, "percentile_interval", 25)),
-        "distance_bins": args.distance_bins,
-        "score_normalization": args.score_normalization,
-        "correlation_method": args.correlation_method,
-        "histogram_bin_width": args.histogram_bin_width,
-        "histogram_x_min": args.histogram_x_min,
-        "histogram_x_max": args.histogram_x_max,
-        "score_z_limit": getattr(args, "score_z_limit", 10.0),
-        "distance_x_major_tick": getattr(args, "distance_x_major_tick", None),
-        "distance_x_minor_tick": getattr(args, "distance_x_minor_tick", None),
-        "plot_max_points": args.plot_max_points,
-        "plot_seed": args.plot_seed,
-        "dpi": args.dpi,
-        "percentile_boxplot_y_max": getattr(
-            args, "percentile_boxplot_y_max", 500.0
-        ),
-        "skip_pairs_tsv": bool(getattr(args, "skip_pairs_tsv", False)),
-        "skip_percentile_pairs_tsv": bool(
-            getattr(args, "skip_percentile_pairs_tsv", False)
-        ),
-        "skip_percentile_distance_analysis": bool(
-            getattr(args, "skip_percentile_distance_analysis", False)
-        ),
-    }
-    return __import__("hashlib").sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
-
-
-def _checkpoint_matches(
-    marker: Path,
-    *,
-    signature: str,
-    required_paths: Sequence[Path],
-) -> bool:
-    if not marker.is_file():
-        return False
-    try:
-        payload = json.loads(marker.read_text(encoding="utf-8"))
-        if not payload.get("complete") or payload.get("signature") != signature:
-            return False
-        sizes = payload.get("sizes", {})
-        for path in required_paths:
-            if not path.is_file() or int(sizes.get(path.name, -1)) != path.stat().st_size:
-                return False
-        return True
-    except (OSError, ValueError, TypeError, json.JSONDecodeError):
-        return False
-
-
-def _write_checkpoint(
-    marker: Path,
-    *,
-    signature: str,
-    required_paths: Sequence[Path],
-    stage: str,
-) -> None:
-    missing = [path for path in required_paths if not path.is_file()]
-    if missing:
-        raise RuntimeError(
-            f"Cannot checkpoint {stage}; missing output(s): "
-            + ", ".join(map(str, missing))
-        )
-    _atomic_json(
-        marker,
-        {
-            "schema_version": 1,
-            "complete": True,
-            "stage": stage,
-            "signature": signature,
-            "sizes": {path.name: path.stat().st_size for path in required_paths},
-        },
-    )
-
-
-def _stream_percentile_group(
-    *,
-    source_by_chrom: dict[str, list[PositionRecord]],
-    target_by_chrom: dict[str, list[PositionRecord]],
-    all_target_count: int,
-    assignment_a: np.ndarray,
-    assignment_b: np.ndarray,
-    percentile_source: str,
-    matching: str,
-    max_distance: float | None,
-    lower: int,
-    upper: int,
-    label: str,
-    detail_path: Path | None,
-    distance_path: Path,
-    reporter: ProgressReporter,
-) -> dict[str, object]:
-    """Process one directional percentile group without retaining its pair rows."""
-
-    target_source = "B" if percentile_source == "A" else "A"
-    source_assignment = assignment_a if percentile_source == "A" else assignment_b
-    detail_handle = None
-    detail_writer = None
-    temporary_detail = None
-    if detail_path is not None:
-        detail_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary_detail = detail_path.with_name(detail_path.name + ".partial")
-        detail_handle = temporary_detail.open("w", encoding="utf-8", newline="")
-        detail_writer = csv.DictWriter(
-            detail_handle, fieldnames=PERCENTILE_DETAIL_FIELDS, delimiter="\t"
-        )
-        detail_writer.writeheader()
-
-    distances = array("q")
-    source_count = 0
-    matched_pairs = 0
-    matched_unique_targets = 0
-    unmatched_no_target = 0
-    unmatched_distance = 0
-    unmatched_unique = 0
-    pair_number = 0
-    contigs = list(source_by_chrom)
-    try:
-        for contig_index, (chrom_key, source_records) in enumerate(
-            source_by_chrom.items(), start=1
-        ):
-            query_group = [
-                record
-                for record in source_records
-                if lower < int(source_assignment[record.line_number]) <= upper
-            ]
-            if not query_group:
-                continue
-            source_count += len(query_group)
-            reporter.contig(
-                f"{percentile_source} {label} percentile matching",
-                query_group[0].chrom,
-                contig_index,
-                len(contigs),
-                len(query_group),
-            )
-            targets = target_by_chrom.get(chrom_key)
-            if not targets:
-                unmatched_no_target += len(query_group)
-                continue
-            if matching == "many-to-one":
-                result = match_many_to_one(
-                    query_group,
-                    targets,
-                    percentile_source,
-                    max_distance,
-                )
-            else:
-                result = match_unique(
-                    query_group,
-                    targets,
-                    percentile_source,
-                    max_distance,
-                )
-            matched_pairs += len(result.pairs)
-            unmatched_no_target += result.unmatched_no_target_chrom
-            unmatched_distance += result.unmatched_distance
-            unmatched_unique += result.unmatched_unique
-            matched_target_lines: set[int] = set()
-            for pair in result.pairs:
-                pair_number += 1
-                distances.append(pair.absolute_distance)
-                target_record = pair.b if percentile_source == "A" else pair.a
-                matched_target_lines.add(target_record.line_number)
-                if detail_writer is None:
-                    continue
-                a_percentile = int(assignment_a[pair.a.line_number])
-                b_percentile = int(assignment_b[pair.b.line_number])
-                signed_target_minus_query = (
-                    pair.signed_distance
-                    if percentile_source == "A"
-                    else -pair.signed_distance
-                )
-                row = {
-                    "pair_id": (
-                        f"{percentile_source}_{label.replace('-', '_')}_"
-                        f"{pair_number:09d}"
-                    ),
-                    "analysis_direction": (
-                        f"{percentile_source}_percentiles_vs_all_{target_source}"
-                    ),
-                    "percentile_source": percentile_source,
-                    "target_source": target_source,
-                    "percentile_group": label,
-                    "group_lower_percentile": lower,
-                    "group_upper_percentile": upper,
-                    "query_source": percentile_source,
-                    "chrom": pair.a.chrom,
-                    "a_start": pair.a.start,
-                    "a_end": pair.a.end,
-                    "a_name": pair.a.name,
-                    "a_summit": pair.a.summit,
-                    "a_score": pair.a.score,
-                    "a_score_percentile": a_percentile,
-                    "b_start": pair.b.start,
-                    "b_end": pair.b.end,
-                    "b_name": pair.b.name,
-                    "b_summit": pair.b.summit,
-                    "b_score": pair.b.score,
-                    "b_score_percentile": b_percentile,
-                    "signed_distance_b_minus_a": pair.signed_distance,
-                    "signed_distance_target_minus_query": signed_target_minus_query,
-                    "absolute_distance": pair.absolute_distance,
-                }
-                detail_writer.writerow(
-                    {key: _format_number(row[key]) for key in PERCENTILE_DETAIL_FIELDS}
-                )
-            matched_unique_targets += len(matched_target_lines)
-            del result
-        distance_values = np.frombuffer(distances, dtype=np.int64).copy()
-        _save_numpy_atomic(distance_path, distance_values)
-        if distance_values.size:
-            q1, median, q3 = np.percentile(distance_values, [25, 50, 75])
-            minimum = float(np.min(distance_values))
-            maximum = float(np.max(distance_values))
-            mean = float(np.mean(distance_values))
-            standard_deviation = float(np.std(distance_values, ddof=0))
-        else:
-            minimum = q1 = median = mean = q3 = maximum = standard_deviation = float("nan")
-        summary = {
-            "analysis_direction": f"{percentile_source}_percentiles_vs_all_{target_source}",
-            "percentile_source": percentile_source,
-            "target_source": target_source,
-            "percentile_group": label,
-            "group_lower_percentile": lower,
-            "group_upper_percentile": upper,
-            "percentile_source_position_count": source_count,
-            "all_target_position_count": all_target_count,
-            "matched_pair_count": matched_pairs,
-            "matched_unique_source_positions": matched_pairs,
-            "matched_unique_target_positions": matched_unique_targets,
-            "unmatched_source_positions": source_count - matched_pairs,
-            "target_positions_not_used": all_target_count - matched_unique_targets,
-            "unmatched_query_no_target_chromosome": unmatched_no_target,
-            "unmatched_query_beyond_maximum_distance": unmatched_distance,
-            "unmatched_query_unique_assignment": unmatched_unique,
-            "minimum_absolute_distance": minimum,
-            "q1_absolute_distance": q1,
-            "median_absolute_distance": median,
-            "mean_absolute_distance": mean,
-            "q3_absolute_distance": q3,
-            "maximum_absolute_distance": maximum,
-            "absolute_distance_standard_deviation": standard_deviation,
-        }
-    finally:
-        if detail_handle is not None:
-            detail_handle.close()
-    if detail_path is not None and temporary_detail is not None:
-        os.replace(temporary_detail, detail_path)
-    return summary
-
-
-def _concatenate_percentile_groups(inputs: Sequence[Path], output: Path) -> None:
-    temporary = output.with_name(output.name + ".partial")
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with temporary.open("w", encoding="utf-8", newline="") as destination:
-        wrote_header = False
-        for path in inputs:
-            with path.open("r", encoding="utf-8") as source:
-                header = source.readline()
-                if not wrote_header:
-                    destination.write(header)
-                    wrote_header = True
-                for line in source:
-                    destination.write(line)
-    os.replace(temporary, output)
-
-
-def run_directional_percentile_streaming(
-    *,
-    records_a: Sequence[PositionRecord],
-    records_b: Sequence[PositionRecord],
-    assignment_a: np.ndarray,
-    assignment_b: np.ndarray,
-    percentile_source: str,
-    matching: str,
-    max_distance: float | None,
-    interval: int,
-    output_distances: Path | None,
-    output_summary: Path,
-    output_plot: Path,
-    checkpoint_root: Path,
-    signature: str,
-    label_source: str,
-    label_target: str,
-    dpi: int,
-    y_max: float,
-    force: bool,
-    reporter: ProgressReporter,
-) -> dict[str, Path]:
-    source_records = records_a if percentile_source == "A" else records_b
-    target_records = records_b if percentile_source == "A" else records_a
-    source_by_chrom = _records_by_chrom(source_records)
-    target_by_chrom = _records_by_chrom(target_records)
-    group_details: list[Path] = []
-    summary_rows: list[dict[str, object]] = []
-    distances_by_group: dict[str, np.ndarray] = {}
-    direction_dir = checkpoint_root / f"{percentile_source}_percentiles"
-    direction_dir.mkdir(parents=True, exist_ok=True)
-
-    for lower, upper, label in _percentile_group_bounds(interval):
-        safe_label = label.replace("-", "_")
-        detail_path = (
-            direction_dir / f"{safe_label}.pairs.tsv"
-            if output_distances is not None
-            else None
-        )
-        distance_path = direction_dir / f"{safe_label}.distances.npy"
-        summary_path = direction_dir / f"{safe_label}.summary.json"
-        marker = direction_dir / f"{safe_label}.complete.json"
-        group_signature = __import__("hashlib").sha256(
-            f"{signature}|{percentile_source}|{lower}|{upper}|{output_distances is not None}".encode()
-        ).hexdigest()
-        required = [distance_path, summary_path]
-        if detail_path is not None:
-            required.append(detail_path)
-        if not force and _checkpoint_matches(
-            marker, signature=group_signature, required_paths=required
-        ):
-            reporter.emit(
-                f"Reused completed {percentile_source} percentile group {label}"
-            )
-            summary = json.loads(summary_path.read_text(encoding="utf-8"))
-        else:
-            marker.unlink(missing_ok=True)
-            reporter.stage(
-                f"Processing {percentile_source} percentile group {label}"
-            )
-            summary = _stream_percentile_group(
-                source_by_chrom=source_by_chrom,
-                target_by_chrom=target_by_chrom,
-                all_target_count=len(target_records),
-                assignment_a=assignment_a,
-                assignment_b=assignment_b,
-                percentile_source=percentile_source,
-                matching=matching,
-                max_distance=max_distance,
-                lower=lower,
-                upper=upper,
-                label=label,
-                detail_path=detail_path,
-                distance_path=distance_path,
-                reporter=reporter,
-            )
-            _atomic_json(summary_path, summary)
-            _atomic_json(
-                marker,
-                {
-                    "schema_version": 1,
-                    "complete": True,
-                    "signature": group_signature,
-                    "sizes": {
-                        path.name: path.stat().st_size for path in required
-                    },
-                },
-            )
-            reporter.emit(
-                f"Completed {percentile_source} percentile group {label}; "
-                f"{int(summary['matched_pair_count']):,} pairs"
-            )
-        summary_rows.append(summary)
-        distances_by_group[label] = np.load(
-            distance_path, mmap_mode="r", allow_pickle=False
-        )
-        if detail_path is not None:
-            group_details.append(detail_path)
-
-    if output_distances is not None:
-        _concatenate_percentile_groups(group_details, output_distances)
-    write_percentile_distance_summary(output_summary, summary_rows)
-    plot_percentile_distances(
-        output_plot,
-        distances_by_group,
-        interval,
-        label_source,
-        label_target,
-        dpi,
-        y_max,
-    )
-    outputs = {"summary": output_summary, "boxplot": output_plot}
-    if output_distances is not None:
-        outputs["distances"] = output_distances
-    return outputs
-
-
-def _safe_zscores(values: np.ndarray) -> np.ndarray:
-    if values.size == 0:
-        return values.copy()
-    standard_deviation = float(np.std(values, ddof=0))
-    if standard_deviation == 0 or not math.isfinite(standard_deviation):
-        return np.zeros(values.size, dtype=np.float64)
-    return (values - float(np.mean(values))) / standard_deviation
-
-
-def _percentile_ranks(values: np.ndarray) -> np.ndarray:
-    if values.size == 0:
-        return values.copy()
-    if values.size == 1:
-        return np.asarray([0.5], dtype=np.float64)
-    ranks = stats.rankdata(values, method="average")
-    return (ranks - 1.0) / (values.size - 1.0)
-
-
-def _safe_pearson(x: np.ndarray, y: np.ndarray) -> float:
-    if x.size < 2 or np.ptp(x) == 0 or np.ptp(y) == 0:
-        return float("nan")
-    return float(stats.pearsonr(x, y).statistic)
-
-
-def _safe_spearman(x: np.ndarray, y: np.ndarray) -> float:
-    if x.size < 2 or np.ptp(x) == 0 or np.ptp(y) == 0:
-        return float("nan")
-    return float(stats.spearmanr(x, y).statistic)
-
-
-def _safe_regression(x: np.ndarray, y: np.ndarray) -> tuple[float, float, float]:
-    if x.size < 2 or np.ptp(x) == 0:
-        return float("nan"), float("nan"), float("nan")
-    regression = stats.linregress(x, y)
-    return float(regression.slope), float(regression.intercept), float(regression.rvalue**2)
-
-
-def _parse_distance_bins(text: str) -> list[float]:
-    bounds: list[float] = []
-    for token in text.split(","):
-        stripped = token.strip()
-        if not stripped:
-            continue
-        try:
-            value = float(stripped)
-        except ValueError as exc:
-            raise ValueError(f"Invalid distance-bin boundary: {stripped!r}.") from exc
-        if not math.isfinite(value) or value < 0:
-            raise ValueError("Distance-bin boundaries must be finite and non-negative.")
-        bounds.append(value)
-    bounds = sorted(set(bounds))
-    if not bounds:
-        raise ValueError("--distance-bins must contain at least one boundary.")
-    return bounds
-
-
-def _bin_label(lower: float | None, upper: float | None) -> str:
-    if lower is None:
-        return f"0-{upper:g}"
-    if upper is None:
-        return f">{lower:g}"
-    if float(lower).is_integer() and float(upper).is_integer():
-        return f"{int(lower) + 1}-{int(upper)}"
-    return f"{lower:g}-{upper:g}"
-
-
-def _selected_scores(arrays: dict[str, np.ndarray], normalization: str) -> tuple[np.ndarray, np.ndarray, str]:
-    if normalization == "raw":
-        return arrays["scores_a"], arrays["scores_b"], "raw score"
-    if normalization == "zscore":
-        return arrays["z_a"], arrays["z_b"], "score z-score"
-    if normalization == "percentile":
-        return arrays["percentile_a"], arrays["percentile_b"], "score percentile rank"
-    raise ValueError(f"Unknown score normalization: {normalization}")
-
-
-def distance_bin_rows(
-    distances: np.ndarray,
-    scores_a: np.ndarray,
-    scores_b: np.ndarray,
-    z_difference: np.ndarray,
-    raw_difference: np.ndarray,
-    bounds: Sequence[float],
-) -> list[dict[str, float | int | str]]:
-    rows: list[dict[str, float | int | str]] = []
-    lower: float | None = None
-    for upper in [*bounds, None]:
-        if lower is None:
-            mask = distances <= float(upper)
-        elif upper is None:
-            mask = distances > lower
-        else:
-            mask = (distances > lower) & (distances <= upper)
-        bin_a = scores_a[mask]
-        bin_b = scores_b[mask]
-        bin_distances = distances[mask]
-        rows.append(
-            {
-                "distance_bin": _bin_label(lower, upper),
-                "lower_exclusive": "" if lower is None else lower,
-                "upper_inclusive": "" if upper is None else upper,
-                "pair_count": int(np.sum(mask)),
-                "mean_absolute_distance": float(np.mean(bin_distances)) if bin_distances.size else float("nan"),
-                "median_absolute_distance": float(np.median(bin_distances)) if bin_distances.size else float("nan"),
-                "pearson_score_correlation": _safe_pearson(bin_a, bin_b),
-                "spearman_score_correlation": _safe_spearman(bin_a, bin_b),
-                "median_absolute_score_difference": float(np.median(raw_difference[mask])) if bin_distances.size else float("nan"),
-                "median_absolute_zscore_difference": float(np.median(z_difference[mask])) if bin_distances.size else float("nan"),
-            }
-        )
-        lower = upper
+            })
     return rows
 
 
-def _format_number(value: object) -> str:
-    if isinstance(value, float):
-        if math.isnan(value):
-            return "NaN"
-        return f"{value:.10g}"
-    return str(value)
+def _holm_adjust(p_values: Sequence[float]) -> list[float]:
+    values = np.asarray(p_values, dtype=float)
+    adjusted = np.full(values.size, np.nan, dtype=float)
+    finite_indices = np.flatnonzero(np.isfinite(values))
+    if finite_indices.size == 0:
+        return adjusted.tolist()
+    order = finite_indices[np.argsort(values[finite_indices])]
+    m = int(order.size)
+    running = 0.0
+    for rank, index in enumerate(order, start=1):
+        candidate = min(1.0, float(values[index]) * (m - rank + 1))
+        running = max(running, candidate)
+        adjusted[index] = running
+    return adjusted.tolist()
 
 
-def write_pairs(
-    path: Path | None,
-    pairs: Sequence[MatchedPair],
-    *,
-    plot_indices: np.ndarray | None = None,
-    plot_score_normalization: str = "zscore",
-    plot_correlation_method: str = "spearman",
-    plot_label_a: str = "A",
-    plot_label_b: str = "B",
-    plot_score_z_limit: float = 10.0,
-) -> dict[str, np.ndarray]:
-    """Create analysis arrays and optionally publish the detailed pair table."""
-    scores_a = np.asarray([pair.a.score for pair in pairs], dtype=np.float64)
-    scores_b = np.asarray([pair.b.score for pair in pairs], dtype=np.float64)
-    distances = np.asarray([pair.absolute_distance for pair in pairs], dtype=np.float64)
-    z_a = _safe_zscores(scores_a)
-    z_b = _safe_zscores(scores_b)
-    percentile_a = _percentile_ranks(scores_a)
-    percentile_b = _percentile_ranks(scores_b)
-    raw_difference = np.abs(scores_b - scores_a)
-    z_difference = np.abs(z_b - z_a)
-    percentile_difference = np.abs(percentile_b - percentile_a)
+def _significance(p: float) -> str:
+    if not math.isfinite(p):
+        return "NA"
+    if p < 0.0001:
+        return "****"
+    if p < 0.001:
+        return "***"
+    if p < 0.01:
+        return "**"
+    if p < 0.05:
+        return "*"
+    return "ns"
 
-    fieldnames = [
-        "pair_id",
-        "query_method",
-        "chrom",
-        "a_start",
-        "a_end",
-        "a_name",
-        "a_summit",
-        "a_score",
-        "b_start",
-        "b_end",
-        "b_name",
-        "b_summit",
-        "b_score",
-        "signed_distance_b_minus_a",
-        "absolute_distance",
-        "score_difference_b_minus_a",
-        "absolute_score_difference",
-        "a_score_z",
-        "b_score_z",
-        "absolute_zscore_difference",
-        "a_score_percentile",
-        "b_score_percentile",
-        "absolute_percentile_difference",
-        "plot_selected",
-        "plot_score_normalization",
-        "plot_correlation_method",
-        "plot_label_a",
-        "plot_label_b",
-        "plot_score_z_limit",
-    ]
-    selected = (
-        set(int(value) for value in plot_indices)
-        if plot_indices is not None else set(range(len(pairs)))
+
+def _paired_group_values(a: ComparisonArrays, b: ComparisonArrays, group: str) -> tuple[np.ndarray, np.ndarray]:
+    mask_a = a.group_labels == group
+    mask_b = b.group_labels == group
+    map_a = {int(line): float(value) for line, value in zip(a.main_line[mask_a], a.absolute_distance[mask_a])}
+    map_b = {int(line): float(value) for line, value in zip(b.main_line[mask_b], b.absolute_distance[mask_b])}
+    shared = sorted(set(map_a).intersection(map_b))
+    return (
+        np.asarray([map_a[line] for line in shared], dtype=float),
+        np.asarray([map_b[line] for line in shared], dtype=float),
     )
-    if path is not None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_name(path.name + ".partial")
-        with temporary.open("w", encoding="utf-8", newline="") as handle:
-            writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t")
-            writer.writeheader()
-            for index, pair in enumerate(pairs):
-                writer.writerow(
-                    {
-                        "pair_id": f"pair_{index + 1:07d}",
-                        "query_method": pair.query_source,
-                        "chrom": pair.a.chrom,
-                        "a_start": pair.a.start,
-                        "a_end": pair.a.end,
-                        "a_name": pair.a.name,
-                        "a_summit": pair.a.summit,
-                        "a_score": _format_number(pair.a.score),
-                        "b_start": pair.b.start,
-                        "b_end": pair.b.end,
-                        "b_name": pair.b.name,
-                        "b_summit": pair.b.summit,
-                        "b_score": _format_number(pair.b.score),
-                        "signed_distance_b_minus_a": pair.signed_distance,
-                        "absolute_distance": pair.absolute_distance,
-                        "score_difference_b_minus_a": _format_number(pair.b.score - pair.a.score),
-                        "absolute_score_difference": _format_number(raw_difference[index]),
-                        "a_score_z": _format_number(z_a[index]),
-                        "b_score_z": _format_number(z_b[index]),
-                        "absolute_zscore_difference": _format_number(z_difference[index]),
-                        "a_score_percentile": _format_number(percentile_a[index]),
-                        "b_score_percentile": _format_number(percentile_b[index]),
-                        "absolute_percentile_difference": _format_number(percentile_difference[index]),
-                        "plot_selected": 1 if index in selected else 0,
-                        "plot_score_normalization": plot_score_normalization,
-                        "plot_correlation_method": plot_correlation_method,
-                        "plot_label_a": plot_label_a,
-                        "plot_label_b": plot_label_b,
-                        "plot_score_z_limit": _format_number(plot_score_z_limit),
-                    }
-                )
-        os.replace(temporary, path)
+
+
+def _pairwise_statistics(results: Sequence[ComparisonArrays], interval: int, family: str, adjustment: str) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for _lower, _upper, group in _percentile_group_bounds(interval):
+        group_rows: list[dict[str, object]] = []
+        for first, second in itertools.combinations(results, 2):
+            values_first = first.absolute_distance[first.group_labels == group]
+            values_second = second.absolute_distance[second.group_labels == group]
+            paired_first, paired_second = _paired_group_values(first, second, group)
+            paired = (
+                paired_first.size >= 2
+                and paired_first.size == values_first.size
+                and paired_second.size == values_second.size
+            )
+            statistic = p_value = math.nan
+            test_name = ""
+            try:
+                if family == "nonparametric":
+                    if paired:
+                        test_name = "Wilcoxon signed-rank"
+                        if np.allclose(paired_first, paired_second):
+                            statistic, p_value = 0.0, 1.0
+                        else:
+                            output = stats.wilcoxon(paired_first, paired_second, alternative="two-sided")
+                            statistic, p_value = float(output.statistic), float(output.pvalue)
+                    elif values_first.size and values_second.size:
+                        test_name = "Mann-Whitney U"
+                        output = stats.mannwhitneyu(values_first, values_second, alternative="two-sided")
+                        statistic, p_value = float(output.statistic), float(output.pvalue)
+                else:
+                    if paired:
+                        test_name = "paired t-test"
+                        output = stats.ttest_rel(paired_first, paired_second, nan_policy="omit")
+                        statistic, p_value = float(output.statistic), float(output.pvalue)
+                    elif values_first.size >= 2 and values_second.size >= 2:
+                        test_name = "Welch t-test"
+                        output = stats.ttest_ind(values_first, values_second, equal_var=False, nan_policy="omit")
+                        statistic, p_value = float(output.statistic), float(output.pvalue)
+            except Exception:
+                statistic = p_value = math.nan
+            group_rows.append({
+                "percentile_group": group,
+                "comparison_1": first.label,
+                "comparison_2": second.label,
+                "test": test_name or ("not_tested" if not paired else "failed"),
+                "paired": bool(paired),
+                "n_1": int(values_first.size),
+                "n_2": int(values_second.size),
+                "n_paired": int(paired_first.size),
+                "statistic": statistic,
+                "p_value": p_value,
+            })
+        adjusted = _holm_adjust([float(row["p_value"]) for row in group_rows]) if adjustment == "holm" else [float(row["p_value"]) for row in group_rows]
+        for row, p_adj in zip(group_rows, adjusted):
+            row["p_adjusted"] = p_adj
+            row["p_adjustment"] = adjustment
+            row["significance"] = _significance(float(p_adj))
+        rows.extend(group_rows)
+    return rows
+
+
+def _score_distance_stats(result: ComparisonArrays, distance_type: str) -> dict[str, object]:
+    y = result.absolute_distance if distance_type == "absolute" else result.signed_distance.astype(float)
+    spearman, spearman_p = _safe_corr(result.main_scores, y, "spearman")
+    pearson, pearson_p = _safe_corr(result.main_scores, y, "pearson")
+    slope, intercept, r2, regression_p = _linear_stats(result.main_scores, y)
     return {
-        "scores_a": scores_a,
-        "scores_b": scores_b,
-        "distances": distances,
-        "z_a": z_a,
-        "z_b": z_b,
-        "percentile_a": percentile_a,
-        "percentile_b": percentile_b,
-        "raw_difference": raw_difference,
-        "z_difference": z_difference,
-        "percentile_difference": percentile_difference,
+        "comparison": result.label,
+        "matched_pair_count": result.pair_count,
+        "distance_type": distance_type,
+        "spearman_rho": spearman,
+        "spearman_p_value": spearman_p,
+        "pearson_r": pearson,
+        "pearson_p_value": pearson_p,
+        "linear_slope_bp_per_score_unit": slope,
+        "linear_intercept": intercept,
+        "linear_r_squared": r2,
+        "linear_slope_p_value": regression_p,
+        "median_absolute_distance": float(np.median(result.absolute_distance)) if result.pair_count else math.nan,
+        "mean_absolute_distance": float(np.mean(result.absolute_distance)) if result.pair_count else math.nan,
     }
 
 
-def summary_metrics(
-    result: MatchResult,
-    arrays: dict[str, np.ndarray],
-    matching: str,
-    max_distance: float | None,
-    records_a: Sequence[PositionRecord],
-    records_b: Sequence[PositionRecord],
-    score_normalization: str,
-    correlation_method: str,
-) -> list[tuple[str, object]]:
-    scores_a, scores_b, _ = _selected_scores(arrays, score_normalization)
-    distances = arrays["distances"]
-    slope, intercept, r_squared = _safe_regression(scores_a, scores_b)
-    metrics: list[tuple[str, object]] = [
-        ("input_a_positions", len(records_a)),
-        ("input_b_positions", len(records_b)),
-        ("query_method", result.query_source),
-        ("target_method", result.target_source),
-        ("matching_policy", matching),
-        ("maximum_distance_bp", "none" if max_distance is None else max_distance),
-        ("score_normalization", score_normalization),
-        ("correlation_method", correlation_method),
-        ("matched_pairs", len(result.pairs)),
-        ("unmatched_no_target_chromosome", result.unmatched_no_target_chrom),
-        ("unmatched_beyond_maximum_distance", result.unmatched_distance),
-        ("unmatched_unique_assignment", result.unmatched_unique),
-    ]
-    if distances.size:
-        metrics.extend(
-            [
-                ("mean_signed_distance_b_minus_a", float(np.mean([pair.signed_distance for pair in result.pairs]))),
-                ("median_signed_distance_b_minus_a", float(np.median([pair.signed_distance for pair in result.pairs]))),
-                ("mean_absolute_distance", float(np.mean(distances))),
-                ("median_absolute_distance", float(np.median(distances))),
-                ("absolute_distance_standard_deviation", float(np.std(distances))),
-                ("summit_distance_rmse", float(np.sqrt(np.mean(np.square([pair.signed_distance for pair in result.pairs]))))),
-            ]
-        )
-        if correlation_method in ("spearman", "both"):
-            metrics.append(("spearman_score_correlation", _safe_spearman(scores_a, scores_b)))
-        if correlation_method in ("pearson", "both"):
-            metrics.append(("pearson_score_correlation", _safe_pearson(scores_a, scores_b)))
-        metrics.extend(
-            [
-                ("score_regression_slope_b_on_a", slope),
-                ("score_regression_intercept_b_on_a", intercept),
-                ("score_regression_r_squared", r_squared),
-            ]
-        )
-        for threshold in (5, 10, 20, 50, 100):
-            metrics.append((f"percent_pairs_within_{threshold}_bp", float(100.0 * np.mean(distances <= threshold))))
-    return metrics
+def _summary_row(result: ComparisonArrays, main_path: Path, main_label: str) -> dict[str, object]:
+    score_spearman, score_spearman_p = _safe_corr(result.main_scores, result.compare_scores, "spearman")
+    score_pearson, score_pearson_p = _safe_corr(result.main_scores, result.compare_scores, "pearson")
+    return {
+        "main_label": main_label,
+        "main_bed": str(main_path),
+        "comparison": result.label,
+        "compare_bed": str(result.path),
+        "main_position_count": result.main_count,
+        "compare_position_count": result.compare_count,
+        "query_source": result.query_source,
+        "query_position_count": result.query_count,
+        "target_position_count": result.target_count,
+        "matched_pair_count": result.pair_count,
+        "unmatched_query_no_target_chromosome": result.unmatched_no_target_chrom,
+        "unmatched_query_beyond_maximum_distance": result.unmatched_distance,
+        "unmatched_query_unique_assignment": result.unmatched_unique,
+        "median_absolute_distance": float(np.median(result.absolute_distance)) if result.pair_count else math.nan,
+        "mean_absolute_distance": float(np.mean(result.absolute_distance)) if result.pair_count else math.nan,
+        "spearman_main_vs_compare_score": score_spearman,
+        "spearman_main_vs_compare_score_p_value": score_spearman_p,
+        "pearson_main_vs_compare_score": score_pearson,
+        "pearson_main_vs_compare_score_p_value": score_pearson_p,
+    }
 
 
-def write_summary(path: Path, metrics: Sequence[tuple[str, object]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".partial")
-    with temporary.open("w", encoding="utf-8") as handle:
-        handle.write("metric\tvalue\n")
-        for metric, value in metrics:
-            handle.write(f"{metric}\t{_format_number(value)}\n")
-    os.replace(temporary, path)
+def _comparison_colors(count: int):
+    from nucleosuite.plotting import category_colors
+    return category_colors(count)
 
 
-def _update_summary_metric(path: Path, metric: str, value: object) -> None:
-    """Atomically replace or append one metric in a two-column summary."""
-    rows: list[tuple[str, str]] = []
-    found = False
-    with path.open("r", encoding="utf-8") as handle:
-        header = handle.readline()
-        if header.rstrip("\n") != "metric\tvalue":
-            raise ValueError(f"Unexpected summary header in {path}")
-        for raw in handle:
-            key, old_value = raw.rstrip("\n").split("\t", 1)
-            if key == metric:
-                rows.append((key, _format_number(value)))
-                found = True
-            else:
-                rows.append((key, old_value))
-    if not found:
-        rows.append((metric, _format_number(value)))
-    write_summary(path, rows)
+def _plot_score_agreement(prefix: Path, result: ComparisonArrays, main_label: str, args: argparse.Namespace) -> Path:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from nucleosuite.plotting import plot_path, save_figure
+
+    x, y, axis_label = _selected_scores(result, args.score_normalization)
+    indices = _plot_indices(result.pair_count, args.plot_max_points, args.plot_seed)
+    figure, axis = plt.subplots(figsize=(7.5, 6.5))
+    scatter = axis.scatter(
+        x[indices], y[indices], c=result.absolute_distance[indices], s=9,
+        alpha=0.55, linewidths=0, cmap="viridis", rasterized=True,
+    )
+    colorbar = figure.colorbar(scatter, ax=axis)
+    colorbar.set_label("Absolute summit distance (bp)")
+    if args.score_normalization == "zscore" and float(args.score_z_limit) > 0:
+        axis.set_xlim(-float(args.score_z_limit), float(args.score_z_limit))
+        axis.set_ylim(-float(args.score_z_limit), float(args.score_z_limit))
+    axis.set_xlabel(f"{main_label} {axis_label}")
+    axis.set_ylabel(f"{result.label} {axis_label}")
+    axis.set_title("Score agreement coloured by summit distance")
+    annotation: list[str] = []
+    if args.score_correlation in {"spearman", "both"}:
+        coefficient, p_value = _safe_corr(x, y, "spearman")
+        annotation.append(f"Spearman ρ = {coefficient:.3f} (p={p_value:.3g})")
+    if args.score_correlation in {"pearson", "both"}:
+        coefficient, p_value = _safe_corr(x, y, "pearson")
+        annotation.append(f"Pearson r = {coefficient:.3f} (p={p_value:.3g})")
+    _slope, _intercept, r2, _p = _linear_stats(x, y)
+    annotation.append(f"R² = {r2:.3f}")
+    annotation.append(f"n = {result.pair_count:,}")
+    axis.text(0.02, 0.98, "\n".join(annotation), transform=axis.transAxes, va="top", ha="left")
+    figure.tight_layout()
+    output = plot_path(Path(f"{prefix}_{_safe_token(result.label)}_score_agreement.png"))
+    output = save_figure(figure, output, default_dpi=args.dpi)
+    plt.close(figure)
+    return output
 
 
-def write_distance_bins(
-    path: Path,
-    rows: Sequence[dict[str, object]],
-    *,
-    plot_correlation_method: str = "spearman",
-    plot_score_axis_label: str = "score z-score",
-) -> None:
-    fieldnames = [
-        "distance_bin",
-        "lower_exclusive",
-        "upper_inclusive",
-        "pair_count",
-        "mean_absolute_distance",
-        "median_absolute_distance",
-        "pearson_score_correlation",
-        "spearman_score_correlation",
-        "median_absolute_score_difference",
-        "median_absolute_zscore_difference",
-        "plot_correlation_method",
-        "plot_score_axis_label",
-    ]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t")
-        writer.writeheader()
-        for row in rows:
-            output_row = {key: _format_number(row[key]) for key in fieldnames if key in row}
-            output_row["plot_correlation_method"] = plot_correlation_method
-            output_row["plot_score_axis_label"] = plot_score_axis_label
-            writer.writerow(output_row)
+def _plot_score_distance(prefix: Path, result: ComparisonArrays, args: argparse.Namespace, stats_row: dict[str, object]) -> Path:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from nucleosuite.plotting import plot_path, save_figure
+
+    y_all = result.absolute_distance if args.score_distance_type == "absolute" else result.signed_distance.astype(float)
+    indices = _plot_indices(result.pair_count, args.plot_max_points, args.plot_seed)
+    x = result.main_scores[indices]
+    y = y_all[indices]
+    figure, axis = plt.subplots(figsize=(8.0, 6.0))
+    if args.score_distance_plot == "hexbin":
+        artist = axis.hexbin(x, y, gridsize=60, mincnt=1, bins="log", rasterized=True)
+        colorbar = figure.colorbar(artist, ax=axis)
+        colorbar.set_label("log10 plotted pair count")
+    else:
+        axis.scatter(x, y, s=7, alpha=0.35, linewidths=0, rasterized=True)
+    slope = float(stats_row["linear_slope_bp_per_score_unit"])
+    intercept = float(stats_row["linear_intercept"])
+    finite_x = result.main_scores[np.isfinite(result.main_scores)]
+    if finite_x.size and math.isfinite(slope) and math.isfinite(intercept):
+        endpoints = np.asarray([float(np.min(finite_x)), float(np.max(finite_x))])
+        axis.plot(endpoints, intercept + slope * endpoints, linestyle=":", linewidth=1.2, label="Linear fit")
+    axis.set_xlabel("Main peak score")
+    axis.set_ylabel("Absolute matched distance (bp)" if args.score_distance_type == "absolute" else "Signed compare − main distance (bp)")
+    axis.set_title(f"Main peak score versus distance: {result.label}")
+    annotation: list[str] = []
+    if args.score_distance_correlation in {"spearman", "both"}:
+        annotation.append(f"Spearman ρ = {float(stats_row['spearman_rho']):.3f} (p={float(stats_row['spearman_p_value']):.3g})")
+    if args.score_distance_correlation in {"pearson", "both"}:
+        annotation.append(f"Pearson r = {float(stats_row['pearson_r']):.3f} (p={float(stats_row['pearson_p_value']):.3g})")
+    annotation.append(f"Linear R² = {float(stats_row['linear_r_squared']):.3f}")
+    annotation.append(f"n = {result.pair_count:,}")
+    axis.text(0.02, 0.98, "\n".join(annotation), transform=axis.transAxes, va="top", ha="left")
+    figure.tight_layout()
+    output = plot_path(Path(f"{prefix}_{_safe_token(result.label)}_main_score_vs_distance.png"))
+    output = save_figure(figure, output, default_dpi=args.dpi)
+    plt.close(figure)
+    return output
 
 
+def _plot_distance_histograms(prefix: Path, results: Sequence[ComparisonArrays], args: argparse.Namespace) -> Path:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from nucleosuite.plotting import apply_distance_x_axis, apply_integer_y_axis, plot_path, save_figure
 
-def _histogram_edges(x_min: float, x_max: float, bin_width: float) -> np.ndarray:
-    """Return histogram edges spanning the requested displayed range."""
-
-    edges = np.arange(x_min, x_max + bin_width, bin_width, dtype=np.float64)
-    if edges.size < 2:
-        edges = np.asarray([x_min, x_max], dtype=np.float64)
-    elif edges[-1] < x_max:
-        edges = np.append(edges, x_max)
-    elif edges[-1] > x_max:
-        edges[-1] = x_max
-    return edges
-
-
-def write_distance_histogram(
-    path: Path,
-    distances: np.ndarray,
-    bin_width: float,
-    x_min: float,
-    x_max: float,
-) -> None:
-    """Write the exact binned counts used by the distance histogram plot."""
-
-    edges = _histogram_edges(x_min, x_max, bin_width)
-    counts, _ = np.histogram(distances, bins=edges)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.writer(handle, delimiter="\t")
-        writer.writerow([
-            "bin_start_inclusive",
-            "bin_end_exclusive",
-            "distance_bin",
-            "pair_count",
-        ])
-        for index, count in enumerate(counts):
-            start = float(edges[index])
-            end = float(edges[index + 1])
-            writer.writerow([
-                _format_number(start),
-                _format_number(end),
-                f"{_format_number(start)}-{_format_number(end)}",
-                int(count),
-            ])
-
-def write_percentile_distances(path: Path, rows: Sequence[dict[str, object]]) -> None:
-    fieldnames = [
-        "pair_id",
-        "analysis_direction",
-        "percentile_source",
-        "target_source",
-        "percentile_group",
-        "group_lower_percentile",
-        "group_upper_percentile",
-        "query_source",
-        "chrom",
-        "a_start",
-        "a_end",
-        "a_name",
-        "a_summit",
-        "a_score",
-        "a_score_percentile",
-        "b_start",
-        "b_end",
-        "b_name",
-        "b_summit",
-        "b_score",
-        "b_score_percentile",
-        "signed_distance_b_minus_a",
-        "signed_distance_target_minus_query",
-        "absolute_distance",
-    ]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t")
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({key: _format_number(row[key]) for key in fieldnames})
+    edges = np.arange(float(args.histogram_x_min), float(args.histogram_x_max) + float(args.histogram_bin_width), float(args.histogram_bin_width))
+    colors = _comparison_colors(len(results))
+    figure, axis = plt.subplots(figsize=(9.0, 5.8))
+    for color, result in zip(colors, results):
+        counts, resolved_edges = np.histogram(result.absolute_distance, bins=edges)
+        centres = (resolved_edges[:-1] + resolved_edges[1:]) / 2.0
+        axis.plot(centres, counts, label=result.label, color=color, linewidth=1.5)
+    axis.set_xlim(float(args.histogram_x_min), float(args.histogram_x_max))
+    axis.set_xlabel("Absolute summit distance (bp)")
+    axis.set_ylabel("Matched pairs")
+    axis.set_title("Matched-position distance distributions")
+    apply_distance_x_axis(axis, major_interval=args.distance_x_major_tick, minor_interval=args.distance_x_minor_tick)
+    apply_integer_y_axis(axis)
+    axis.legend(frameon=False)
+    figure.tight_layout()
+    output = plot_path(Path(f"{prefix}_distance_histogram.png"))
+    output = save_figure(figure, output, default_dpi=args.dpi)
+    plt.close(figure)
+    return output
 
 
-def write_percentile_distance_summary(
-    path: Path,
-    rows: Sequence[dict[str, object]],
-) -> None:
-    fieldnames = [
-        "analysis_direction",
-        "percentile_source",
-        "target_source",
-        "percentile_group",
-        "group_lower_percentile",
-        "group_upper_percentile",
-        "percentile_source_position_count",
-        "all_target_position_count",
-        "matched_pair_count",
-        "matched_unique_source_positions",
-        "matched_unique_target_positions",
-        "unmatched_source_positions",
-        "target_positions_not_used",
-        "unmatched_query_no_target_chromosome",
-        "unmatched_query_beyond_maximum_distance",
-        "unmatched_query_unique_assignment",
-        "minimum_absolute_distance",
-        "q1_absolute_distance",
-        "median_absolute_distance",
-        "mean_absolute_distance",
-        "q3_absolute_distance",
-        "maximum_absolute_distance",
-        "absolute_distance_standard_deviation",
-    ]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t")
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({key: _format_number(row[key]) for key in fieldnames})
+def _plot_correlation_by_distance(prefix: Path, rows: Sequence[dict[str, object]], results: Sequence[ComparisonArrays], args: argparse.Namespace) -> Path:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from nucleosuite.plotting import plot_path, save_figure
+
+    figure, axis = plt.subplots(figsize=(9.0, 5.8))
+    colors = _comparison_colors(len(results))
+    for color, result in zip(colors, results):
+        subset = [row for row in rows if row["comparison"] == result.label]
+        labels = [str(row["distance_bin"]) for row in subset]
+        x = np.arange(len(labels), dtype=float)
+        if args.score_correlation in {"spearman", "both"}:
+            axis.plot(x, [float(row["spearman_score_correlation"]) for row in subset], marker="o", color=color, label=(result.label if args.score_correlation == "spearman" else f"{result.label} Spearman"))
+        if args.score_correlation in {"pearson", "both"}:
+            axis.plot(x, [float(row["pearson_score_correlation"]) for row in subset], marker="s", linestyle="--", color=color, label=(result.label if args.score_correlation == "pearson" else f"{result.label} Pearson"))
+    axis.axhline(0, linewidth=0.8, color="black")
+    if rows:
+        labels = [str(row["distance_bin"]) for row in rows if row["comparison"] == results[0].label]
+        axis.set_xticks(np.arange(len(labels)), labels, rotation=35, ha="right")
+    axis.set_ylim(-1.05, 1.05)
+    axis.set_xlabel("Absolute summit-distance bin (bp)")
+    axis.set_ylabel("Main/comparison score correlation")
+    axis.set_title("Score correlation by summit-distance bin")
+    axis.legend(frameon=False)
+    figure.tight_layout()
+    output = plot_path(Path(f"{prefix}_correlation_by_distance.png"))
+    output = save_figure(figure, output, default_dpi=args.dpi)
+    plt.close(figure)
+    return output
 
 
-def plot_percentile_distances(
-    path: Path,
-    distances_by_group: dict[str, np.ndarray],
+def _format_p(p: float, adjusted: bool) -> str:
+    if not math.isfinite(p):
+        return "NA"
+    label = "p_adj" if adjusted else "p"
+    if p < 0.0001:
+        return f"{label}<1e-4"
+    return f"{label}={p:.3g}"
+
+
+def _plot_percentile_boxplot(
+    prefix: Path,
+    results: Sequence[ComparisonArrays],
     interval: int,
-    percentile_label: str,
-    target_label: str,
-    dpi: int,
-    y_max: float = 500.0,
+    stats_rows: Sequence[dict[str, object]],
+    args: argparse.Namespace,
 ) -> Path:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    from nucleosuite.plotting import configure_unique_category_cycle
-    configure_unique_category_cycle()
-
-    groups = _percentile_group_bounds(interval)
-    labels = [label for _, _, label in groups]
-    figure_width = max(8.5, 0.72 * len(labels) + 2.5)
-    figure, axis = plt.subplots(figsize=(figure_width, 6.2))
-    for position, label in enumerate(labels, start=1):
-        values = distances_by_group.get(label, np.asarray([], dtype=np.float64))
-        if values.size:
-            axis.boxplot(
-                [values],
-                positions=[position],
-                widths=0.58,
-                showfliers=True,
-                whis=1.5,
-            )
-    axis.set_xticks(np.arange(1, len(labels) + 1), labels, rotation=35, ha="right")
-    axis.set_xlim(0.4, len(labels) + 0.6)
-    axis.set_xlabel(f"{percentile_label} score percentile group")
-    axis.set_ylabel("Absolute summit distance (bp)")
-    if y_max > 0:
-        axis.set_ylim(0.0, y_max)
-    axis.set_title(
-        f"{percentile_label} score percentiles versus all {target_label} positions"
-    )
-    from nucleosuite.plotting import save_figure
-    figure.tight_layout()
-    saved = save_figure(figure, path, default_dpi=dpi)
-    plt.close(figure)
-    return saved
-
-
-def _plot_indices(pair_count: int, maximum: int, seed: int) -> np.ndarray:
-    if maximum == 0 or pair_count <= maximum:
-        return np.arange(pair_count, dtype=int)
-    random_generator = np.random.default_rng(seed)
-    return np.sort(random_generator.choice(pair_count, size=maximum, replace=False))
-
-
-def create_plots(
-    prefix: Path,
-    arrays: dict[str, np.ndarray],
-    bin_rows: Sequence[dict[str, object]],
-    label_a: str,
-    label_b: str,
-    plot_max_points: int,
-    plot_seed: int,
-    dpi: int,
-    score_normalization: str,
-    correlation_method: str,
-    histogram_bin_width: float,
-    histogram_x_min: float,
-    histogram_x_max: float,
-    score_z_limit: float = 10.0,
-    distance_x_major_tick: float | None = None,
-    distance_x_minor_tick: float | None = None,
-) -> list[Path]:
-    if plot_max_points < 0:
-        raise ValueError("--plot-max-points must be zero or greater.")
-    if dpi < 1:
-        raise ValueError("--dpi must be at least 1.")
-    if histogram_bin_width <= 0:
-        raise ValueError("--histogram-bin-width must be greater than zero.")
-    if histogram_x_min < 0 or histogram_x_max <= histogram_x_min:
-        raise ValueError("Histogram limits require 0 <= x-min < x-max.")
-    if not math.isfinite(score_z_limit) or score_z_limit < 0:
-        raise ValueError("--score-z-limit must be finite and zero or greater.")
-
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    from nucleosuite.plotting import configure_unique_category_cycle
-    configure_unique_category_cycle()
-
-    scores_a, scores_b, score_axis_label = _selected_scores(arrays, score_normalization)
-    distances = arrays["distances"]
-    indices = _plot_indices(scores_a.size, plot_max_points, plot_seed)
-    outputs: list[Path] = []
-
+    from matplotlib.patches import Patch
     from nucleosuite.plotting import plot_path, save_figure
-    score_plot = plot_path(Path(f"{prefix}_score_correlation.png"))
-    figure, axis = plt.subplots(figsize=(7.5, 6.5))
-    scatter = axis.scatter(scores_a[indices], scores_b[indices], c=distances[indices], s=9, alpha=0.55, linewidths=0, cmap="viridis", rasterized=True)
-    colorbar = figure.colorbar(scatter, ax=axis)
-    colorbar.set_label("Absolute summit distance (bp)")
-    _slope, _intercept, r_squared = _safe_regression(scores_a, scores_b)
-    if score_normalization == "zscore" and score_z_limit > 0:
-        axis.set_xlim(-score_z_limit, score_z_limit)
-        axis.set_ylim(-score_z_limit, score_z_limit)
-    axis.set_xlabel(f"{label_a} {score_axis_label}")
-    axis.set_ylabel(f"{label_b} {score_axis_label}")
-    axis.set_title("Score agreement coloured by summit distance")
-    annotation = []
-    if correlation_method in ("spearman", "both"):
-        annotation.append(f"Spearman ρ = {_safe_spearman(scores_a, scores_b):.3f}")
-    if correlation_method in ("pearson", "both"):
-        annotation.append(f"Pearson r = {_safe_pearson(scores_a, scores_b):.3f}")
-    annotation.append(f"R² = {r_squared:.3f}")
-    axis.text(0.02, 0.98, "\n".join(annotation), transform=axis.transAxes, va="top", ha="left")
+
+    groups = [label for _lower, _upper, label in _percentile_group_bounds(interval)]
+    comparisons = [result.label for result in results]
+    colors = _comparison_colors(len(results))
+    figure, axis = plt.subplots(figsize=(max(9.0, 1.8 * len(groups) + 3.0), 6.5))
+    group_centres = np.arange(1, len(groups) + 1, dtype=float)
+    if len(results) == 1:
+        offsets = np.asarray([0.0])
+        width = 0.48
+    else:
+        spread = min(0.70, 0.14 * len(results))
+        offsets = np.linspace(-spread / 2.0, spread / 2.0, len(results))
+        width = min(0.16, 0.70 / len(results))
+    positions: dict[tuple[str, str], float] = {}
+    for comp_index, (result, color) in enumerate(zip(results, colors)):
+        for group_index, group in enumerate(groups):
+            values = result.absolute_distance[result.group_labels == group]
+            pos = float(group_centres[group_index] + offsets[comp_index])
+            positions[(group, result.label)] = pos
+            if not values.size:
+                continue
+            box = axis.boxplot(
+                [values], positions=[pos], widths=width, patch_artist=True,
+                showfliers=False, whis=1.5,
+            )
+            box["boxes"][0].set_facecolor(color)
+            box["boxes"][0].set_edgecolor(color)
+            for key in ("whiskers", "caps", "medians"):
+                for artist in box[key]:
+                    artist.set_color(color if key != "medians" else "black")
+    axis.set_xticks(group_centres, groups)
+    axis.set_xlim(0.45, len(groups) + 0.55)
+    if float(args.percentile_boxplot_y_max) > 0:
+        axis.set_ylim(0.0, float(args.percentile_boxplot_y_max))
+    axis.set_xlabel("Main peak score percentile group")
+    axis.set_ylabel("Absolute matched distance (bp)")
+    axis.legend([Patch(facecolor=color, edgecolor=color) for color in colors], comparisons, frameon=False)
+
+    max_levels = 0
+    if args.stats and stats_rows:
+        by_group: dict[str, list[dict[str, object]]] = {group: [] for group in groups}
+        for row in stats_rows:
+            by_group.setdefault(str(row["percentile_group"]), []).append(row)
+        max_levels = 0
+        for group in groups:
+            group_stats = by_group.get(group, [])
+            max_levels = max(max_levels, len(group_stats))
+            for level, row in enumerate(group_stats):
+                x1 = positions.get((group, str(row["comparison_1"])))
+                x2 = positions.get((group, str(row["comparison_2"])))
+                if x1 is None or x2 is None:
+                    continue
+                y = 1.03 + level * 0.065
+                transform = axis.get_xaxis_transform()
+                axis.plot([x1, x1, x2, x2], [y - 0.015, y, y, y - 0.015], transform=transform, clip_on=False, color="black", linewidth=0.8)
+                p_value = float(row["p_adjusted"] if args.p_adjust == "holm" else row["p_value"])
+                text = str(row["significance"]) if args.p_display == "stars" else _format_p(p_value, args.p_adjust == "holm")
+                axis.text((x1 + x2) / 2.0, y + 0.006, text, transform=transform, ha="center", va="bottom", fontsize=7, clip_on=False)
+    title_y = 1.02 if max_levels == 0 else 1.09 + max_levels * 0.065
+    axis.set_title("Matched distance by main-score percentile", y=title_y)
     figure.tight_layout()
-    score_plot = save_figure(figure, score_plot, default_dpi=dpi)
+    output = plot_path(Path(f"{prefix}_percentile_distance_boxplot.png"))
+    output = save_figure(figure, output, default_dpi=args.dpi)
     plt.close(figure)
-    outputs.append(score_plot)
-
-    histogram_plot = plot_path(Path(f"{prefix}_distance_histogram.png"))
-    figure, axis = plt.subplots(figsize=(7.5, 5.5))
-    bin_edges = _histogram_edges(histogram_x_min, histogram_x_max, histogram_bin_width)
-    axis.hist(distances, bins=bin_edges)
-    for threshold in (5, 10, 20, 50, 100):
-        if histogram_x_min <= threshold <= histogram_x_max:
-            axis.axvline(threshold, color="black", linewidth=0.7, linestyle="--", alpha=0.45)
-    axis.set_xlim(histogram_x_min, histogram_x_max)
-    axis.set_xlabel("Absolute summit distance (bp)")
-    axis.set_ylabel("Matched pairs")
-    axis.set_title("Nearest-summit distance distribution")
-    from nucleosuite.plotting import apply_distance_x_axis
-    apply_distance_x_axis(
-        axis,
-        major_interval=distance_x_major_tick,
-        minor_interval=distance_x_minor_tick,
-    )
-    from nucleosuite.plotting import apply_integer_y_axis
-    apply_integer_y_axis(axis)
-    figure.tight_layout()
-    histogram_plot = save_figure(figure, histogram_plot, default_dpi=dpi)
-    plt.close(figure)
-    outputs.append(histogram_plot)
-
-    bin_plot = plot_path(Path(f"{prefix}_correlation_by_distance.png"))
-    figure, axis = plt.subplots(figsize=(8.5, 5.8))
-    labels = [str(row["distance_bin"]) for row in bin_rows]
-    x_values = np.arange(len(labels))
-    if correlation_method in ("spearman", "both"):
-        values = np.asarray([float(row["spearman_score_correlation"]) for row in bin_rows], dtype=np.float64)
-        axis.plot(x_values, values, marker="o", label="Spearman")
-    if correlation_method in ("pearson", "both"):
-        values = np.asarray([float(row["pearson_score_correlation"]) for row in bin_rows], dtype=np.float64)
-        axis.plot(x_values, values, marker="s", label="Pearson")
-    axis.axhline(0, color="black", linewidth=0.8)
-    axis.set_xticks(x_values, labels, rotation=35, ha="right")
-    axis.set_ylim(-1.05, 1.05)
-    axis.set_xlabel("Absolute summit-distance bin (bp)")
-    axis.set_ylabel(f"{score_axis_label.capitalize()} correlation")
-    axis.set_title("Score correlation by summit-distance bin")
-    if correlation_method == "both":
-        axis.legend()
-    for x_value, row in zip(x_values, bin_rows):
-        axis.text(x_value, -1.0, f"n={int(row['pair_count'])}", ha="center", va="bottom", fontsize=8, rotation=90)
-    figure.tight_layout()
-    bin_plot = save_figure(figure, bin_plot, default_dpi=dpi)
-    plt.close(figure)
-    outputs.append(bin_plot)
-    return outputs
-
-
-def _default_label(path: str | Path) -> str:
-    name = Path(path).name
-    for suffix in (".bed.gz", ".bigBed", ".bigbed", ".bed", ".bb", ".gz"):
-        if name.endswith(suffix):
-            return name[: -len(suffix)]
-    return Path(name).stem
-
-
-def _default_prefix(path_a: str | Path, path_b: str | Path) -> Path:
-    return Path(f"{_default_label(path_a)}_vs_{_default_label(path_b)}")
+    return output
 
 
 def run_comparison(args: argparse.Namespace) -> dict[str, Path]:
-    if args.plot_max_points < 0:
-        raise ValueError("--plot-max-points must be zero or greater.")
-    from nucleosuite.plotting import validate_tick_interval
-    distance_x_major_tick = getattr(args, "distance_x_major_tick", None)
-    distance_x_minor_tick = getattr(args, "distance_x_minor_tick", None)
-    validate_tick_interval(distance_x_major_tick, "--distance-x-major-tick")
-    validate_tick_interval(distance_x_minor_tick, "--distance-x-minor-tick")
-    score_z_limit = float(getattr(args, "score_z_limit", 10.0))
-    percentile_boxplot_y_max = float(
-        getattr(args, "percentile_boxplot_y_max", 500.0)
-    )
-    if not math.isfinite(score_z_limit) or score_z_limit < 0:
-        raise ValueError("--score-z-limit must be finite and zero or greater.")
-    if not math.isfinite(percentile_boxplot_y_max) or percentile_boxplot_y_max < 0:
-        raise ValueError(
-            "--percentile-boxplot-y-max must be finite and zero or greater."
-        )
-    percentile_interval = _validate_percentile_interval(
-        int(getattr(args, "percentile_interval", 25))
-    )
-    skip_percentile_analysis = bool(
-        getattr(args, "skip_percentile_distance_analysis", False)
-    )
-    prefix = Path(args.output_prefix) if args.output_prefix else _default_prefix(args.bed_a, args.bed_b)
-    from nucleosuite.output_naming import parameterized_prefix
+    _validate_args(args)
+    main_path, specs = _resolve_inputs(args)
+    reporter = ProgressReporter("compare-positions", quiet=bool(getattr(args, "quiet", False)))
+    reporter.stage("Reading main nucleosome positions")
 
-    prefix = parameterized_prefix(
-        prefix,
-        (
-            ("match", "one-to-one" if args.matching == "unique" else args.matching),
-            ("maxdist", args.max_distance),
-            ("scorenorm", args.score_normalization),
-        ),
+    blacklist = None
+    if getattr(args, "blacklist_bed", None):
+        from nucleosuite.core.blacklist import load_blacklist_unbounded
+        blacklist = load_blacklist_unbounded(args.blacklist_bed)
+    excluded_main = [0]
+    main_records = read_positions(
+        main_path, "A", args.main_summit_column, args.main_score_column,
+        blacklist=blacklist, excluded_counter=excluded_main, progress=reporter,
     )
+    if not main_records:
+        raise ValueError("The main BED contains no usable positions after filtering.")
+    main_label = args.main_label or _default_label(main_path)
+    prefix = Path(args.output_prefix or f"{_default_label(main_path)}_compare_positions")
     prefix.parent.mkdir(parents=True, exist_ok=True)
-    reporter = ProgressReporter(
-        "compare-positions", quiet=bool(getattr(args, "quiet", False))
-    )
+
+    results: list[ComparisonArrays] = []
+    all_pairs_for_writing: list[tuple[ComparisonArrays, list[MatchedPair]]] = []
+    summary_rows: list[dict[str, object]] = []
+    histogram_rows: list[dict[str, object]] = []
+    correlation_rows: list[dict[str, object]] = []
+    percentile_rows: list[dict[str, object]] = []
+    score_distance_rows: list[dict[str, object]] = []
+    outputs: dict[str, Path] = {}
     bounds = _parse_distance_bins(args.distance_bins)
-    pairs_path = Path(f"{prefix}_pairs.tsv")
+
+    for index, spec in enumerate(specs, start=1):
+        reporter.stage(f"Comparison {index}/{len(specs)}: {spec.label}")
+        excluded_compare = [0]
+        compare_records = read_positions(
+            spec.path, "B", args.compare_summit_column, args.compare_score_column,
+            blacklist=blacklist, excluded_counter=excluded_compare, progress=reporter,
+        )
+        if not compare_records:
+            raise ValueError(f"Comparison BED {spec.path} contains no usable positions after filtering.")
+        reporter.stage(
+            f"One-to-one matching {spec.label}: main={len(main_records):,}; comparison={len(compare_records):,}"
+        )
+        match = match_positions(main_records, compare_records, "one-to-one", args.max_distance, progress=reporter)
+        if not match.pairs:
+            raise ValueError(f"No matched pairs were found for comparison {spec.label!r}.")
+        arrays = _arrays_from_match(spec.label, spec.path, match, len(main_records), len(compare_records), args.percentile_interval)
+        results.append(arrays)
+        summary = _summary_row(arrays, main_path, main_label)
+        summary["blacklist_overlapping_main_records_excluded"] = excluded_main[0]
+        summary["blacklist_overlapping_compare_records_excluded"] = excluded_compare[0]
+        summary_rows.append(summary)
+        histogram_rows.extend(_histogram_rows(arrays, args.histogram_x_min, args.histogram_x_max, args.histogram_bin_width))
+        correlation_rows.extend(_distance_bin_rows(arrays, args.score_normalization, bounds))
+        percentile_rows.extend(_percentile_rows(arrays))
+        sd_stats = _score_distance_stats(arrays, args.score_distance_type)
+        score_distance_rows.append(sd_stats)
+
+        if not args.skip_pairs_tsv:
+            pair_path = Path(f"{prefix}_{_safe_token(spec.label)}_pairs.tsv")
+            _write_pairs(pair_path, arrays, match.pairs, main_label, args)
+            outputs[f"pairs_{_safe_token(spec.label)}"] = pair_path
+        # Comparison-specific plots remain separate where overlaying millions of
+        # points would obscure rather than clarify the relationship.
+        outputs[f"score_agreement_plot_{_safe_token(spec.label)}"] = _plot_score_agreement(prefix, arrays, main_label, args)
+        outputs[f"score_distance_plot_{_safe_token(spec.label)}"] = _plot_score_distance(prefix, arrays, args, sd_stats)
+
     summary_path = Path(f"{prefix}_summary.tsv")
-    bins_path = Path(f"{prefix}_distance_bins.tsv")
-    histogram_tsv_path = Path(f"{prefix}_distance_histogram.tsv")
-    a_percentile_distances_path = Path(
-        f"{prefix}_A_percentiles_vs_all_B_distances.tsv"
-    )
-    a_percentile_summary_path = Path(
-        f"{prefix}_A_percentiles_vs_all_B_summary.tsv"
-    )
-    from nucleosuite.plotting import plot_path
-    a_percentile_plot_path = plot_path(Path(
-        f"{prefix}_A_percentiles_vs_all_B_boxplot.png"
-    ))
-    b_percentile_distances_path = Path(
-        f"{prefix}_B_percentiles_vs_all_A_distances.tsv"
-    )
-    b_percentile_summary_path = Path(
-        f"{prefix}_B_percentiles_vs_all_A_summary.tsv"
-    )
-    b_percentile_plot_path = plot_path(Path(
-        f"{prefix}_B_percentiles_vs_all_A_boxplot.png"
-    ))
-    score_plot_path = plot_path(Path(f"{prefix}_score_correlation.png"))
-    distance_plot_path = plot_path(Path(f"{prefix}_distance_histogram.png"))
-    correlation_plot_path = plot_path(Path(f"{prefix}_correlation_by_distance.png"))
-    checkpoint_root = Path(f"{prefix}_checkpoints")
-    checkpoint_root.mkdir(parents=True, exist_ok=True)
-    main_marker = checkpoint_root / "main.complete.json"
-    signature = _comparison_signature(args)
-    skip_pairs = bool(getattr(args, "skip_pairs_tsv", False))
-    skip_percentile_pairs = bool(
-        getattr(args, "skip_percentile_pairs_tsv", False)
-    )
-    force = bool(getattr(args, "force", False))
-
-    blacklist = load_blacklist_unbounded(getattr(args, "blacklist_bed", None))
-    excluded_a = [0]
-    excluded_b = [0]
-    records_a = read_positions(
-        args.bed_a,
-        "A",
-        args.summit_column_a,
-        args.score_column_a,
-        blacklist,
-        excluded_a,
-        progress=reporter,
-    )
-    records_b = read_positions(
-        args.bed_b,
-        "B",
-        args.summit_column_b,
-        args.score_column_b,
-        blacklist,
-        excluded_b,
-        progress=reporter,
-    )
-
-    main_required = [
-        summary_path,
-        bins_path,
-        histogram_tsv_path,
-        score_plot_path,
-        distance_plot_path,
-        correlation_plot_path,
-    ]
-    if not skip_pairs:
-        main_required.append(pairs_path)
-
-    label_a = args.label_a or _default_label(args.bed_a)
-    label_b = args.label_b or _default_label(args.bed_b)
-    if not force and _checkpoint_matches(
-        main_marker, signature=signature, required_paths=main_required
-    ):
-        reporter.emit("Reused completed main comparison outputs")
-    else:
-        main_marker.unlink(missing_ok=True)
-        reporter.stage(
-            f"Matching {args.matching}: A={len(records_a):,}; B={len(records_b):,}"
-        )
-        result = match_positions(
-            records_a,
-            records_b,
-            args.matching,
-            args.max_distance,
-            progress=reporter,
-        )
-        if not result.pairs:
-            raise ValueError("No matched position pairs satisfied the selected criteria.")
-        reporter.stage(
-            f"Preparing main analyses from {len(result.pairs):,} matched pairs"
-        )
-        arrays = write_pairs(
-            None if skip_pairs else pairs_path,
-            result.pairs,
-            plot_indices=_plot_indices(len(result.pairs), args.plot_max_points, args.plot_seed),
-            plot_score_normalization=args.score_normalization,
-            plot_correlation_method=args.correlation_method,
-            plot_label_a=label_a,
-            plot_label_b=label_b,
-            plot_score_z_limit=score_z_limit,
-        )
-        metrics = [
-            ("input_a_file", str(Path(args.bed_a))),
-            ("input_b_file", str(Path(args.bed_b))),
-            ("blacklist_bed", getattr(args, "blacklist_bed", None) or ""),
-            ("blacklist_overlapping_a_records_excluded", excluded_a[0]),
-            ("blacklist_overlapping_b_records_excluded", excluded_b[0]),
-            ("method_a_label", label_a),
-            ("method_b_label", label_b),
-            (
-                "percentile_distance_analysis",
-                "disabled" if skip_percentile_analysis else "in_progress",
-            ),
-            ("score_percentile_interval", percentile_interval),
-            ("score_z_axis_limit", score_z_limit),
-            ("distance_histogram_x_min", args.histogram_x_min),
-            ("distance_histogram_x_max", args.histogram_x_max),
-            ("percentile_boxplot_y_max", percentile_boxplot_y_max),
-            ("pairs_tsv", "disabled" if skip_pairs else "written"),
-            (
-                "percentile_pairs_tsv",
-                "disabled" if skip_percentile_pairs else "written",
-            ),
-        ] + summary_metrics(
-            result,
-            arrays,
-            args.matching,
-            args.max_distance,
-            records_a,
-            records_b,
-            args.score_normalization,
-            args.correlation_method,
-        )
-        write_summary(summary_path, metrics)
-        selected_a, selected_b, _ = _selected_scores(
-            arrays, args.score_normalization
-        )
-        rows = distance_bin_rows(
-            arrays["distances"],
-            selected_a,
-            selected_b,
-            arrays["z_difference"],
-            arrays["raw_difference"],
-            bounds,
-        )
-        write_distance_bins(
-            bins_path,
-            rows,
-            plot_correlation_method=args.correlation_method,
-            plot_score_axis_label=_selected_scores(arrays, args.score_normalization)[2],
-        )
-        write_distance_histogram(
-            histogram_tsv_path,
-            arrays["distances"],
-            args.histogram_bin_width,
-            args.histogram_x_min,
-            args.histogram_x_max,
-        )
-        create_plots(
-            prefix,
-            arrays,
-            rows,
-            label_a,
-            label_b,
-            args.plot_max_points,
-            args.plot_seed,
-            args.dpi,
-            args.score_normalization,
-            args.correlation_method,
-            args.histogram_bin_width,
-            args.histogram_x_min,
-            args.histogram_x_max,
-            score_z_limit,
-            distance_x_major_tick,
-            distance_x_minor_tick,
-        )
-        _write_checkpoint(
-            main_marker,
-            signature=signature,
-            required_paths=main_required,
-            stage="main comparison",
-        )
-        reporter.emit("Completed main comparison outputs")
-        del selected_a, selected_b, rows, arrays, result
-        gc.collect()
-
-    percentile_outputs: dict[str, Path] = {}
-    if not skip_percentile_analysis:
-        _update_summary_metric(
-            summary_path, "percentile_distance_analysis", "in_progress"
-        )
-        _write_checkpoint(
-            main_marker,
-            signature=signature,
-            required_paths=main_required,
-            stage="main comparison",
-        )
-        reporter.stage("Assigning independent score percentiles")
-        assignment_a = assign_score_percentiles_compact(
-            records_a, percentile_interval
-        )
-        assignment_b = assign_score_percentiles_compact(
-            records_b, percentile_interval
-        )
-        run_directional_percentile_streaming(
-            records_a=records_a,
-            records_b=records_b,
-            assignment_a=assignment_a,
-            assignment_b=assignment_b,
-            percentile_source="A",
-            matching=args.matching,
-            max_distance=args.max_distance,
-            interval=percentile_interval,
-            output_distances=(
-                None if skip_percentile_pairs else a_percentile_distances_path
-            ),
-            output_summary=a_percentile_summary_path,
-            output_plot=a_percentile_plot_path,
-            checkpoint_root=checkpoint_root,
-            signature=signature,
-            label_source=label_a,
-            label_target=label_b,
-            dpi=args.dpi,
-            y_max=percentile_boxplot_y_max,
-            force=force,
-            reporter=reporter,
-        )
-        gc.collect()
-        run_directional_percentile_streaming(
-            records_a=records_a,
-            records_b=records_b,
-            assignment_a=assignment_a,
-            assignment_b=assignment_b,
-            percentile_source="B",
-            matching=args.matching,
-            max_distance=args.max_distance,
-            interval=percentile_interval,
-            output_distances=(
-                None if skip_percentile_pairs else b_percentile_distances_path
-            ),
-            output_summary=b_percentile_summary_path,
-            output_plot=b_percentile_plot_path,
-            checkpoint_root=checkpoint_root,
-            signature=signature,
-            label_source=label_b,
-            label_target=label_a,
-            dpi=args.dpi,
-            y_max=percentile_boxplot_y_max,
-            force=force,
-            reporter=reporter,
-        )
-        _update_summary_metric(
-            summary_path, "percentile_distance_analysis", "completed"
-        )
-        _write_checkpoint(
-            main_marker,
-            signature=signature,
-            required_paths=main_required,
-            stage="main comparison",
-        )
-        percentile_outputs = {
-            "a_percentiles_vs_all_b_summary": a_percentile_summary_path,
-            "a_percentiles_vs_all_b_boxplot": a_percentile_plot_path,
-            "b_percentiles_vs_all_a_summary": b_percentile_summary_path,
-            "b_percentiles_vs_all_a_boxplot": b_percentile_plot_path,
-        }
-        if not skip_percentile_pairs:
-            percentile_outputs.update(
-                {
-                    "a_percentiles_vs_all_b_distances": a_percentile_distances_path,
-                    "b_percentiles_vs_all_a_distances": b_percentile_distances_path,
-                }
-            )
-
-    outputs = {
+    histogram_path = Path(f"{prefix}_distance_histogram.tsv")
+    correlation_path = Path(f"{prefix}_correlation_by_distance.tsv")
+    percentile_path = Path(f"{prefix}_percentile_distances.tsv")
+    percentile_summary_path = Path(f"{prefix}_percentile_summary.tsv")
+    score_distance_path = Path(f"{prefix}_main_score_vs_distance_statistics.tsv")
+    _write_tsv(summary_path, summary_rows)
+    _write_tsv(histogram_path, histogram_rows)
+    _write_tsv(correlation_path, correlation_rows)
+    _write_tsv(percentile_path, percentile_rows)
+    _write_tsv(percentile_summary_path, _percentile_summary_rows(results, args.percentile_interval))
+    _write_tsv(score_distance_path, score_distance_rows)
+    outputs.update({
         "summary": summary_path,
-        "distance_bins": bins_path,
-        "distance_histogram": histogram_tsv_path,
-        "score_correlation_plot": score_plot_path,
-        "distance_histogram_plot": distance_plot_path,
-        "correlation_by_distance_plot": correlation_plot_path,
-        **percentile_outputs,
-    }
-    if not skip_pairs:
-        outputs["pairs"] = pairs_path
-    if not getattr(args, "quiet", False):
-        reporter.emit(
-            f"A={len(records_a):,}; B={len(records_b):,}; "
-            f"blacklisted A/B={excluded_a[0]:,}/{excluded_b[0]:,}"
-        )
+        "distance_histogram": histogram_path,
+        "correlation_by_distance": correlation_path,
+        "percentile_distances": percentile_path,
+        "percentile_summary": percentile_summary_path,
+        "score_distance_statistics": score_distance_path,
+    })
+
+    statistics_rows: list[dict[str, object]] = []
+    if args.stats and len(results) >= 2:
+        statistics_rows = _pairwise_statistics(results, args.percentile_interval, args.stats_test, args.p_adjust)
+        statistics_path = Path(f"{prefix}_percentile_statistics.tsv")
+        _write_tsv(statistics_path, statistics_rows)
+        outputs["percentile_statistics"] = statistics_path
+
+    outputs["distance_histogram_plot"] = _plot_distance_histograms(prefix, results, args)
+    outputs["correlation_by_distance_plot"] = _plot_correlation_by_distance(prefix, correlation_rows, results, args)
+    outputs["percentile_boxplot"] = _plot_percentile_boxplot(prefix, results, args.percentile_interval, statistics_rows, args)
+
+    if not args.quiet:
+        reporter.emit(f"Main positions: {len(main_records):,}")
+        for result in results:
+            reporter.emit(f"{result.label}: {result.compare_count:,} positions; {result.pair_count:,} one-to-one pairs")
         for name, path in outputs.items():
             reporter.emit(f"{name}: {path}")
     reporter.complete()
@@ -2606,26 +1100,33 @@ def _run_serial(args: argparse.Namespace) -> int:
 
 
 def run(args: argparse.Namespace) -> int:
-    from nucleosuite.partitioned import run_partitioned_command
     from nucleosuite.output_naming import parameterized_prefix
+    from nucleosuite.partitioned import run_partitioned_command
 
-    requested = args.output_prefix or _default_prefix(args.bed_a, args.bed_b)
+    main_path, _specs = _resolve_inputs(args)
+    requested = args.output_prefix or f"{_default_label(main_path)}_compare_positions"
     args.output_prefix = str(
         parameterized_prefix(
             requested,
             (
-                ("match", "one-to-one" if args.matching == "unique" else args.matching),
+                ("pct", args.percentile_interval),
                 ("maxdist", args.max_distance),
-                ("scorenorm", args.score_normalization),
+                ("dist", args.score_distance_type),
             ),
         )
     )
-    prefix = Path(args.output_prefix).name if args.output_prefix else _default_prefix(args.bed_a, args.bed_b).name
+    base = Path(args.output_prefix).name
     return run_partitioned_command(
-        "compare-positions", args, _run_serial,
-        runner_module="nucleosuite.compare_positions", runner_function="_run_serial",
-        primary_attr="bed_a", output_prefix_attr="output_prefix",
-        path_attrs=("bed_b", "blacklist_bed"), base_name=prefix,
+        "compare-positions",
+        args,
+        _run_serial,
+        runner_module="nucleosuite.compare_positions",
+        runner_function="_run_serial",
+        primary_attr="main_bed",
+        output_prefix_attr="output_prefix",
+        path_attrs=("blacklist_bed",),
+        named_path_list_attrs=("compare_beds",),
+        base_name=base,
     )
 
 

@@ -30,7 +30,7 @@ nucleosuite flank-spacing \
   --output-prefix sample_flank_spacing
 ```
 
-For each reference site, NucleoSuite uses the interval midpoint unless `--point-col` supplies an exact coordinate. Nucleosome centres are likewise taken from interval midpoints unless `--nucleosome-center-col` is supplied.
+For each reference site, NucleoSuite uses the interval midpoint unless `--point-col` supplies an exact coordinate. Nucleosome centres are likewise taken from interval midpoints unless `--nucleosome-center-col` is supplied. A standalone example is provided in [`examples/flank_spacing.sh`](../../examples/flank_spacing.sh).
 
 ## Density versus raw counts
 

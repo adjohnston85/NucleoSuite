@@ -8,7 +8,6 @@ Each command page describes the calculation, a typical invocation, analysis opti
 - [`merge-bams`](commands/merge-bams.md) — merge BAMs while retaining alignment records and tags.
 - [`randomize-fragments`](commands/randomize-fragments.md) — make coordinate-randomized control fragments.
 - [`fragment-lengths`](commands/fragment-lengths.md) — count fragment lengths, optionally by genomic region class.
-- [`flank-spacing`](commands/flank-spacing.md) — compare category-wise spacing between nucleosomes flanking reference sites.
 - [`fragment-heatmap`](commands/fragment-heatmap.md) — compare fragment-length profiles across samples or classes.
 
 ## Build genomic signals
@@ -26,7 +25,8 @@ Each command page describes the calculation, a typical invocation, analysis opti
 
 - [`call-peaks`](commands/call-peaks.md) — call PNS or WPS features from an existing signal track.
 - [`distances`](commands/distances.md) — measure adjacent and higher-order peak spacing.
-- [`compare-positions`](commands/compare-positions.md) — compare summit locations and scores between two callsets.
+- [`flank-spacing`](commands/flank-spacing.md) — compare category-wise spacing between nucleosomes flanking reference sites and rank the distributions.
+- [`compare-positions`](commands/compare-positions.md) — compare one main callset with one or more callsets using one-to-one matching and main-score percentile groups.
 - [`peak-score-frequency`](commands/peak-score-frequency.md) — compare peak-score distributions.
 - [`filter-coverage`](commands/filter-coverage.md) — retain peaks that meet a BigWig coverage threshold at their selected position.
 - [`peak-states`](commands/peak-states.md) — count peaks and score-dependent enrichment across chromatin states.

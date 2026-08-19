@@ -44,6 +44,10 @@ The central position of nucleosome-bound DNA. A dyad track uses the centre of ea
 
 Dinucleotide profiles do not split even-length fragments between alternative centres.
 
+## Flanking spacing
+
+The distance between the nearest nucleosome centre strictly upstream of a reference site and the nearest nucleosome centre strictly downstream. In `flank-spacing`, these distances are compared across categories defined in a reference BED.
+
 ## Fragment
 
 The genomic interval spanned by a properly paired sequencing-read pair. Fragment coordinates are represented as zero-based, half-open intervals.

@@ -61,7 +61,7 @@ nucleosuite aggregate \
   --bigwig sample_pns.bw \
   --region-bed "$(nucleosuite resources path gm12878-hg19-ctcf)" \
   --strand-col 6 \
-  --out-prefix sample_ctcf
+  --output-prefix sample_ctcf
 ```
 
 Use the bundled genes in a gene-centred analysis:

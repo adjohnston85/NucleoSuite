@@ -18,7 +18,9 @@ For a coordinated analysis with standard defaults, use [`cfdna-suite`](commands/
 
 ## I already have nucleosome or other peak calls
 
-Use [`distances`](commands/distances.md) to measure nearest-neighbour or higher-order spacing. Use [`compare-positions`](commands/compare-positions.md) to compare two callsets. Use [`peak-score-frequency`](commands/peak-score-frequency.md) to compare their score distributions.
+Use [`distances`](commands/distances.md) to measure nearest-neighbour or higher-order spacing. Use [`compare-positions`](commands/compare-positions.md) when one main nucleosome callset should be compared with one or more other callsets using one-to-one positional matching, main-score percentile groups, and optional within-percentile statistics. Use [`peak-score-frequency`](commands/peak-score-frequency.md) to compare their score distributions.
+
+Use [`flank-spacing`](commands/flank-spacing.md) when you have nucleosome calls plus a BED of reference sites divided into categories and want to compare the distance between the nearest upstream and downstream nucleosomes for each category. Column 4 is the default category column.
 
 Use [`peak-states`](commands/peak-states.md) to measure how peaks are distributed across chromatin states. Use [`filter-coverage`](commands/filter-coverage.md) when you want to remove peaks that do not meet a minimum BigWig coverage value at their summit or interval midpoint.
 
@@ -41,7 +43,7 @@ nucleosuite aggregate \
   --bigwig sample_pns.bw \
   --region-bed "$(nucleosuite resources path gm12878-hg19-ctcf)" \
   --strand-col 6 \
-  --out-prefix sample_ctcf
+  --output-prefix sample_ctcf
 ```
 
 ## I want chromatin-state analyses

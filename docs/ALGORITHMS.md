@@ -718,6 +718,44 @@ H_{percent}(d)=100\frac{H(d)}{\sum_qH(q)}.
 
 Pooled histograms, chromatin-state summaries, score-bin subsets, and optional NRL regressions are all derived from these measured distances.
 
+## One-to-one comparison of nucleosome callsets
+
+`compare-positions` treats one BED as the main nucleosome callset and compares each supplied comparison BED against it independently.
+
+For one main/comparison pair, let the filtered callset sizes be $N_M$ and $N_C$. The smaller callset is used as the query and the larger callset as the target. Candidate matches are ordered by absolute summit distance on each chromosome. The one-to-one matcher accepts nearest available pairs while preventing reuse of either accepted position. A maximum allowed distance can optionally reject pairs.
+
+The comparison is performed only once; there is no reciprocal second search. Regardless of which callset was used as the query, every accepted pair is represented as main call plus comparison call, and signed distance is
+
+```math
+d = x_C - x_M.
+```
+
+Absolute matched distance is $|d|$.
+
+After matching, accepted pairs are sorted by the **main call score**. Equal-frequency percentile groups are then assigned from this sorted matched set. With the default 25-percent interval, the groups are 0-25, 25-50, 50-75, and 75-100. Percentile assignment is performed independently for each comparison because different comparison callsets can match different subsets of the main BED.
+
+For optional statistical testing, pairwise comparisons are made separately within each percentile group. If all observations in both comparison distributions within that group correspond to the same main calls, the observations are paired. If complete pairing is unavailable, the full distributions are treated as unpaired. The default non-parametric analysis uses a two-sided Wilcoxon signed-rank test for completely paired data and a two-sided Mann-Whitney U test otherwise. The parametric alternative uses a paired t-test or Welch's t-test. Holm adjustment is applied independently to the pairwise tests within each percentile group by default.
+
+For each comparison, main peak score is also related to matched distance. Spearman correlation is the default reported relationship; Pearson correlation and ordinary linear-regression slope/intercept/R-squared are also written to the statistics table. Plot subsampling affects only rendering, not these statistics.
+
+## Flanking nucleosome spacing around categorized reference sites
+
+For each reference site at coordinate `r`, `flank-spacing` identifies the closest nucleosome centre `u` satisfying `u < r` and the closest nucleosome centre `d` satisfying `d > r`. Nucleosome centres at exactly the reference coordinate are not used as either flank. The reported flanking spacing is:
+
+```math
+s = d-u.
+```
+
+Reference sites are grouped by a BED category column, column 4 by default. A density or raw-count distribution is then constructed independently for each category. Density mode uses a Gaussian kernel-density estimate from all valid flanking-spacing observations in the category; count mode reports the observed integer spacing counts.
+
+For ranking positions `x_1` and `x_2`, which default to 190 and 260 bp, the category statistic is:
+
+```math
+R = \frac{y(x_1)}{y(x_2)}.
+```
+
+Categories are ranked from the smallest finite ratio to the largest. An infinite ratio follows finite ratios, and an undefined ratio sorts last. The display range does not filter observations before density estimation. See [`flank-spacing`](commands/flank-spacing.md) for plotting and output details.
+
 ## Distance autocorrelation
 
 DAC compares a signal with itself at every positive distance $d$ to measure how much signal recurs at that separation.

@@ -44,10 +44,11 @@ nucleosuite --help
 |---|---|
 | [`call-peaks`](docs/commands/call-peaks.md) | Call nucleosome and breakpoint features from PNS or WPS BigWigs. |
 | [`distances`](docs/commands/distances.md) | Calculate adjacent and higher-order distances between called positions. |
+| [`flank-spacing`](docs/commands/flank-spacing.md) | Compare the spacing between nucleosomes flanking categorized reference sites and rank category-specific distributions. |
 | [`dac`](docs/commands/dac.md) | Calculate distance autocorrelation within one signal. |
 | [`dcc`](docs/commands/dcc.md) | Calculate distance cross-correlation between two signals. |
 | [`nrl`](docs/commands/nrl.md) | Estimate nucleosome repeat length from recurring DAC or DCC peaks. |
-| [`compare-positions`](docs/commands/compare-positions.md) | Compare summit positions and scores between callsets. |
+| [`compare-positions`](docs/commands/compare-positions.md) | Compare one main callset with one or more callsets using one-to-one matching and main-score percentiles. |
 | [`positive-runs`](docs/commands/positive-runs.md) | Measure contiguous positive-signal intervals in a BigWig. |
 | [`peak-score-frequency`](docs/commands/peak-score-frequency.md) | Compare peak-score distributions. |
 | [`filter-coverage`](docs/commands/filter-coverage.md) | Filter BED peaks by BigWig coverage at the summit or interval midpoint. |
@@ -85,7 +86,7 @@ flowchart LR
     C --> E[Peak calls]
     C --> F[DAC or DCC]
     C --> G[Regional aggregation]
-    E --> H[Peak distances and callset comparison]
+    E --> H[Peak distances, flanking spacing, and callset comparison]
     F --> I[NRL estimation]
 ```
 

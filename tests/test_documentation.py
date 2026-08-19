@@ -137,6 +137,147 @@ def test_command_reference_links_every_command_page() -> None:
     assert not missing, f"Command pages missing from COMMAND_REFERENCE.md: {missing}"
 
 
+def _primary_command_names() -> set[str]:
+    parser = build_parser()
+    subparsers = next(
+        action for action in parser._actions
+        if isinstance(action, argparse._SubParsersAction)
+    )
+    aliases = {"dyad", "peak-call", "peakcall"}
+    return set(subparsers.choices) - aliases
+
+
+def test_main_readme_links_every_primary_command() -> None:
+    readme = (ROOT / "README.md").read_text()
+    commands = _primary_command_names()
+    missing = [
+        command for command in sorted(commands)
+        if f"(docs/commands/{command}.md)" not in readme
+    ]
+    assert not missing, f"Primary commands missing from README.md: {missing}"
+
+
+def test_command_pages_have_matching_heading_and_back_link() -> None:
+    failures: list[str] = []
+    for path in sorted((ROOT / "docs" / "commands").glob("*.md")):
+        text = path.read_text()
+        expected_heading = f"# `nucleosuite {path.stem}`"
+        first_line = text.splitlines()[0] if text.splitlines() else ""
+        if first_line != expected_heading:
+            failures.append(f"{path.name}: heading is {first_line!r}")
+        if "../COMMAND_REFERENCE.md" not in text:
+            failures.append(f"{path.name}: missing command-reference back link")
+    assert not failures, "Command-page navigation problems:\n" + "\n".join(failures)
+
+
+def test_flank_spacing_is_discoverable_in_relevant_guides() -> None:
+    required = [
+        ROOT / "README.md",
+        ROOT / "docs" / "README.md",
+        ROOT / "docs" / "CHOOSING_A_COMMAND.md",
+        ROOT / "docs" / "COMMAND_REFERENCE.md",
+        ROOT / "docs" / "QUICKSTART.md",
+        ROOT / "docs" / "WORKFLOWS.md",
+        ROOT / "docs" / "ALGORITHMS.md",
+        ROOT / "docs" / "FILE_FORMATS.md",
+        ROOT / "docs" / "GLOSSARY.md",
+        ROOT / "docs" / "PLOTTING.md",
+    ]
+    missing = [
+        str(path.relative_to(ROOT)) for path in required
+        if "flank-spacing" not in path.read_text()
+    ]
+    assert not missing, f"flank-spacing missing from relevant guides: {missing}"
+
+
+def _all_parser_options(parser: argparse.ArgumentParser) -> set[str]:
+    options: set[str] = set()
+    seen: set[int] = set()
+
+    def walk(current: argparse.ArgumentParser) -> None:
+        if id(current) in seen:
+            return
+        seen.add(id(current))
+        for action in current._actions:
+            options.update(action.option_strings)
+            if isinstance(action, argparse._SubParsersAction):
+                for child in action.choices.values():
+                    walk(child)
+
+    walk(parser)
+    return options
+
+
+def _documented_command_option_map() -> dict[str, set[str]]:
+    root_parser = build_parser()
+    root_subparsers = next(
+        action for action in root_parser._actions
+        if isinstance(action, argparse._SubParsersAction)
+    )
+    option_map = {
+        command: _all_parser_options(parser)
+        for command, parser in root_subparsers.choices.items()
+    }
+
+    for command, module_name in DELEGATED_MODULES.items():
+        if command in {"mnase-suite", "cfdna-suite"}:
+            continue
+        module = importlib.import_module(module_name)
+        builder = getattr(module, "build_parser", None)
+        if builder is not None:
+            option_map[command] = _all_parser_options(builder())
+
+    from nucleosuite.cli.aggregate import add_aggregate_parser
+
+    aggregate_root = argparse.ArgumentParser(prog="nucleosuite")
+    aggregate_subparsers = aggregate_root.add_subparsers(dest="command", required=True)
+    aggregate_parser = add_aggregate_parser(aggregate_subparsers)
+    option_map["aggregate"] = _all_parser_options(aggregate_parser)
+
+    for alias, canonical in {
+        "dyad": "dyads",
+        "peak-call": "call-peaks",
+        "peakcall": "call-peaks",
+        "region-peak-extractor": "region-extract",
+        "pns-region-extractor": "region-extract",
+    }.items():
+        option_map[alias] = option_map[canonical]
+    return option_map
+
+
+def test_fenced_nucleosuite_examples_use_current_cli_options() -> None:
+    option_map = _documented_command_option_map()
+    markdown_files = [ROOT / "README.md", *(ROOT / "docs").rglob("*.md")]
+    failures: list[str] = []
+    for markdown in markdown_files:
+        text = markdown.read_text()
+        for block in re.findall(r"(?ms)^```(?:bash|sh)\s*\n(.*?)\n```", text):
+            normalized = re.sub(r"\\\s*\n", " ", block)
+            for match in re.finditer(
+                r"(?<![$(\w-])nucleosuite\s+([a-z0-9-]+)\s+([^\n;]*)",
+                normalized,
+            ):
+                command = match.group(1)
+                if command in {"mnase-suite", "cfdna-suite"} or command not in option_map:
+                    continue
+                used = set(re.findall(r"(?<![\w-])--[a-z0-9-]+", match.group(2)))
+                unknown = sorted(used - option_map[command])
+                if unknown:
+                    failures.append(
+                        f"{markdown.relative_to(ROOT)}: nucleosuite {command}: {unknown}"
+                    )
+    assert not failures, "Documentation examples use unsupported CLI options:\n" + "\n".join(failures)
+
+
+def test_markdown_has_no_literal_newline_escape_artifacts() -> None:
+    failures: list[str] = []
+    for markdown in [ROOT / "README.md", *(ROOT / "docs").rglob("*.md")]:
+        text = markdown.read_text()
+        if re.search(r"\\n(?:#|```|[-*] |[A-Za-z])", text):
+            failures.append(str(markdown.relative_to(ROOT)))
+    assert not failures, "Markdown contains literal \\n escape artifacts: " + ", ".join(failures)
+
+
 def test_local_markdown_links_resolve() -> None:
     markdown_files = [ROOT / "README.md"]
     markdown_files.extend((ROOT / "docs").rglob("*.md"))

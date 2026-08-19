@@ -67,6 +67,19 @@ chrom    start    end
 
 `aggregate` uses configurable one-based BED column numbers. Its defaults are chromosome column 1, start column 2, end column 3, and strand column 6. `--point-col 0` uses the interval midpoint; a positive column number reads an absolute genomic position from that column.
 
+### Categorized reference-site BED
+
+`flank-spacing` accepts an ordinary BED as its reference-site input. The first three columns are chromosome, start, and end. By default, column 4 supplies the category label used to group sites; select another one-based column with `--category-col`. The reference coordinate is the interval midpoint unless `--point-col` selects an exact coordinate column.
+
+A typical BED6 input is:
+
+```text
+chr1	100000	100001	category_A	0	+
+chr1	120000	120001	category_B	0	-
+```
+
+The nucleosome BED supplied to `--nucleosome-bed` is also interpreted from interval midpoints by default. `--nucleosome-center-col` can select an explicit centre column when the callset stores one.
+
 ### State BED
 
 State or group annotations require at least BED4:
@@ -246,7 +259,7 @@ NRL outputs are headered TSV files containing the selected profile, called peaks
 
 ## Position-comparison TSVs
 
-`compare-positions` accepts BED, BED.gz, or bigBed inputs. Summit and score columns are selected independently for the two files. When no summit column is supplied, the summit is the integer midpoint between BED start and end.
+`compare-positions` accepts one main BED, BED.gz, or bigBed plus one or more comparison interval files. The main summit/score columns and shared comparison summit/score columns are selected independently. When no summit column is supplied, the summit is the integer midpoint between BED start and end. Repeated comparison inputs can be written as `--compare-bed LABEL=path.bed` to set the plot and table label.
 
 The `_pairs.tsv` output contains the original start, end, name, summit and score from methods A and B, together with signed and absolute summit distances and raw, z-score and percentile-rank score differences.
 

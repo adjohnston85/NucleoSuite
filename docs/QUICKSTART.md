@@ -68,7 +68,22 @@ nucleosuite distances sample_methodpns_mode167_lower137_upper197_smooth0x2_nucle
 
 The main histogram shows how often each peak-to-peak spacing occurs.
 
-## 4. Measure spacing by chromatin state
+## 4. Compare one main nucleosome callset with multiple callsets
+
+Use one main BED as the common reference and repeat `--compare-bed` for each additional callset:
+
+```bash
+nucleosuite compare-positions \
+  --main-bed sample_pns_nucleosomes.bed \
+  --compare-bed iNPS=sample_inps_nucleosomes.bed \
+  --compare-bed DANPOS=sample_danpos_nucleosomes.bed \
+  --stats \
+  --output-prefix sample_position_compare
+```
+
+Each comparison is matched once with one-to-one unique pairs. The smaller callset is used as the query, but percentile grouping always uses the matched **main BED score**. Quartiles are the default, and the grouped percentile boxplot places the comparison methods side-by-side within each quartile. See [`compare-positions`](commands/compare-positions.md).
+
+## 5. Measure spacing by chromatin state
 
 Pass the installed path of the bundled GM12878 state BED directly:
 
@@ -82,19 +97,33 @@ nucleosuite distances sample_methodpns_mode167_lower137_upper197_smooth0x2_nucle
   --output-prefix sample_spacing_by_state
 ```
 
-## 5. Aggregate signal around CTCF sites
+## 6. Compare flanking spacing across categorized reference sites
+
+If a BED contains reference-site categories in column 4, compare the spacing between the nearest upstream and downstream nucleosome calls for every category:
+
+```bash
+nucleosuite flank-spacing \
+  --nucleosome-bed sample_nucleosome_regions.bed \
+  --region-bed categorized_sites.bed \
+  --category-col 4 \
+  --output-prefix sample_flank_spacing
+```
+
+Density curves are used by default. Categories are ranked by the default 190/260 bp density ratio, with the lowest ratio ranked first. The displayed x-axis extends to 500 bp by default. See [`flank-spacing`](commands/flank-spacing.md).
+
+## 7. Aggregate signal around CTCF sites
 
 ```bash
 nucleosuite aggregate \
   --bigwig sample_methodpns_mode167_lower137_upper197_smooth0x2_pns.bw \
   --region-bed "$(nucleosuite resources path gm12878-hg19-ctcf)" \
   --strand-col 6 \
-  --out-prefix sample_ctcf
+  --output-prefix sample_ctcf
 ```
 
 This writes the average signal pattern and an individual-region heatmap.
 
-## 6. Calculate DAC from a dyad signal
+## 8. Calculate DAC from a dyad signal
 
 Use DAC when you want to detect distances at which the same signal repeats:
 
@@ -110,7 +139,7 @@ nucleosuite dac \
 Repeated nucleosome spacing appears as recurring DAC peaks. See [Distance autocorrelation](ALGORITHMS.md#distance-autocorrelation).
 
 
-## 7. Replot an existing result
+## 9. Replot an existing result
 
 Once an analysis has finished, `plot` can recreate a figure directly from its TSV without rerunning the genomic calculation:
 
@@ -132,7 +161,7 @@ nucleosuite plot sample_heatmap_matrix.tsv.gz \
 
 See [`plot`](commands/plot.md) for automatic file detection, major/minor grid controls, and Matplotlib pass-through options.
 
-## 8. Run the coordinated suites
+## 10. Run the coordinated suites
 
 For a standard cfDNA analysis:
 
@@ -160,7 +189,7 @@ nucleosuite mnase-suite \
 
 The suites coordinate fragment selection, tracks, calls, spacing, sequence profiles, and optional expression analyses in one output layout. Review the suite defaults before a large run.
 
-## 9. Find and reuse bundled resources
+## 11. Find and reuse bundled resources
 
 ```bash
 nucleosuite resources list

@@ -45,6 +45,7 @@ PLOT_TYPES = (
     "compare-positions-histogram",
     "compare-positions-correlation",
     "compare-positions-percentile-boxplot",
+    "compare-positions-score-distance",
     "gene-expression",
     "gene-expression-spacing",
     "gene-expression-spacing-scatter",
@@ -208,6 +209,8 @@ def detect_plot_type(path: Path, headers: Sequence[str]) -> str:
     if {"a_score", "b_score", "absolute_distance"}.issubset(names):
         if "percentile_group" in names:
             return "compare-positions-percentile-boxplot"
+        return "compare-positions-score"
+    if {"main_score", "compare_score", "absolute_distance"}.issubset(names):
         return "compare-positions-score"
     if {"percentile_group", "absolute_distance"}.issubset(names):
         return "compare-positions-percentile-boxplot"
@@ -1544,31 +1547,48 @@ def _plot_aggregate_profile(path, headers, rows, args, output, artist_kw):
 
 def _plot_compare_positions(path, headers, rows, args, output, artist_kw):
     import matplotlib.pyplot as plt
-    hm=_header_map(headers)
+    hm = _header_map(headers)
     if "bin_start_inclusive" in hm and "bin_end_exclusive" in hm:
-        start=_numeric(rows, hm["bin_start_inclusive"]); end=_numeric(rows, hm["bin_end_exclusive"])
+        start_key, end_key = hm["bin_start_inclusive"], hm["bin_end_exclusive"]
     elif "lower_exclusive" in hm and "upper_inclusive" in hm:
-        start=_numeric(rows, hm["lower_exclusive"]); end=_numeric(rows, hm["upper_inclusive"])
+        start_key, end_key = hm["lower_exclusive"], hm["upper_inclusive"]
     else:
         raise ValueError("compare-positions histogram replots require numeric bin boundaries")
-    counts=_numeric(rows, hm["pair_count"]); mid=(start+end)/2; width=end-start
-    mask=np.isfinite(mid)&np.isfinite(counts)&np.isfinite(width); mid,counts,width=mid[mask],counts[mask],width[mask]
-    fig,ax=plt.subplots(); bkw={"width":width, "align":"center"}; bkw.update(artist_kw.get("bar", {})); ax.bar(mid,counts,**bkw)
-    minimum = float(np.nanmin(start)) if start.size else 0.0
-    maximum = float(np.nanmax(end)) if end.size else 300.0
-    for threshold in (5, 10, 20, 50, 100):
-        if minimum <= threshold <= maximum:
-            ax.axvline(threshold, color="black", linewidth=0.7, linestyle="--", alpha=0.45)
+    comparison_key = hm.get("comparison")
+    groups = []
+    if comparison_key:
+        for row in rows:
+            label = str(row.get(comparison_key, ""))
+            if label not in groups:
+                groups.append(label)
+    else:
+        groups = [""]
+    fig, ax = plt.subplots()
+    for label in groups:
+        subset = rows if comparison_key is None else [row for row in rows if str(row.get(comparison_key, "")) == label]
+        start = _numeric(subset, start_key); end = _numeric(subset, end_key); counts = _numeric(subset, hm["pair_count"])
+        mid = (start + end) / 2.0
+        mask = np.isfinite(mid) & np.isfinite(counts)
+        mid, counts = mid[mask], counts[mask]
+        order = np.argsort(mid); mid, counts = mid[order], counts[order]
+        kw = {"linewidth": 1.5}
+        if label:
+            kw["label"] = label
+        kw.update(artist_kw.get("line", {}))
+        ax.plot(mid, counts, **kw)
+    all_start = _numeric(rows, start_key); all_end = _numeric(rows, end_key)
+    finite_start = all_start[np.isfinite(all_start)]; finite_end = all_end[np.isfinite(all_end)]
+    minimum = float(np.nanmin(finite_start)) if finite_start.size else 0.0
+    maximum = float(np.nanmax(finite_end)) if finite_end.size else 300.0
     ax.set_xlim(minimum, maximum)
-    ax.set_xlabel("Absolute summit distance (bp)"); ax.set_ylabel("Matched pairs"); ax.set_title("Nearest-summit distance distribution")
+    ax.set_xlabel("Absolute summit distance (bp)"); ax.set_ylabel("Matched pairs"); ax.set_title("Matched-position distance distributions")
     from nucleosuite.plotting import apply_distance_x_axis, apply_integer_y_axis
     if all(getattr(args, name) is None for name in ("x_major_grid", "x_minor_grid")):
-        apply_distance_x_axis(ax, major_interval=args.x_major_tick, minor_interval=args.x_minor_tick)
-        bp_x = False
+        apply_distance_x_axis(ax, major_interval=args.x_major_tick, minor_interval=args.x_minor_tick); bp_x = False
     else:
         bp_x = True
     apply_integer_y_axis(ax)
-    return _finish(ax,fig,args,output,bp_x=bp_x,artist_kw=artist_kw,default_size=(7.5,5.5)),fig
+    return _finish(ax, fig, args, output, bp_x=bp_x, legend=bool(comparison_key), artist_kw=artist_kw, default_size=(9.0, 5.8)), fig
 
 
 def _plot_compare_positions_score(path, headers, rows, args, output, artist_kw):
@@ -1576,17 +1596,25 @@ def _plot_compare_positions_score(path, headers, rows, args, output, artist_kw):
     hm = _header_map(headers)
     metadata_row = rows[0] if rows else {}
     normalization = str(metadata_row.get(hm.get("plot_score_normalization", ""), "zscore") or "zscore")
-    default_columns = {
-        "raw": ("a_score", "b_score", "raw score"),
-        "zscore": ("a_score_z", "b_score_z", "score z-score"),
-        "percentile": ("a_score_percentile", "b_score_percentile", "score percentile rank"),
-    }
-    x_name, y_name, score_label = default_columns.get(normalization, default_columns["zscore"])
-    x_key = args.x_column or hm.get(x_name) or hm.get("a_score_z") or hm.get("a_score")
-    y_key = args.y_column or hm.get(y_name) or hm.get("b_score_z") or hm.get("b_score")
+    if "main_score" in hm and "compare_score" in hm:
+        if normalization == "raw":
+            x_key, y_key, score_label = hm["main_score"], hm["compare_score"], "raw score"
+        else:
+            x_key = hm.get("main_score_normalized", hm["main_score"])
+            y_key = hm.get("compare_score_normalized", hm["compare_score"])
+            score_label = "score percentile rank" if normalization == "percentile" else "score z-score"
+    else:
+        default_columns = {
+            "raw": ("a_score", "b_score", "raw score"),
+            "zscore": ("a_score_z", "b_score_z", "score z-score"),
+            "percentile": ("a_score_percentile", "b_score_percentile", "score percentile rank"),
+        }
+        x_name, y_name, score_label = default_columns.get(normalization, default_columns["zscore"])
+        x_key = args.x_column or hm.get(x_name) or hm.get("a_score_z") or hm.get("a_score")
+        y_key = args.y_column or hm.get(y_name) or hm.get("b_score_z") or hm.get("b_score")
     distance_key = hm.get("absolute_distance")
     if x_key is None or y_key is None or distance_key is None:
-        raise ValueError("Score-agreement replots require A score, B score, and absolute_distance columns")
+        raise ValueError("Score-agreement replots require main/A score, comparison/B score, and absolute_distance columns")
     x_all = _numeric(rows, x_key); y_all = _numeric(rows, y_key); distance_all = _numeric(rows, distance_key)
     mask = np.isfinite(x_all) & np.isfinite(y_all) & np.isfinite(distance_all)
     x_all, y_all, distance_all = x_all[mask], y_all[mask], distance_all[mask]
@@ -1606,20 +1634,20 @@ def _plot_compare_positions_score(path, headers, rows, args, output, artist_kw):
             except (TypeError, ValueError): pass
         if z_limit > 0:
             ax.set_xlim(-z_limit, z_limit); ax.set_ylim(-z_limit, z_limit)
-    label_a = str(metadata_row.get(hm.get("plot_label_a", ""), "A") or "A")
-    label_b = str(metadata_row.get(hm.get("plot_label_b", ""), "B") or "B")
+    label_a = str(metadata_row.get(hm.get("plot_label_a", ""), "Main") or "Main")
+    label_b = str(metadata_row.get(hm.get("plot_label_b", ""), metadata_row.get(hm.get("comparison", ""), "Comparison")) or "Comparison")
     ax.set_xlabel(f"{label_a} {score_label}"); ax.set_ylabel(f"{label_b} {score_label}")
     ax.set_title("Score agreement coloured by summit distance")
     if x_all.size >= 2:
-        pearson = float(np.corrcoef(x_all, y_all)[0, 1])
+        try:
+            from scipy.stats import pearsonr, spearmanr
+            pearson = float(pearsonr(x_all, y_all).statistic)
+            spearman = float(spearmanr(x_all, y_all).statistic)
+        except Exception:
+            pearson = spearman = math.nan
         slope, intercept = np.polyfit(x_all, y_all, 1); fitted = intercept + slope * x_all
         ss_res = float(np.sum((y_all - fitted) ** 2)); ss_tot = float(np.sum((y_all - np.mean(y_all)) ** 2))
         r_squared = 1.0 - ss_res / ss_tot if ss_tot else math.nan
-        try:
-            from scipy.stats import spearmanr
-            spearman = float(spearmanr(x_all, y_all).statistic)
-        except Exception:
-            spearman = math.nan
         method = str(metadata_row.get(hm.get("plot_correlation_method", ""), "spearman") or "spearman")
         annotation = []
         if method in {"spearman", "both"}: annotation.append(f"Spearman ρ = {spearman:.3f}")
@@ -1629,63 +1657,121 @@ def _plot_compare_positions_score(path, headers, rows, args, output, artist_kw):
     return _finish(ax, fig, args, output, artist_kw=artist_kw, default_size=(7.5, 6.5)), fig
 
 
+def _plot_compare_positions_score_distance(path, headers, rows, args, output, artist_kw):
+    import matplotlib.pyplot as plt
+    hm = _header_map(headers)
+    x_key = args.x_column or hm.get("main_score") or hm.get("a_score")
+    if x_key is None:
+        raise ValueError("Score-distance replots require main_score (or a_score)")
+    if args.y_column:
+        y_key = args.y_column
+    else:
+        y_key = hm.get("absolute_distance")
+    if y_key is None:
+        raise ValueError("Score-distance replots require absolute_distance or --y-column")
+    x = _numeric(rows, x_key); y = _numeric(rows, y_key)
+    mask = np.isfinite(x) & np.isfinite(y); x, y = x[mask], y[mask]
+    if "plot_selected" in hm:
+        selected = _numeric(rows, hm["plot_selected"])[mask] > 0
+        xp, yp = x[selected], y[selected]
+    else:
+        xp, yp = x, y
+    fig, ax = plt.subplots()
+    kw = {"gridsize": 60, "mincnt": 1, "bins": "log", "rasterized": True}
+    artist = ax.hexbin(xp, yp, **kw)
+    fig.colorbar(artist, ax=ax).set_label("log10 plotted pair count")
+    if x.size >= 2 and np.nanmax(x) != np.nanmin(x):
+        try:
+            from scipy.stats import linregress, spearmanr
+            reg = linregress(x, y); rho = spearmanr(x, y)
+            endpoints = np.asarray([np.nanmin(x), np.nanmax(x)], dtype=float)
+            line_kw = {"linestyle": ":", "linewidth": 1.2}; line_kw.update(artist_kw.get("line", {}))
+            ax.plot(endpoints, reg.intercept + reg.slope * endpoints, **line_kw)
+            ax.text(0.02, 0.98, f"Spearman ρ = {float(rho.statistic):.3f}\nLinear R² = {float(reg.rvalue**2):.3f}\nn = {x.size:,}", transform=ax.transAxes, va="top", ha="left")
+        except Exception:
+            pass
+    ax.set_xlabel("Main peak score"); ax.set_ylabel("Absolute matched distance (bp)")
+    label = str(rows[0].get(hm.get("comparison", ""), "comparison")) if rows else "comparison"
+    ax.set_title(f"Main peak score versus distance: {label}")
+    return _finish(ax, fig, args, output, artist_kw=artist_kw, default_size=(8.0, 6.0)), fig
+
+
 def _plot_compare_positions_correlation(path, headers, rows, args, output, artist_kw):
     import matplotlib.pyplot as plt
     hm = _header_map(headers)
-    label_key = hm["distance_bin"]; labels = _column(rows, label_key); x = np.arange(len(labels), dtype=float)
+    comparison_key = hm.get("comparison")
+    groups = []
+    if comparison_key:
+        for row in rows:
+            label = str(row.get(comparison_key, ""))
+            if label not in groups: groups.append(label)
+    else:
+        groups = [""]
     fig, ax = plt.subplots(); plotted = 0
     method = str(rows[0].get(hm.get("plot_correlation_method", ""), "spearman") or "spearman") if rows else "spearman"
-    for key, label, marker in (
-        ("spearman_score_correlation", "Spearman", "o"),
-        ("pearson_score_correlation", "Pearson", "s"),
-    ):
-        if key not in hm or (method != "both" and label.lower() != method):
-            continue
-        values = _numeric(rows, hm[key])
-        kw = {"marker": marker, "label": label}; kw.update(artist_kw.get("line", {}))
-        ax.plot(x, values, **kw); plotted += 1
+    base_labels = []
+    for group in groups:
+        subset = rows if comparison_key is None else [row for row in rows if str(row.get(comparison_key, "")) == group]
+        labels = [str(row.get(hm["distance_bin"], "")) for row in subset]
+        if not base_labels: base_labels = labels
+        x = np.arange(len(labels), dtype=float)
+        for key, corr_label, marker, linestyle in (
+            ("spearman_score_correlation", "Spearman", "o", "-"),
+            ("pearson_score_correlation", "Pearson", "s", "--"),
+        ):
+            if key not in hm or (method != "both" and corr_label.lower() != method):
+                continue
+            values = _numeric(subset, hm[key])
+            legend_label = corr_label if not group else (group if method != "both" else f"{group} {corr_label}")
+            kw = {"marker": marker, "linestyle": linestyle, "label": legend_label}; kw.update(artist_kw.get("line", {}))
+            ax.plot(x, values, **kw); plotted += 1
     ax.axhline(0, color="black", linewidth=0.8)
-    ax.set_xticks(x, labels, rotation=35, ha="right"); ax.set_ylim(-1.05, 1.05)
-    score_label = str(rows[0].get(hm.get("plot_score_axis_label", ""), "score z-score") or "score z-score") if rows else "score z-score"
-    ax.set_xlabel("Absolute summit-distance bin (bp)"); ax.set_ylabel(f"{score_label.capitalize()} correlation")
+    ax.set_xticks(np.arange(len(base_labels), dtype=float), base_labels, rotation=35, ha="right"); ax.set_ylim(-1.05, 1.05)
+    ax.set_xlabel("Absolute summit-distance bin (bp)"); ax.set_ylabel("Main/comparison score correlation")
     ax.set_title("Score correlation by summit-distance bin")
-    if "pair_count" in hm:
-        for xpos, count in zip(x, _numeric(rows, hm["pair_count"])):
-            if math.isfinite(float(count)):
-                ax.text(xpos, -1.0, f"n={int(count)}", ha="center", va="bottom", fontsize=8, rotation=90)
-    return _finish(ax, fig, args, output, legend=plotted > 1, artist_kw=artist_kw, default_size=(8.5, 5.8)), fig
+    return _finish(ax, fig, args, output, legend=plotted > 1 or bool(comparison_key), artist_kw=artist_kw, default_size=(9.0, 5.8)), fig
 
 
 def _plot_compare_positions_percentile_boxplot(path, headers, rows, args, output, artist_kw):
     import matplotlib.pyplot as plt
+    from matplotlib.patches import Patch
     hm = _header_map(headers)
-    group_key = hm.get("percentile_group")
-    distance_key = hm.get("absolute_distance")
+    group_key = hm.get("percentile_group"); distance_key = hm.get("absolute_distance"); comparison_key = hm.get("comparison")
     if group_key is None or distance_key is None:
         raise ValueError("Percentile boxplots require percentile_group and absolute_distance columns")
-    labels: list[str] = []
-    grouped: dict[str, list[float]] = defaultdict(list)
+    group_labels = []
+    comparison_labels = []
+    grouped = defaultdict(list)
     for row in rows:
-        label = str(row.get(group_key, ""))
-        if label not in labels: labels.append(label)
+        group = str(row.get(group_key, "")); comparison = str(row.get(comparison_key, "comparison")) if comparison_key else "comparison"
+        if group not in group_labels: group_labels.append(group)
+        if comparison not in comparison_labels: comparison_labels.append(comparison)
         try: value = float(row.get(distance_key, "nan"))
         except ValueError: continue
-        if math.isfinite(value): grouped[label].append(value)
-    fig, ax = plt.subplots();
-    for position, label in enumerate(labels, start=1):
-        values = grouped[label]
-        if values: ax.boxplot([values], positions=[position], widths=0.58, showfliers=True, whis=1.5)
-    ax.set_xticks(np.arange(1, len(labels) + 1), labels, rotation=35, ha="right")
-    ax.set_xlim(0.4, len(labels) + 0.6); ax.set_ylim(0.0, 500.0)
-    source = str(rows[0].get(hm.get("percentile_source", ""), "A")) if rows else "A"
-    target = str(rows[0].get(hm.get("target_source", ""), "B")) if rows else "B"
-    ax.set_xlabel(f"{source} score percentile group"); ax.set_ylabel("Absolute summit distance (bp)")
-    ax.set_title(f"{source} score percentiles versus all {target} positions")
-    return _finish(
-        ax, fig, args, output, artist_kw=artist_kw,
-        default_size=(max(8.5, 0.72 * len(labels) + 2.5), 6.2),
-    ), fig
-
+        if math.isfinite(value): grouped[(group, comparison)].append(value)
+    from nucleosuite.plotting import category_colors
+    colors = category_colors(len(comparison_labels))
+    fig, ax = plt.subplots()
+    centres = np.arange(1, len(group_labels) + 1, dtype=float)
+    if len(comparison_labels) <= 1:
+        offsets = np.asarray([0.0]); width = 0.48
+    else:
+        spread = min(0.70, 0.14 * len(comparison_labels)); offsets = np.linspace(-spread/2.0, spread/2.0, len(comparison_labels)); width = min(0.16, 0.70/len(comparison_labels))
+    for ci, (comparison, color) in enumerate(zip(comparison_labels, colors)):
+        for gi, group in enumerate(group_labels):
+            values = grouped[(group, comparison)]
+            if not values: continue
+            box = ax.boxplot([values], positions=[float(centres[gi] + offsets[ci])], widths=width, patch_artist=True, showfliers=False, whis=1.5)
+            box["boxes"][0].set_facecolor(color); box["boxes"][0].set_edgecolor(color)
+            for key in ("whiskers", "caps"):
+                for artist in box[key]: artist.set_color(color)
+            for artist in box["medians"]: artist.set_color("black")
+    ax.set_xticks(centres, group_labels, rotation=0); ax.set_xlim(0.45, len(group_labels)+0.55); ax.set_ylim(0.0, 500.0)
+    ax.set_xlabel("Main peak score percentile group"); ax.set_ylabel("Absolute matched distance (bp)")
+    ax.set_title("Matched distance by main-score percentile")
+    if comparison_key:
+        ax.legend([Patch(facecolor=c, edgecolor=c) for c in colors], comparison_labels, frameon=False)
+    return _finish(ax, fig, args, output, legend=bool(comparison_key), artist_kw=artist_kw, default_size=(max(9.0, 1.8*len(group_labels)+3.0), 6.5)), fig
 
 def _plot_distance_state_overlay(path, headers, rows, args, output, artist_kw):
     import matplotlib.pyplot as plt
@@ -2443,6 +2529,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "compare-positions-score":_plot_compare_positions_score,
         "compare-positions-correlation":_plot_compare_positions_correlation,
         "compare-positions-percentile-boxplot":_plot_compare_positions_percentile_boxplot,
+        "compare-positions-score-distance":_plot_compare_positions_score_distance,
         "gene-expression":_plot_gene_expression,
         "gene-expression-spacing":_plot_gene_expression_spacing,
         "gene-expression-spacing-scatter":_plot_gene_expression_spacing_scatter,
