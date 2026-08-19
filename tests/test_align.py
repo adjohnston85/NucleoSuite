@@ -201,6 +201,7 @@ def test_sparse_bigwig_nan_values_are_zero_filled_by_default(tmp_path, monkeypat
         window_half=2,
         zero_thresh=0,
         max_score=None,
+        nrl=False,
     ))
     assert outputs["summary"].exists()
 
@@ -214,6 +215,7 @@ def test_sparse_bigwig_nan_values_are_zero_filled_by_default(tmp_path, monkeypat
             zero_thresh=0,
             max_score=None,
             nan_to_zero=False,
+            nrl=False,
         ))
 
 
@@ -260,6 +262,7 @@ def test_minus_strand_regions_are_reversed_into_feature_orientation(tmp_path, mo
         max_score=None,
         sort_mode="unsorted",
         missing_strand="error",
+        nrl=False,
     ))
 
     with gzip.open(outputs["heatmap_matrix"], "rt") as handle:
