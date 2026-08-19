@@ -68,18 +68,22 @@ def test_tss_expression_quintiles_outputs_five_equal_groups(tmp_path, monkeypatc
     )
     assert code == 0
 
-    summary = list(csv.DictReader(Path(f"{prefix}_tss_expression_quintile_summary.tsv").open(), delimiter="\t"))
+    summary_path = next(prefix.parent.glob("sample*_tss_expression_quintile_summary.tsv"))
+    profile_path = next(prefix.parent.glob("sample*_tss_expression_quintiles.tsv"))
+    plot_path = next(prefix.parent.glob("sample*_tss_expression_quintiles.png"))
+
+    summary = list(csv.DictReader(summary_path.open(), delimiter="\t"))
     assert len(summary) == 5
     assert [int(row["assigned_gene_count"]) for row in summary] == [2, 2, 2, 2, 2]
     assert summary[0]["minimum_nTPM"] == "0.0"
     assert summary[-1]["maximum_nTPM"] == "9.0"
 
-    profiles = list(csv.DictReader(Path(f"{prefix}_tss_expression_quintiles.tsv").open(), delimiter="\t"))
+    profiles = list(csv.DictReader(profile_path.open(), delimiter="\t"))
     assert len(profiles) == 5 * 5
     assert {row["quintile"] for row in profiles} == {
         "Q1_lowest", "Q2_20_40_percent", "Q3_middle", "Q4_60_80_percent", "Q5_highest"
     }
-    assert Path(f"{prefix}_tss_expression_quintiles.png").stat().st_size > 0
+    assert plot_path.stat().st_size > 0
 
 
 def test_profile_selector_accepts_underscores(tmp_path):
