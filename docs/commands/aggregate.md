@@ -4,6 +4,8 @@
 
 `aggregate` extracts equal-sized BigWig windows around reference sites, orients them by strand when requested, and writes an individual-region heatmap and mean profile.
 
+If `--category-col` is supplied, the same aggregate analysis is run independently for every unique value in that region-BED column. NucleoSuite then writes a single overlay containing all category mean profiles and, when NRL analysis is enabled, a combined summary of the independently fitted category repeat lengths.
+
 ## Why use it
 
 Use `aggregate` to examine signal around BED-defined positions such as transcription start sites, transcription-factor sites, nucleosome calls, or chromatin-state features.
@@ -35,6 +37,61 @@ nucleosuite aggregate \
 ```
 
 The CTCF BED stores motif strand in column 6, so the aggregated windows can be oriented consistently.
+
+## Category-aware aggregation
+
+Use `--category-col` when one column of the region BED identifies groups that should be aggregated separately. The column number is one-based.
+
+For example, a TSS BED may contain gene categories in column 4:
+
+```text
+chr1    69090    69091    leftover_genes     0    +
+chr1    860259   860260   repressed_genes    0    +
+chr1    894688   894689   active_genes       0    -
+chr1    895966   895967   weak_genes         0    +
+```
+
+Run:
+
+```bash
+nucleosuite aggregate \
+  --bigwig sample_pns.bw \
+  --region-bed gene_sets_final_tss.bed \
+  --category-col 4 \
+  --strand-col 6 \
+  --missing-strand error \
+  --window-half 2500 \
+  --output-dir sample_tss_aggregate \
+  --output-prefix sample_PNS_TSS
+```
+
+NucleoSuite identifies every unique category, creates one subdirectory per category, and runs the ordinary aggregate pipeline independently in each subdirectory. All ordinary filtering, strand orientation, blacklist handling, heatmap generation, multicontig combination and NRL settings therefore apply separately to every category.
+
+The category labels are ordered alphabetically in the combined overlay. The original labels are retained in the combined TSV and plot legend; filesystem-unsafe characters are converted only for category directory and filename tokens.
+
+The combined category profile has the form:
+
+```text
+relative_position    active_genes    leftover_genes    repressed_genes    weak_genes
+-2500                ...             ...               ...                ...
+-2499                ...             ...               ...                ...
+...
+0                    ...             ...               ...                ...
+...
+2500                 ...             ...               ...                ...
+```
+
+With NRL enabled, peak calling and the positive- and negative-direction regressions are performed independently on each category mean profile. A combined `_category_nrl_summary.tsv` adds the category and valid-region count to the ordinary per-category NRL summary fields, while each category directory retains its complete NRL profile, peak table and regression tables/plots.
+
+Use `--no-nrl` to produce category aggregates without category NRL analysis. Exact paths for the combined outputs can be selected with:
+
+```text
+--category-profile-output PATH
+--category-plot-output PATH
+--category-nrl-summary-output PATH
+```
+
+The ordinary single-analysis overrides such as `--aggregate-output`, `--heatmap-output` and `--summary-output` are intentionally rejected with `--category-col`, because one path cannot represent multiple category-specific outputs.
 
 ## Directional repeat length
 
@@ -81,11 +138,17 @@ By default, the interval midpoint is used. If a BED column contains the exact ge
 
 `--nucleosome-bed` centres each reference region on a selected nearby nucleosome. `--nucleosome-offset` selects the strand-relative nucleosome; positive offsets are downstream and negative offsets are upstream.
 
+## State BED mask
+
+`--state-bed` is a genomic inclusion mask. A reference feature is retained when its interval overlaps at least one interval in the supplied state BED and is rejected when it overlaps none.
+
+The state label or other annotation columns are **not** used to divide the aggregate into groups. To aggregate by a category already present in the region BED, use `--category-col`. If category assignments first need to be derived from another annotation, create or annotate the region BED before running `aggregate`.
+
 ## Heatmap rows versus the complete aggregate
 
 The complete aggregate profile uses **all accepted regions**. `--max-heatmap-rows` limits only the plotted heatmap and its plotted-row mean.
 
-`--subsample-mode` and `--seed` control how the plotted subset is selected.
+`--subsample-mode` and `--seed` control how the plotted subset is selected. In category mode these limits are applied independently to each category.
 
 ## Missing signal and sparse tracks
 
@@ -97,7 +160,7 @@ Recognized NucleoSuite BigWig suffixes set track-specific labels automatically. 
 
 ## What it writes
 
-`aggregate` writes:
+A standard `aggregate` run writes:
 
 - the heatmap matrix and row metadata;
 - the complete aggregate profile from all accepted rows;
@@ -107,17 +170,19 @@ Recognized NucleoSuite BigWig suffixes set track-specific labels automatically. 
 
 With aggregate NRL enabled, it additionally writes:
 
-- `_aggregate_nrl_profile.tsv` and `.png`, containing the complete unsmoothed profile, continuous 21 bp and 51 bp smoothed profiles, and every unified peak call;
+- `_aggregate_nrl_profile.tsv` and `.png`, containing the complete unsmoothed profile, continuous local and detection smoothed profiles, and every unified peak call;
 - `_aggregate_nrl_peaks.tsv`, containing all called peaks, their signed positions, directional order numbers, shared-central status and regression inclusion or exclusion;
 - `_aggregate_nrl_positive_regression.tsv` and `.png`, containing the positive-direction outward-distance fit;
 - `_aggregate_nrl_negative_regression.tsv` and `.png`, containing the negative-direction outward-distance fit; and
 - `_aggregate_nrl_summary.tsv`, containing both repeat lengths, fit statistics, caller settings and quality statuses.
 
-The two regression plots are separate square figures with open circles and dotted fitted lines. All three figures can be recreated with [`nucleosuite plot`](plot.md).
+Category mode writes this complete standard output set separately for each category. It additionally writes the combined `_category_profiles.tsv`/plot and, when NRL is enabled, `_category_nrl_summary.tsv`.
+
+The two regression plots are separate square figures with open circles and dotted fitted lines. All three NRL figures can be recreated with [`nucleosuite plot`](plot.md).
 
 The default half-window is 2500 bp, giving 5001 relative positions at base resolution.
 
-Automatic output stems include the half-window, zero/maximum-score and missing-value filters, row sorting, NRL resolution, regression range, and effective exclusion interval. A supplied `--output-prefix` is a base prefix and receives the same tokens; plot-specific exact output options remain exact.
+Automatic output stems include the half-window, zero/maximum-score and missing-value filters, row sorting, NRL resolution, regression range, and effective exclusion interval. Combined category output stems additionally include the selected category column. A supplied `--output-prefix` is a base prefix and receives the same tokens; plot-specific exact output options remain exact.
 
 ## Multicontig use
 
@@ -131,7 +196,7 @@ nucleosuite aggregate \
   --output-prefix sample
 ```
 
-The combined profile is calculated from the per-position sums and valid-row counts across all selected contigs.
+The combined profile is calculated from the per-position sums and valid-row counts across all selected contigs. In category mode this same multicontig process is run independently for each category before the category profiles are overlaid.
 
 ## Blacklist handling
 
@@ -139,6 +204,7 @@ The combined profile is calculated from the per-position sums and valid-row coun
 
 ## Plot customization
 
-Both the heatmap and mean-profile figures accept the shared plotting options described in [Plot customization](../PLOTTING.md).
+The heatmap and mean-profile figures accept the shared plotting options described in [Plot customization](../PLOTTING.md). The combined category overlay also follows the selected plot format and shared save settings.
 
 [Back to the command reference](../COMMAND_REFERENCE.md)
+\n\n## Category-aware aggregation (0.8.7)\n\nUse `--category-col` when a column in the reference BED contains groups that should be aggregated independently. The column number is one-based. For a BED6 TSS file with gene categories in column 4:\n\n```bash\nnucleosuite aggregate \\\n  --bigwig sample_PNS.bw \\\n  --region-bed gene_sets_final_tss.bed \\\n  --category-col 4 \\\n  --strand-col 6 \\\n  --missing-strand error \\\n  --window-half 2500 \\\n  --output-dir sample_TSS \\\n  --output-prefix sample_PNS_TSS\n```\n\nNucleoSuite identifies every unique category, creates one category subdirectory, and runs the ordinary `aggregate` pipeline independently for that category. Strand orientation, blacklist handling, missing-signal handling, heatmap generation, multicontig combination, peak calling and NRL settings are therefore identical to separate standalone aggregate runs.\n\nAfter the category runs complete, NucleoSuite writes one wide `_category_profiles.tsv` plus a single overlay figure with one line per category. With NRL enabled, every category gets its own unified aggregate peak profile and its own positive- and negative-direction repeat-length regressions. `_category_nrl_summary.tsv` combines the directional NRL summaries and adds `category` and `valid_region_count` columns.\n\nCombined category output names include `catcol<N>` plus the central aggregate parameters so changing the category column, window, signal filters or NRL settings does not overwrite a previous analysis. `--no-nrl` disables the per-category NRL outputs while retaining the category profiles.\n\nThe ordinary single-output overrides (`--aggregate-output`, `--heatmap-output`, `--heatmap-matrix-output`, `--plotted-mean-output`, `--mean-plot-output`, `--summary-output`) are rejected with `--category-col` because one path cannot represent multiple category-specific results. Use `--category-profile-output`, `--category-plot-output`, and `--category-nrl-summary-output` to choose exact combined-output paths.\n\n### `--state-bed` versus `--category-col`\n\n`--state-bed` is an inclusion mask only. A reference feature is retained if it overlaps at least one interval in the supplied state BED; state labels are not used to divide the aggregate. Use `--category-col` when group labels are already present in the reference BED.\n

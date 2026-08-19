@@ -1,0 +1,221 @@
+name: Build NucleoSuite 0.8.7
+
+on:
+  push:
+    branches:
+      - nucleosuite-0.8.7-category-aggregate
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Apply 0.8.7 source changes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if new in text:
+                  return
+              if old not in text:
+                  raise SystemExit(f"Expected patch anchor not found in {path}: {old[:80]!r}")
+              p.write_text(text.replace(old, new, 1))
+
+          replace_once("pyproject.toml", 'version = "0.8.6"', 'version = "0.8.7"')
+          replace_once("src/nucleosuite/__init__.py", '__version__ = "0.8.6"', '__version__ = "0.8.7"')
+          replace_once("recipe/meta.yaml", '{% set version = "0.8.6" %}', '{% set version = "0.8.7" %}')
+          replace_once("tests/test_cli.py", 'assert __version__ == "0.8.6"', 'assert __version__ == "0.8.7"')
+
+          aggregate = Path("src/nucleosuite/cli/aggregate.py")
+          text = aggregate.read_text()
+          old_state = 'parser.add_argument("--state-bed", type=Path, help="Optional BED mask retaining reference features that overlap at least one state interval.")'
+          new_state = '''parser.add_argument(\n        "--state-bed", type=Path,\n        help=(\n            "Optional BED mask retaining reference features that overlap at least one state interval. "\n            "State labels are not used to group the aggregate; use --category-col when categories "\n            "are stored in --region-bed."\n        ),\n    )'''
+          if "State labels are not used to group" not in text:
+              if old_state not in text:
+                  raise SystemExit("aggregate --state-bed patch anchor missing")
+              text = text.replace(old_state, new_state, 1)
+
+          point_anchor = '    parser.add_argument("--point-col", type=int, default=0, help="One-based absolute genomic centre column; 0 uses the interval midpoint (default: 0).")\n'
+          category_args = '''    parser.add_argument(\n        "--category-col", type=int, default=0,\n        help=(\n            "One-based category column in --region-bed. Values >0 run an independent aggregate "\n            "and NRL analysis for every unique category, then write a combined category profile "\n            "plot and NRL summary (default: 0, disabled)."\n        ),\n    )\n    parser.add_argument("--category-profile-output", type=Path, help="Explicit combined category-profile TSV path used with --category-col.")\n    parser.add_argument("--category-plot-output", type=Path, help="Explicit combined category-profile plot path/stem used with --category-col.")\n    parser.add_argument("--category-nrl-summary-output", type=Path, help="Explicit combined per-category NRL summary TSV path used with --category-col.")\n'''
+          if "--category-col" not in text:
+              if point_anchor not in text:
+                  raise SystemExit("aggregate --point-col patch anchor missing")
+              text = text.replace(point_anchor, point_anchor + category_args, 1)
+
+          old_run = '''def run_from_args(args: argparse.Namespace) -> int:\n    _resolve_automatic_options(args)\n    from nucleosuite.aggregate_parallel import run_aggregate_per_contig\n    return run_aggregate_per_contig(args, _run_serial)\n'''
+          new_run = '''def run_from_args(args: argparse.Namespace) -> int:\n    _resolve_automatic_options(args)\n    category_col = int(getattr(args, "category_col", 0) or 0)\n    if category_col < 0:\n        raise ValueError("--category-col must be zero or greater")\n    if category_col > 0:\n        from nucleosuite.category_aggregate import run_category_aggregate\n        return run_category_aggregate(args, _run_serial)\n    from nucleosuite.aggregate_parallel import run_aggregate_per_contig\n    return run_aggregate_per_contig(args, _run_serial)\n'''
+          if "run_category_aggregate" not in text:
+              if old_run not in text:
+                  raise SystemExit("aggregate run_from_args patch anchor missing")
+              text = text.replace(old_run, new_run, 1)
+          aggregate.write_text(text)
+
+          docs = Path("docs/commands/aggregate.md")
+          dtext = docs.read_text()
+          marker = "## Category-aware aggregation (0.8.7)"
+          if marker not in dtext:
+              dtext += r'''\n\n## Category-aware aggregation (0.8.7)\n\nUse `--category-col` when a column in the reference BED contains groups that should be aggregated independently. The column number is one-based. For a BED6 TSS file with gene categories in column 4:\n\n```bash\nnucleosuite aggregate \\\n  --bigwig sample_PNS.bw \\\n  --region-bed gene_sets_final_tss.bed \\\n  --category-col 4 \\\n  --strand-col 6 \\\n  --missing-strand error \\\n  --window-half 2500 \\\n  --output-dir sample_TSS \\\n  --output-prefix sample_PNS_TSS\n```\n\nNucleoSuite identifies every unique category, creates one category subdirectory, and runs the ordinary `aggregate` pipeline independently for that category. Strand orientation, blacklist handling, missing-signal handling, heatmap generation, multicontig combination, peak calling and NRL settings are therefore identical to separate standalone aggregate runs.\n\nAfter the category runs complete, NucleoSuite writes one wide `_category_profiles.tsv` plus a single overlay figure with one line per category. With NRL enabled, every category gets its own unified aggregate peak profile and its own positive- and negative-direction repeat-length regressions. `_category_nrl_summary.tsv` combines the directional NRL summaries and adds `category` and `valid_region_count` columns.\n\nCombined category output names include `catcol<N>` plus the central aggregate parameters so changing the category column, window, signal filters or NRL settings does not overwrite a previous analysis. `--no-nrl` disables the per-category NRL outputs while retaining the category profiles.\n\nThe ordinary single-output overrides (`--aggregate-output`, `--heatmap-output`, `--heatmap-matrix-output`, `--plotted-mean-output`, `--mean-plot-output`, `--summary-output`) are rejected with `--category-col` because one path cannot represent multiple category-specific results. Use `--category-profile-output`, `--category-plot-output`, and `--category-nrl-summary-output` to choose exact combined-output paths.\n\n### `--state-bed` versus `--category-col`\n\n`--state-bed` is an inclusion mask only. A reference feature is retained if it overlaps at least one interval in the supplied state BED; state labels are not used to divide the aggregate. Use `--category-col` when group labels are already present in the reference BED.\n'''
+              docs.write_text(dtext)
+
+          Path("RELEASE_NOTES_NucleoSuite_0.8.7.md").write_text(r'''# NucleoSuite 0.8.7\n\nThis release adds category-aware regional aggregation.\n\n## Aggregate categories\n\n`nucleosuite aggregate` now accepts `--category-col N`. Each unique value in the selected one-based region-BED column is analyzed independently with the existing aggregate pipeline. Each category receives its own aggregate profile, heatmap, processing summary and, by default, independent unified peak calling plus positive- and negative-direction NRL regressions.\n\nA combined category-profile TSV and overlay figure are written after all category analyses complete. A combined category NRL summary reports category, valid region count, directional repeat length, peak count, fit statistics and quality status. Multicontig aggregation remains exact because each category reuses the existing per-contig aggregate/combine implementation.\n\n`--state-bed` help and documentation now explicitly describe it as an inclusion mask rather than a category grouping option.\n''')
+          PY
+
+      - name: Add category tests
+        shell: bash
+        run: |
+          cat > tests/test_category_aggregate.py <<'PYTEST'
+          from __future__ import annotations
+          import csv
+          from pathlib import Path
+          import numpy as np
+          import pytest
+          from nucleosuite.category_aggregate import split_region_bed_by_category
+
+          def test_category_split_is_one_based_and_deterministic(tmp_path: Path):
+              bed = tmp_path / "tss.bed"
+              bed.write_text(
+                  "chr1\t10\t11\tweak_genes\t0\t+\n"
+                  "chr1\t20\t21\tactive_genes\t0\t-\n"
+                  "chr1\t30\t31\tweak_genes\t0\t+\n"
+              )
+              categories, paths, counts = split_region_bed_by_category(
+                  bed, category_col=4, skip_header=False, destination=tmp_path / "split"
+              )
+              assert categories == ["active_genes", "weak_genes"]
+              assert counts == {"active_genes": 1, "weak_genes": 2}
+              assert paths["active_genes"].read_text().startswith("chr1\t20\t21")
+
+          def test_aggregate_help_exposes_category_mode():
+              import argparse
+              from nucleosuite.cli.aggregate import add_aggregate_parser
+              root = argparse.ArgumentParser()
+              parser = add_aggregate_parser(root.add_subparsers(dest="command", required=True))
+              help_text = parser.format_help()
+              assert "--category-col" in help_text
+              assert "--category-profile-output" in help_text
+              assert "--category-nrl-summary-output" in help_text
+
+          def test_category_aggregate_end_to_end(tmp_path: Path):
+              pyBigWig = pytest.importorskip("pyBigWig")
+              from nucleosuite.cli.aggregate import main as aggregate_main
+              chrom_size = 12000
+              x = np.arange(chrom_size, dtype=float)
+              values = 10.0 + 2.0 * np.cos(2.0 * np.pi * x / 185.0)
+              bigwig = tmp_path / "synthetic_PNS.bw"
+              bw = pyBigWig.open(str(bigwig), "w")
+              bw.addHeader([("chr1", chrom_size)])
+              bw.addEntries(["chr1"] * chrom_size, list(range(chrom_size)), ends=list(range(1, chrom_size + 1)), values=values.tolist())
+              bw.close()
+              bed = tmp_path / "gene_sets_final_tss.bed"
+              with bed.open("w") as out:
+                  for center, category, strand in [
+                      (3000,"active_genes","+"),(4000,"repressed_genes","-"),
+                      (5000,"active_genes","+"),(6000,"repressed_genes","-"),
+                      (7000,"active_genes","+"),(8000,"repressed_genes","-"),
+                  ]:
+                      out.write(f"chr1\t{center}\t{center+1}\t{category}\t0\t{strand}\n")
+              outdir = tmp_path / "out"
+              assert aggregate_main([
+                  "--bigwig", str(bigwig), "--region-bed", str(bed),
+                  "--category-col", "4", "--strand-col", "6", "--missing-strand", "error",
+                  "--window-half", "700", "--zero-thresh", "0", "--max-score", "inf",
+                  "--nrl-peak-resolution", "160", "--nrl-regression-max", "650",
+                  "--output-dir", str(outdir), "--output-prefix", "synthetic_TSS",
+              ]) == 0
+              profiles = list(outdir.glob("*_category_profiles.tsv"))
+              plots = list(outdir.glob("*_category_profiles.png"))
+              nrl = list(outdir.glob("*_category_nrl_summary.tsv"))
+              assert len(profiles) == len(plots) == len(nrl) == 1
+              with profiles[0].open() as handle:
+                  reader = csv.DictReader(handle, delimiter="\t")
+                  assert reader.fieldnames == ["relative_position", "active_genes", "repressed_genes"]
+                  assert sum(1 for _ in reader) == 1401
+              with nrl[0].open() as handle:
+                  rows = list(csv.DictReader(handle, delimiter="\t"))
+              assert {(r["category"], r["direction"]) for r in rows} == {
+                  ("active_genes","positive"),("active_genes","negative"),
+                  ("repressed_genes","positive"),("repressed_genes","negative"),
+              }
+              assert list((outdir / "active_genes").glob("*_aggregate_nrl_positive_regression.tsv"))
+              assert list((outdir / "repressed_genes").glob("*_aggregate_nrl_negative_regression.tsv"))
+          PYTEST
+
+      - name: Install package and build tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[test]"
+
+      - name: Run full test suite
+        run: python -m pytest
+
+      - name: Build wheel and source distribution
+        run: |
+          rm -rf dist build *.egg-info src/*.egg-info
+          python -m build
+
+      - name: Verify release metadata and CLI
+        run: |
+          python - <<'PY'
+          import nucleosuite
+          assert nucleosuite.__version__ == "0.8.7", nucleosuite.__version__
+          PY
+          python -m pip install --force-reinstall --no-deps dist/nucleosuite-0.8.7-py3-none-any.whl
+          nucleosuite --version | tail -n 1 | grep -F "nucleosuite 0.8.7"
+          nucleosuite aggregate --help | grep -F -- "--category-col"
+
+      - name: Assemble full rebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf release
+          mkdir -p release/NucleoSuite-0.8.7/dist
+          rsync -a ./ release/NucleoSuite-0.8.7/ \
+            --exclude .git --exclude .github --exclude release \
+            --exclude build --exclude "*.egg-info" --exclude "src/*.egg-info"
+          cp dist/nucleosuite-0.8.7-py3-none-any.whl release/NucleoSuite-0.8.7/dist/
+          cp dist/nucleosuite-0.8.7.tar.gz release/NucleoSuite-0.8.7/dist/
+          (cd release && zip -qr NucleoSuite-0.8.7-full-rebuild.zip NucleoSuite-0.8.7)
+          (cd release && sha256sum \
+            NucleoSuite-0.8.7-full-rebuild.zip \
+            NucleoSuite-0.8.7/dist/nucleosuite-0.8.7-py3-none-any.whl \
+            NucleoSuite-0.8.7/dist/nucleosuite-0.8.7.tar.gz \
+            > NucleoSuite_0.8.7_SHA256SUMS.txt)
+
+      - name: Commit validated 0.8.7 source to branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml recipe/meta.yaml src/nucleosuite/__init__.py \
+            src/nucleosuite/cli/aggregate.py src/nucleosuite/category_aggregate.py \
+            tests/test_cli.py tests/test_category_aggregate.py docs/commands/aggregate.md \
+            RELEASE_NOTES_NucleoSuite_0.8.7.md
+          if ! git diff --cached --quiet; then
+            git commit -m "0.8.7 category-aware aggregate [skip ci]"
+            git push origin HEAD:nucleosuite-0.8.7-category-aggregate
+          fi
+
+      - name: Upload full rebuild artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NucleoSuite-0.8.7-full-rebuild
+          path: |
+            release/NucleoSuite-0.8.7-full-rebuild.zip
+            release/NucleoSuite_0.8.7_SHA256SUMS.txt
+            dist/nucleosuite-0.8.7-py3-none-any.whl
+            dist/nucleosuite-0.8.7.tar.gz
+          if-no-files-found: error
