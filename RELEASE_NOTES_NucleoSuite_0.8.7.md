@@ -8,6 +8,8 @@ This release adds category-aware regional aggregation.
 
 A combined category-profile TSV and overlay figure are written after all category analyses complete. A combined category NRL summary reports category, valid region count, directional repeat length, peak count, fit statistics and quality status. Multicontig aggregation remains exact because each category reuses the existing per-contig aggregate/combine implementation.
 
+Combined category output names encode the selected category column together with the central aggregate and NRL parameters, preventing parameter changes from silently overwriting earlier category plots.
+
 For a BED6 TSS file with categories in column 4:
 
 ```bash
