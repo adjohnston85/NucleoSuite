@@ -261,13 +261,15 @@ NRL outputs are headered TSV files containing the selected profile, called peaks
 
 `compare-positions` accepts one main BED, BED.gz, or bigBed plus one or more comparison interval files. Inputs can be labelled as `LABEL=path.bed` for both `--main-bed` and `--compare-bed`. When no summit column is supplied, the position is the integer midpoint between BED start and end. Score columns are selected independently for the main BED and comparison BEDs.
 
-Each `<comparison>_pairs.tsv` contains the main and comparison summits and scores, signed and absolute summit distances, main-score percentile assignment, and plotting fields. The combined `_percentile_distances.tsv` contains the main score and matched distance for every comparison/pair and is the source table for the grouped percentile boxplot.
-
 `_summary.tsv` reports callset sizes, query direction, one-to-one matched-pair counts, unmatched counts, distance summaries, and main-versus-comparison score correlations for each comparison.
 
-`_distance_histogram.tsv` stores the combined **signed** summit-distance distribution used by the distance plot. `_correlation_by_distance.tsv` reports score correlation in **absolute** summit-distance bins. `_percentile_summary.tsv` reports distance summaries for each main-score percentile group and comparison.
+`_distance_histogram.tsv` stores the combined **signed** summit-distance distribution used by the distance plot. `_correlation_by_distance.tsv` reports score correlation in **absolute** summit-distance bins. `_percentile_summary.tsv` reports distance summaries for each main-score percentile group and comparison. `_percentile_boxplot.tsv` stores compact box/whisker statistics, actual outliers, labels, and optional statistical annotations so the grouped boxplot can be reproduced without retaining every matched pair.
+
+Each comparison also receives compressed `_score_agreement.tsv.gz` and `_main_score_vs_distance.tsv.gz` plot-source tables containing the points retained for the corresponding figure plus full-data annotation statistics.
 
 When statistics are enabled, `_percentile_statistics.tsv` reports pairwise tests separately within each percentile group. `_main_score_vs_distance_statistics.tsv` reports the relationship between main peak score and matched distance for each comparison.
+
+`--write-detail-tables` additionally writes each `<comparison>_pairs.tsv` and the combined `_percentile_distances.tsv`. These one-row-per-match files are omitted by default because whole-genome comparisons can make them very large.
 
 ## Reference FASTA
 
@@ -328,7 +330,7 @@ Dinucleotide-profile commands write `_dinuc_profile_counts.tsv` alongside the fr
 
 - Heatmaps are written as PNG files.
 - Aggregate-profile plots from `aggregate` are written as SVG files.
-- Fragment-heatmap workbooks are written as XLSX files unless `--no-excel` is used.
+- Fragment-heatmap workbooks are optional XLSX supporting outputs written with `--write-detail-tables`.
 
 ## Common output suffixes
 
@@ -374,11 +376,12 @@ Dinucleotide-profile commands write `_dinuc_profile_counts.tsv` alongside the fr
 | `_aggregate_nrl_positive_regression.tsv` / `.png` | Positive-direction peak order versus distance from position 0, with an eligible central peak as order 0 |
 | `_aggregate_nrl_negative_regression.tsv` / `.png` | Negative-direction peak order versus absolute distance from position 0, with the same eligible central peak as order 0 |
 | `_aggregate_nrl_summary.tsv` | Positive and negative repeat lengths, central-peak and exclusion settings, fit diagnostics and unified caller settings |
-| `_pairs.tsv` | Matched method A/B positions, scores, distances and normalized score differences |
+| `_<comparison>_pairs.tsv` | Full one-row-per-match position/score table from `compare-positions`; written only with `--write-detail-tables` |
 | `_summary.tsv` | Position-comparison or other command summary metrics |
-| `_distance_bins.tsv` | Score agreement and score differences by summit-distance bin |
 | `_distance_histogram.tsv` | Exact histogram bin edges and matched-pair counts used for the distance histogram plot |
-| `_score_correlation.png` | Method A versus method B score, coloured by summit distance |
+| `_<comparison>_score_agreement.tsv.gz` / `.png` | Compact score-agreement plot source and main-versus-comparison score figure |
+| `_percentile_boxplot.tsv` | Compact grouped percentile-boxplot source containing box statistics and actual outliers |
+| `_<comparison>_main_score_vs_distance.tsv.gz` / `.png` | Compact main-score-versus-distance plot source and figure |
 | `_distance_histogram.png` | Distribution of matched summit distances |
 | `_correlation_by_distance.png` | Score correlation within summit-distance bins |
 

@@ -389,6 +389,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--plot-x-max", type=float, help="Displayed x-axis maximum; histogram tables retain the full selected range.")
     parser.add_argument("--log-y", action="store_true", help="Use a logarithmic y-axis for the frequency plot.")
     parser.add_argument("--title", help="Optional plot title.")
+    parser.add_argument(
+        "--write-detail-tables", action="store_true",
+        help="Write the individual finite peak-score table; omitted by default.",
+    )
     add_parallel_arguments(
         parser,
         cores_option="--memory-intensive-analysis-cores",
@@ -451,7 +455,8 @@ def _run_serial(args: argparse.Namespace) -> int:
     summary_path = Path(f"{prefix}_score_summary.tsv")
     plot_path = Path(f"{prefix}_score_frequency.png")
     reporter.stage("Writing score tables and frequency plot")
-    _write_values(datasets, values_path)
+    if args.write_detail_tables:
+        _write_values(datasets, values_path)
     histograms = _write_frequency(
         datasets, edges, frequency_path, integer_labels=integer_labels
     )
@@ -468,7 +473,14 @@ def _run_serial(args: argparse.Namespace) -> int:
         plot_x_max=args.plot_x_max,
         integer_labels=integer_labels,
     )
-    for path in (values_path, frequency_path, summary_path, plot_path):
+    from nucleosuite.plotting import write_plot_metadata
+    write_plot_metadata(
+        plot_path,
+        extra={"source_table": str(frequency_path), "detected_plot_type": "peak-score-frequency"},
+    )
+    if args.write_detail_tables:
+        print(f"Wrote: {values_path}")
+    for path in (frequency_path, summary_path, plot_path):
         print(f"Wrote: {path}")
     return 0
 

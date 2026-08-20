@@ -61,14 +61,17 @@ The command writes:
 - `_heatmap.png`;
 - `_normalised_matrix.tsv`, containing the displayed values in clustered row order;
 - `_clustered_profiles.tsv` and `_clustered_fragment_stats.tsv`;
-- `_heatmap_plot_metadata.tsv` and `_heatmap_linkage.tsv`, which let `nucleosuite plot` faithfully restore the complete figure; and
-- an Excel workbook unless `--no-excel` is supplied.
+- `_heatmap_plot_metadata.tsv` and `_heatmap_linkage.tsv`, which let `nucleosuite plot` faithfully restore the complete figure.
+
+Add `--write-detail-tables` when the additional Excel workbook is required.
 
 Recreate the original figure with:
 
 ```bash
 nucleosuite plot fragment_length_comparison_normalised_matrix.tsv
 ```
+
+The normalized matrix remains a default output because it is the compact numerical source required to reproduce the heatmap. The Excel workbook is a larger supporting output and is written only with `--write-detail-tables`.
 
 ## Plot customization
 

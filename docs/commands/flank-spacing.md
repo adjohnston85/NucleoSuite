@@ -92,13 +92,14 @@ Both ratio positions must lie inside this range.
 
 ## Outputs
 
-The command writes:
+By default the command writes:
 
-- `*_sites.tsv`: one row per input reference site, including the selected upstream/downstream nucleosome centres and resulting spacing;
 - `*_distributions.tsv`: the plotted density or count value at each spacing position for every category;
 - `*_ranking.tsv`: category rank, site counts, values at the two ratio positions, and the ratio;
 - a PNG or SVG distribution plot; and
 - a plot metadata TSV containing the complete command parameter set.
+
+The distribution table is the compact source used by `nucleosuite plot` to reproduce the category ranking, highlighting, legend, and axes. Add `--write-detail-tables` to also write `*_sites.tsv`, which contains one row per input reference site with the selected upstream/downstream nucleosome centres and resulting spacing.
 
 Automatic output names contain no more than three central analysis-parameter tokens. The complete parameter set is retained in the plot metadata sidecar.
 

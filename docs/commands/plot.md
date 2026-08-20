@@ -25,6 +25,7 @@ The command recognises the major NucleoSuite plot families, including:
 - fragment-length profiles and normalized fragment heatmap matrices;
 - positive-run distributions;
 - peak-score frequency distributions;
+- flank-spacing category distributions and ranked highlighting;
 - peak-state stacked compositions;
 - compare-positions multi-callset distance distributions, score scatters, main-score-versus-distance plots, distance-bin correlations, and grouped percentile boxplots;
 - gene-expression spacing summaries/scatters, FFT trajectories, and ranking plots;
@@ -130,7 +131,22 @@ nucleosuite plot sample_heatmap_matrix.tsv.gz \
 
 Values below `--vmin` or above `--vmax` saturate at the ends of the colour scale. This is useful when a small number of extreme values would otherwise compress most of the heatmap into a narrow colour range.
 
-Both aggregate `_heatmap_matrix.tsv.gz` outputs and fragment-heatmap `_normalised_matrix.tsv` outputs can be replotted directly. New fragment-heatmap runs also write `_heatmap_plot_metadata.tsv` and `_heatmap_linkage.tsv`; when these sit beside the matrix, `plot` faithfully restores the original dendrogram, category strip and legend, palette, colour limits, labels, and layout.
+Aggregate heatmap matrices are written when `aggregate --write-detail-tables` is requested and can then be replotted directly. Fragment-heatmap `_normalised_matrix.tsv` outputs remain default because the matrix is the compact source needed to reproduce that heatmap. Fragment-heatmap runs also write `_heatmap_plot_metadata.tsv` and `_heatmap_linkage.tsv`; when these sit beside the matrix, `plot` restores the original dendrogram, category strip and legend, palette, colour limits, labels, and layout.
+
+## Compact plot-source tables
+
+Large per-region or per-match detail tables are disabled by default in commands that can generate very large supporting outputs. Plot-producing analyses retain a smaller source table containing the information required to reproduce each default figure. For example, `compare-positions` writes `_percentile_boxplot.tsv` plus compressed per-comparison score plot sources even when the full matched-pair tables are omitted.
+
+These source tables can be passed directly to `nucleosuite plot`. Plot metadata sidecars record the associated source table and detected plot family where applicable.
+
+For compare-position percentile boxplots, outliers beyond the 1.5 × IQR whiskers are shown by default. Replot them with the same default or explicitly control them with:
+
+```text
+--show-boxplot-outliers
+--hide-boxplot-outliers
+```
+
+This is a plot-specific control; `showfliers` is not a Matplotlib `rcParam`.
 
 ## General figure controls
 

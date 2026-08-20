@@ -45,6 +45,7 @@ class AlignmentConfig:
     plotted_mean_output: Path | None = None
     mean_plot_output: Path | None = None
     summary_output: Path | None = None
+    write_detail_tables: bool = False
     window_half: int = 2500
     chrom_col: int = 1
     start_col: int = 2
@@ -359,14 +360,17 @@ def resolve_output_paths(config: AlignmentConfig) -> dict[str, Path]:
     prefix = make_output_prefix(config)
     from nucleosuite.plotting import plot_path
     outputs = {
-        "heatmap": plot_path(config.heatmap_output or output_dir / f"{prefix}_heatmap.png"),
-        "heatmap_matrix": config.heatmap_matrix_output or output_dir / f"{prefix}_heatmap_matrix.tsv.gz",
         "aggregate": config.aggregate_output or output_dir / f"{prefix}_aggregate_all.tsv",
         "plotted_mean": config.plotted_mean_output or output_dir / f"{prefix}_heatmap_mean.tsv",
         "mean_plot": plot_path(config.mean_plot_output or output_dir / f"{prefix}_heatmap_mean.png"),
         "summary": config.summary_output or output_dir / f"{prefix}_summary.tsv",
-        "row_metadata": output_dir / f"{prefix}_heatmap_rows.tsv",
     }
+    if config.write_detail_tables:
+        outputs["heatmap"] = plot_path(config.heatmap_output or output_dir / f"{prefix}_heatmap.png")
+        outputs["heatmap_matrix"] = (
+            config.heatmap_matrix_output or output_dir / f"{prefix}_heatmap_matrix.tsv.gz"
+        )
+        outputs["row_metadata"] = output_dir / f"{prefix}_heatmap_rows.tsv"
     if config.nrl:
         outputs.update(
             {
@@ -1272,28 +1276,34 @@ def plot_outputs(
     if vmin >= vmax:
         raise ValueError("vmin must be less than vmax")
 
-    paths["heatmap"].parent.mkdir(parents=True, exist_ok=True)
-    figure, axis = plt.subplots(figsize=(15, 5))
-    image = axis.imshow(
-        matrix,
-        aspect="auto",
-        cmap="seismic",
-        vmin=vmin,
-        vmax=vmax,
-        interpolation="nearest",
-        origin="upper",
-        extent=[float(x_values[0]) - 0.5, float(x_values[-1]) + 0.5, matrix.shape[0], 0],
-    )
-    colorbar = figure.colorbar(image, ax=axis)
-    colorbar.set_label(config.colorbar_label)
-    from nucleosuite.plotting import apply_base_pair_x_axis
-    apply_base_pair_x_axis(axis, x_values)
-    axis.set_xlabel(f"{config.axis_label} (bp)")
-    axis.set_ylabel("Region index (sorted)")
     from nucleosuite.plotting import save_figure
-    figure.tight_layout()
-    paths["heatmap"] = save_figure(figure, paths["heatmap"], default_dpi=config.dpi)
-    plt.close(figure)
+    if "heatmap" in paths:
+        paths["heatmap"].parent.mkdir(parents=True, exist_ok=True)
+        figure, axis = plt.subplots(figsize=(15, 5))
+        image = axis.imshow(
+            matrix,
+            aspect="auto",
+            cmap="seismic",
+            vmin=vmin,
+            vmax=vmax,
+            interpolation="nearest",
+            origin="upper",
+            extent=[float(x_values[0]) - 0.5, float(x_values[-1]) + 0.5, matrix.shape[0], 0],
+        )
+        colorbar = figure.colorbar(image, ax=axis)
+        colorbar.set_label(config.colorbar_label)
+        from nucleosuite.plotting import apply_base_pair_x_axis
+        apply_base_pair_x_axis(axis, x_values)
+        axis.set_xlabel(f"{config.axis_label} (bp)")
+        axis.set_ylabel("Region index (sorted)")
+        figure.tight_layout()
+        paths["heatmap"] = save_figure(figure, paths["heatmap"], default_dpi=config.dpi)
+        from nucleosuite.plotting import write_plot_metadata
+        write_plot_metadata(
+            paths["heatmap"],
+            extra={"source_table": str(paths["heatmap_matrix"]), "detected_plot_type": "heatmap"},
+        )
+        plt.close(figure)
 
     finite_counts = np.sum(np.isfinite(matrix), axis=0)
     mean_profile = np.divide(
@@ -1313,6 +1323,11 @@ def plot_outputs(
         axis.set_ylim(-config.mean_ylim, config.mean_ylim)
     figure.tight_layout()
     paths["mean_plot"] = save_figure(figure, paths["mean_plot"], default_dpi=config.dpi)
+    from nucleosuite.plotting import write_plot_metadata
+    write_plot_metadata(
+        paths["mean_plot"],
+        extra={"source_table": str(paths["plotted_mean"]), "detected_plot_type": "aggregate-profile"},
+    )
     plt.close(figure)
     return mean_profile
 
@@ -1554,10 +1569,11 @@ def run_alignment(
         write_aggregate_nrl_outputs(nrl_result, config, outputs)
     matrix, x_values = central_crop(matrix, config.breadth)
     matrix, original_order, sort_scores = sort_matrix(matrix, config.sort_mode)
-    write_heatmap_matrix(matrix, x_values, outputs["heatmap_matrix"])
-    write_heatmap_row_metadata(
-        outputs["row_metadata"], original_order, sort_scores, config.sort_mode
-    )
+    if config.write_detail_tables:
+        write_heatmap_matrix(matrix, x_values, outputs["heatmap_matrix"])
+        write_heatmap_row_metadata(
+            outputs["row_metadata"], original_order, sort_scores, config.sort_mode
+        )
     plotted_mean = plot_outputs(matrix, x_values, config, outputs)
     write_profile(plotted_mean, outputs["plotted_mean"], x_values)
     write_summary(outputs["summary"], config, stats, outputs)

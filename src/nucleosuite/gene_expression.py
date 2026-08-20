@@ -543,6 +543,7 @@ def run_spacing_analysis(
     correlation_method: str,
     min_correlation_genes: int,
     focus_profiles: Sequence[str],
+    write_detail_tables: bool = False,
     blacklist: BlacklistIndex | None = None,
 ) -> dict[str, Path]:
     per_gene_path = Path(f"{output_prefix}_gene_peak_spacing.tsv")
@@ -550,7 +551,7 @@ def run_spacing_analysis(
     from nucleosuite.plotting import plot_path as resolve_plot_path
     plot_path = resolve_plot_path(Path(f"{output_prefix}_spacing_expression_correlations.png"))
     scatter_path = resolve_plot_path(Path(f"{output_prefix}_spacing_expression_scatter.png"))
-    scatter_data_path = Path(f"{output_prefix}_spacing_expression_scatter.tsv")
+    scatter_data_path = Path(f"{output_prefix}_spacing_expression_scatter_plot.tsv.gz")
     per_gene_path.parent.mkdir(parents=True, exist_ok=True)
 
     gene_rows: list[dict[str, object]] = []
@@ -584,17 +585,18 @@ def run_spacing_analysis(
                 row[f"{region_name}_median_spacing_bp"] = median
             gene_rows.append(row)
 
-    with per_gene_path.open("wt", newline="") as handle:
-        fieldnames = [
-            "sample", "chrom", "start", "end", "gene_id", "gene_name", "strand",
-            "body_peak_count", "body_median_spacing_bp",
-            "upstream_peak_count", "upstream_median_spacing_bp",
-            "downstream_peak_count", "downstream_median_spacing_bp",
-        ]
-        writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t", extrasaction="ignore")
-        writer.writeheader()
-        for row in gene_rows:
-            writer.writerow(row)
+    if write_detail_tables:
+        with per_gene_path.open("wt", newline="") as handle:
+            fieldnames = [
+                "sample", "chrom", "start", "end", "gene_id", "gene_name", "strand",
+                "body_peak_count", "body_median_spacing_bp",
+                "upstream_peak_count", "upstream_median_spacing_bp",
+                "downstream_peak_count", "downstream_median_spacing_bp",
+            ]
+            writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t", extrasaction="ignore")
+            writer.writeheader()
+            for row in gene_rows:
+                writer.writerow(row)
 
     rows_by_sample: dict[str, list[dict[str, object]]] = defaultdict(list)
     for row in gene_rows:
@@ -740,7 +742,9 @@ def run_spacing_analysis(
     scatter_path = save_figure(fig, scatter_path, default_dpi=200)
     plt.close(fig)
 
-    with scatter_data_path.open("wt", newline="") as handle:
+    # Keep only the points actually used by the scatter figure as a compressed
+    # plot source. The much larger per-gene analysis table remains opt-in.
+    with gzip.open(scatter_data_path, "wt", newline="") as handle:
         fieldnames = [
             "sample", "profile", "body_median_spacing_bp",
             "transformed_expression", "expression_transform",
@@ -750,13 +754,25 @@ def run_spacing_analysis(
         writer.writeheader()
         writer.writerows(scatter_rows)
 
-    return {
-        "spacing_per_gene": per_gene_path,
+    from nucleosuite.plotting import write_plot_metadata
+    write_plot_metadata(
+        plot_path,
+        extra={"source_table": str(correlation_path), "detected_plot_type": "gene-expression-spacing"},
+    )
+    write_plot_metadata(
+        scatter_path,
+        extra={"source_table": str(scatter_data_path), "detected_plot_type": "gene-expression-spacing-scatter"},
+    )
+
+    outputs = {
         "spacing_correlations": correlation_path,
         "spacing_plot": plot_path,
-        "spacing_scatter_data": scatter_data_path,
+        "spacing_scatter_source": scatter_data_path,
         "spacing_scatter": scatter_path,
     }
+    if write_detail_tables:
+        outputs["spacing_per_gene"] = per_gene_path
+    return outputs
 
 
 def recursive_filter(values: np.ndarray) -> np.ndarray:
@@ -927,6 +943,7 @@ def run_fft_analysis(
     focus_profiles: Sequence[str],
     control_samples: Sequence[str],
     top_profiles: int,
+    write_detail_tables: bool = False,
     profile_metadata: Mapping[str, Mapping[str, str]] | None = None,
     blacklist: BlacklistIndex | None = None,
 ) -> dict[str, Path]:
@@ -1012,33 +1029,34 @@ def run_fft_analysis(
     if not all_rows:
         raise ValueError("No genes passed the FFT signal extraction filters")
 
-    with gzip.open(fft_path, "wt", newline="") as handle:
-        fieldnames = [
-            "sample", "chrom", "start", "end", "gene_id", "gene_name", "strand",
-            "valid_fraction", "dominant_period_bp", "dominant_intensity",
-            "ranking_periods", "ranking_mean_intensity",
-        ] + [f"period_{period}_bp" for period in periods]
-        writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t")
-        writer.writeheader()
-        for row in all_rows:
-            record: dict[str, object] = {
-                "sample": row.sample,
-                "chrom": row.gene.chrom,
-                "start": row.gene.start,
-                "end": row.gene.end,
-                "gene_id": row.gene.gene_id,
-                "gene_name": row.gene.gene_name,
-                "strand": row.gene.strand,
-                "valid_fraction": f"{row.valid_fraction:.6f}",
-                "dominant_period_bp": row.dominant_period,
-                "dominant_intensity": f"{row.dominant_intensity:.12g}",
-                "ranking_periods": ",".join(map(str, ranking_periods)),
-                "ranking_mean_intensity": f"{row.ranking_intensity:.12g}",
-            }
-            record.update(
-                {f"period_{period}_bp": f"{value:.12g}" for period, value in zip(periods, row.intensities)}
-            )
-            writer.writerow(record)
+    if write_detail_tables:
+        with gzip.open(fft_path, "wt", newline="") as handle:
+            fieldnames = [
+                "sample", "chrom", "start", "end", "gene_id", "gene_name", "strand",
+                "valid_fraction", "dominant_period_bp", "dominant_intensity",
+                "ranking_periods", "ranking_mean_intensity",
+            ] + [f"period_{period}_bp" for period in periods]
+            writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t")
+            writer.writeheader()
+            for row in all_rows:
+                record: dict[str, object] = {
+                    "sample": row.sample,
+                    "chrom": row.gene.chrom,
+                    "start": row.gene.start,
+                    "end": row.gene.end,
+                    "gene_id": row.gene.gene_id,
+                    "gene_name": row.gene.gene_name,
+                    "strand": row.gene.strand,
+                    "valid_fraction": f"{row.valid_fraction:.6f}",
+                    "dominant_period_bp": row.dominant_period,
+                    "dominant_intensity": f"{row.dominant_intensity:.12g}",
+                    "ranking_periods": ",".join(map(str, ranking_periods)),
+                    "ranking_mean_intensity": f"{row.ranking_intensity:.12g}",
+                }
+                record.update(
+                    {f"period_{period}_bp": f"{value:.12g}" for period, value in zip(periods, row.intensities)}
+                )
+                writer.writerow(record)
 
     rows_by_sample: dict[str, list[FFTRow]] = defaultdict(list)
     for row in all_rows:
@@ -1243,6 +1261,11 @@ def run_fft_analysis(
     from nucleosuite.plotting import save_figure
     fig.tight_layout()
     trajectory_plot_path = save_figure(fig, trajectory_plot_path, default_dpi=200)
+    from nucleosuite.plotting import write_plot_metadata
+    write_plot_metadata(
+        trajectory_plot_path,
+        extra={"source_table": str(trajectory_path), "detected_plot_type": "gene-expression-fft-trajectory"},
+    )
     plt.close(fig)
 
     # Plot profile rankings for each signal sample.
@@ -1264,10 +1287,13 @@ def run_fft_analysis(
         ax.set_title(f"{sample}: expression profiles ranked from most negative correlation")
     fig.tight_layout()
     ranking_plot_path = save_figure(fig, ranking_plot_path, default_dpi=200)
+    write_plot_metadata(
+        ranking_plot_path,
+        extra={"source_table": str(ranking_path), "detected_plot_type": "gene-expression-ranking"},
+    )
     plt.close(fig)
 
-    return {
-        "fft_per_gene": fft_path,
+    outputs = {
         "fft_correlations": trajectory_path,
         "fft_rankings": ranking_path,
         "fft_rank_changes": rank_change_path,
@@ -1275,6 +1301,9 @@ def run_fft_analysis(
         "fft_ranking_plot": ranking_plot_path,
         "fft_qc": qc_path,
     }
+    if write_detail_tables:
+        outputs["fft_per_gene"] = fft_path
+    return outputs
 
 
 def write_metadata(
@@ -1349,6 +1378,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--signal-type", choices=("pns", "wps", "other"), default="pns", help="Signal label used in metadata and plot text.")
     parser.add_argument("--analysis", choices=("all", "spacing", "fft"), default="all", help="Run peak-spacing correlations, FFT correlations, or both.")
     parser.add_argument("--output-prefix", "--out-prefix", required=True, help="Path prefix for analysis tables, metadata, and plots.")
+    parser.add_argument(
+        "--write-detail-tables", action="store_true",
+        help=(
+            "Write large per-gene supporting tables (gene spacing rows, scatter data, "
+            "and per-gene FFT spectra). These are omitted by default."
+        ),
+    )
 
     parser.add_argument("--gene-id-column", type=int, default=4, help="One-based gene BED column containing the gene identifier.")
     parser.add_argument("--gene-name-column", type=int, default=5, help="One-based gene BED column containing the gene name.")
@@ -1546,6 +1582,7 @@ def _run_serial(args: argparse.Namespace) -> int:
                     correlation_method=args.correlation,
                     min_correlation_genes=args.min_correlation_genes,
                     focus_profiles=args.focus_profile,
+                    write_detail_tables=bool(args.write_detail_tables),
                     blacklist=blacklist,
                 )
             )
@@ -1576,6 +1613,7 @@ def _run_serial(args: argparse.Namespace) -> int:
                     focus_profiles=args.focus_profile,
                     control_samples=args.control_sample,
                     top_profiles=args.top_profiles,
+                    write_detail_tables=bool(args.write_detail_tables),
                     profile_metadata=profile_metadata,
                     blacklist=blacklist,
                 )

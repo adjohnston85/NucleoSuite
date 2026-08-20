@@ -416,3 +416,113 @@ def test_plot_parser_makes_dac_peak_detection_opt_in_and_nrl_labels_default():
     assert args.detect_peaks is False
     assert args.peak_resolution == 160.0
     assert args.label_peaks == "auto"
+
+
+def test_plot_parser_exposes_boxplot_outlier_controls() -> None:
+    parser = build_parser()
+    options = {flag for action in parser._actions for flag in action.option_strings}
+    assert "--show-boxplot-outliers" in options
+    assert "--hide-boxplot-outliers" in options
+
+
+def test_compact_compare_percentile_boxplot_replots_with_legend_and_outlier_toggle(tmp_path: Path) -> None:
+    from nucleosuite.replot import _plot_compare_positions_percentile_boxplot, _read_table
+
+    path = tmp_path / "sample_percentile_boxplot.tsv"
+    header = [
+        "row_type", "main_label", "comparison", "percentile_group",
+        "q1_absolute_distance", "median_absolute_distance", "mean_absolute_distance",
+        "q3_absolute_distance", "whisker_low_absolute_distance", "whisker_high_absolute_distance",
+        "outlier_absolute_distance", "show_boxplot_outliers", "percentile_boxplot_y_max",
+        "comparison_1", "comparison_2", "p_adjusted", "p_value", "significance", "p_display",
+    ]
+    rows = [
+        ["box", "PNS", "DANPOS", "0-25", 5, 10, 12, 15, 1, 25, "", 1, 200, "", "", "", "", "", ""],
+        ["flier", "PNS", "DANPOS", "0-25", "", "", "", "", "", "", 80, 1, 200, "", "", "", "", "", ""],
+        ["box", "PNS", "iNPS", "0-25", 4, 8, 9, 12, 1, 20, "", 1, 200, "", "", "", "", "", ""],
+        ["flier", "PNS", "iNPS", "0-25", "", "", "", "", "", "", 65, 1, 200, "", "", "", "", "", ""],
+        ["stat", "PNS", "", "0-25", "", "", "", "", "", "", "", 1, 200, "DANPOS", "iNPS", 0.01, 0.01, "*", "value"],
+    ]
+    _write(path, header, rows)
+    headers, table_rows = _read_table(path)
+
+    args = build_parser().parse_args([str(path), "--output", str(tmp_path / "shown.png")])
+    (_, fig) = _plot_compare_positions_percentile_boxplot(path, headers, table_rows, args, tmp_path / "shown.png", {})
+    ax = fig.axes[0]
+    assert ax.get_legend() is not None
+    assert ax.get_xlabel() == "PNS peak score percentile group"
+    assert ax.get_ylim()[1] == 200.0
+    assert any(line.get_marker() not in {"", "None", None} and len(line.get_ydata()) > 0 for line in ax.lines)
+
+    hidden_args = build_parser().parse_args([
+        str(path), "--output", str(tmp_path / "hidden.png"), "--hide-boxplot-outliers",
+    ])
+    (_, hidden_fig) = _plot_compare_positions_percentile_boxplot(
+        path, headers, table_rows, hidden_args, tmp_path / "hidden.png", {}
+    )
+    hidden_ax = hidden_fig.axes[0]
+    # bxp represents fliers as marker-only Line2D artists.
+    assert not any(
+        line.get_marker() not in {"", "None", None} and len(line.get_ydata()) > 0
+        for line in hidden_ax.lines
+    )
+
+
+def test_compact_compare_score_sources_replot(tmp_path: Path) -> None:
+    score_path = tmp_path / "sample_DANPOS_score_agreement.tsv"
+    _write(
+        score_path,
+        [
+            "main_label", "comparison", "main_score_plot", "compare_score_plot", "absolute_distance",
+            "score_normalization", "correlation_method", "score_z_limit", "distance_color_max",
+            "full_pair_count", "full_spearman_rho", "full_pearson_r",
+        ],
+        [
+            ["PNS", "DANPOS", -1, -0.8, 5, "zscore", "spearman", 8, 100, 1000, 0.8, 0.75],
+            ["PNS", "DANPOS", 0, 0.1, 15, "zscore", "spearman", 8, 100, 1000, 0.8, 0.75],
+            ["PNS", "DANPOS", 1, 0.9, 30, "zscore", "spearman", 8, 100, 1000, 0.8, 0.75],
+        ],
+    )
+    score_output = tmp_path / "score.png"
+    assert main([str(score_path), "--output", str(score_output)]) == 0
+    assert score_output.is_file() and score_output.stat().st_size > 1000
+
+    distance_path = tmp_path / "sample_DANPOS_main_score_vs_distance.tsv"
+    _write(
+        distance_path,
+        [
+            "main_label", "comparison", "main_score", "matched_distance", "distance_type", "plot_type",
+            "plot_score_distance_y_max", "full_matched_pair_count", "full_spearman_rho",
+            "full_spearman_p_value", "full_pearson_r", "full_pearson_p_value",
+            "full_linear_slope", "full_linear_intercept", "full_linear_r_squared", "full_linear_slope_p_value",
+        ],
+        [
+            ["PNS", "DANPOS", 1, 10, "absolute", "scatter", 0, 1000, -0.2, 0.001, -0.1, 0.01, -0.5, 20, 0.01, 0.02],
+            ["PNS", "DANPOS", 2, 12, "absolute", "scatter", 0, 1000, -0.2, 0.001, -0.1, 0.01, -0.5, 20, 0.01, 0.02],
+            ["PNS", "DANPOS", 3, 8, "absolute", "scatter", 0, 1000, -0.2, 0.001, -0.1, 0.01, -0.5, 20, 0.01, 0.02],
+        ],
+    )
+    distance_output = tmp_path / "score_distance.png"
+    assert main([str(distance_path), "--output", str(distance_output)]) == 0
+    assert distance_output.is_file() and distance_output.stat().st_size > 1000
+
+
+def test_flank_spacing_compact_distribution_replots(tmp_path: Path) -> None:
+    path = tmp_path / "sample_flank_spacing_distributions.tsv"
+    _write(
+        path,
+        ["category", "spacing_bp", "value", "distribution", "rank", "highlighted", "ratio_x1", "ratio_x2", "top_categories", "x_min", "x_max"],
+        [
+            ["A", 0, 0.0, "density", 1, 1, 190, 260, 1, 0, 500],
+            ["A", 190, 0.01, "density", 1, 1, 190, 260, 1, 0, 500],
+            ["A", 260, 0.02, "density", 1, 1, 190, 260, 1, 0, 500],
+            ["A", 500, 0.0, "density", 1, 1, 190, 260, 1, 0, 500],
+            ["B", 0, 0.0, "density", 2, 0, 190, 260, 1, 0, 500],
+            ["B", 190, 0.02, "density", 2, 0, 190, 260, 1, 0, 500],
+            ["B", 260, 0.01, "density", 2, 0, 190, 260, 1, 0, 500],
+            ["B", 500, 0.0, "density", 2, 0, 190, 260, 1, 0, 500],
+        ],
+    )
+    output = tmp_path / "flank.png"
+    assert main([str(path), "--output", str(output)]) == 0
+    assert output.is_file() and output.stat().st_size > 1000

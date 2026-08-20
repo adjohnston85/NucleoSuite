@@ -100,3 +100,5 @@ Per-contig track directories contain completion checkpoints. Track writers use `
 
 Automatic output stems include at most three central analysis-parameter tokens. This prevents long input names and parameter-rich analyses from exceeding filesystem filename limits. Plot outputs additionally receive a `*_metadata.tsv` sidecar containing the complete command invocation and parameter set.
 
+Large supporting tables that contain one row per region, matched pair, or other analysis record are opt-in where they are not the primary result of the command. Use `--write-detail-tables` on commands that expose it. Compact summary and plot-source tables remain enabled by default so figures can still be recreated with `nucleosuite plot`.
+

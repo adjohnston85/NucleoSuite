@@ -234,6 +234,8 @@ nucleosuite COMMAND --help-plotting
 
 `nucleosuite plot --help` shows its plotting controls directly.
 
+Large supporting tables are opt-in for analyses that can otherwise emit one row per region, peak, or matched pair. Where available, use `--write-detail-tables` to retain them. Compact plot-source tables remain enabled so standard figures can be recreated with `nucleosuite plot`.
+
 ## License
 
 NucleoSuite is distributed under the MIT License. See [LICENSE](LICENSE).

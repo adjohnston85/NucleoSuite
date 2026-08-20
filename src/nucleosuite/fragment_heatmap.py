@@ -29,6 +29,7 @@ Outputs derived from --out-prefix:
     <prefix>_normalised_matrix.tsv
     <prefix>_heatmap_plot_metadata.tsv
     <prefix>_heatmap_linkage.tsv
+Optional with --write-detail-tables:
     <prefix>.xlsx
 """
 
@@ -803,8 +804,16 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-yticks", type=int, default=80, help="Maximum number of displayed profile labels before tick thinning (default: 80).")
     parser.add_argument("--dpi", type=int, default=220, help="Heatmap resolution setting (default: 220); --plot-dpi takes precedence when supplied.")
     parser.add_argument("--title", default=None, help="Optional heatmap title.")
-    parser.add_argument("--no-excel", action="store_true", help="Omit the Excel workbook.")
-    parser.add_argument("--no-matrix", action="store_true", help="Omit the normalized matrix TSV.")
+    parser.add_argument(
+        "--write-detail-tables", action="store_true",
+        help=(
+            "Write the full Excel workbook in addition to the standard plot and "
+            "normalized matrix. The matrix remains a default compact plot source "
+            "so the heatmap can always be recreated with `nucleosuite plot`."
+        ),
+    )
+    parser.add_argument("--no-excel", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--no-matrix", action="store_true", help=argparse.SUPPRESS)
 
 
 def run(args: argparse.Namespace) -> int:
@@ -885,7 +894,7 @@ def run(args: argparse.Namespace) -> int:
     linkage_path = Path(f"{prefix}_heatmap_linkage.tsv")
     excel_path = Path(f"{prefix}.xlsx")
 
-    reporter.stage("Writing heatmap, tables, and workbook")
+    reporter.stage("Writing heatmap and tables")
     requested_category_colours = parse_category_colours(args.category_colour)
     save_heatmap(
         display, profiles, lengths, order, linkage_matrix, metadata,
@@ -908,10 +917,15 @@ def run(args: argparse.Namespace) -> int:
     print(f"Wrote: {plot_metadata_path}")
     write_linkage(linkage_path, linkage_matrix)
     print(f"Wrote: {linkage_path}")
-    if not args.no_matrix:
-        write_matrix(matrix_path, display, profiles, lengths, order)
-        print(f"Wrote: {matrix_path}")
-    if not args.no_excel:
+    if args.no_matrix:
+        print(
+            "WARNING: --no-matrix is deprecated and ignored; the normalized matrix "
+            "is retained as the compact replot source.",
+            file=sys.stderr,
+        )
+    write_matrix(matrix_path, display, profiles, lengths, order)
+    print(f"Wrote: {matrix_path}")
+    if args.write_detail_tables and not args.no_excel:
         write_excel(excel_path, profiles, original, analysed, display, lengths, order, metadata, args)
         print(f"Wrote: {excel_path}")
     return 0

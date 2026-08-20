@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gzip
 import heapq
 import itertools
 import math
@@ -13,7 +14,7 @@ import sys
 from array import array
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable, Mapping, Sequence
 
 import numpy as np
 from scipy import stats
@@ -260,6 +261,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--percentile-boxplot-y-max", type=float, default=200.0,
         help="Displayed upper y-axis limit for percentile distance boxplots; 0 disables (default: 200).",
     )
+    outliers = parser.add_mutually_exclusive_group()
+    outliers.add_argument(
+        "--show-boxplot-outliers", dest="show_boxplot_outliers", action="store_true", default=True,
+        help="Show boxplot outlier points beyond the 1.5×IQR whiskers (default: shown).",
+    )
+    outliers.add_argument(
+        "--hide-boxplot-outliers", dest="show_boxplot_outliers", action="store_false",
+        help="Hide boxplot outlier points while retaining the standard 1.5×IQR whiskers.",
+    )
     parser.add_argument(
         "--score-agreement-distance-max", type=float, default=100.0,
         help="Upper colour-scale limit for absolute summit distance in score-agreement plots; 0 uses the data maximum (default: 100).",
@@ -289,8 +299,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Display adjusted/raw p-values or significance stars above boxplots (default: value).",
     )
     parser.add_argument(
-        "--skip-pairs-tsv", action="store_true",
-        help="Do not write the detailed matched-pair TSV for each comparison.",
+        "--write-detail-tables", action="store_true",
+        help=(
+            "Write large record-level supporting tables: one matched-pair TSV per "
+            "comparison and the combined percentile-distance TSV. These files are "
+            "omitted by default."
+        ),
+    )
+    parser.add_argument(
+        "--skip-pairs-tsv", action="store_true", help=argparse.SUPPRESS,
     )
     parser.add_argument("--dpi", type=int, default=300, help="Figure DPI; --plot-dpi takes precedence.")
     parser.add_argument(
@@ -987,7 +1004,8 @@ def _write_tsv(path: Path, rows: Sequence[dict[str, object]], fields: Sequence[s
     path.parent.mkdir(parents=True, exist_ok=True)
     if fields is None:
         fields = list(rows[0].keys()) if rows else []
-    with path.open("w", encoding="utf-8", newline="") as handle:
+    opener = gzip.open if str(path).lower().endswith(".gz") else open
+    with opener(path, "wt", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(fields), delimiter="\t", extrasaction="ignore")
         writer.writeheader()
         for row in rows:
@@ -1099,6 +1117,132 @@ def _percentile_summary_rows(results: Sequence[ComparisonArrays], interval: int)
                 "q3_absolute_distance": q3,
                 "maximum_absolute_distance": maximum,
             })
+    return rows
+
+
+def _boxplot_stats(values: np.ndarray) -> tuple[dict[str, float], np.ndarray]:
+    """Return Matplotlib-compatible 1.5×IQR box statistics and fliers."""
+
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        empty = {
+            "minimum_absolute_distance": math.nan,
+            "q1_absolute_distance": math.nan,
+            "median_absolute_distance": math.nan,
+            "mean_absolute_distance": math.nan,
+            "q3_absolute_distance": math.nan,
+            "maximum_absolute_distance": math.nan,
+            "whisker_low_absolute_distance": math.nan,
+            "whisker_high_absolute_distance": math.nan,
+        }
+        return empty, np.asarray([], dtype=float)
+
+    finite.sort()
+    q1, median, q3 = np.percentile(finite, [25, 50, 75])
+    iqr = float(q3 - q1)
+    lower_fence = float(q1 - 1.5 * iqr)
+    upper_fence = float(q3 + 1.5 * iqr)
+    within = finite[(finite >= lower_fence) & (finite <= upper_fence)]
+    whisker_low = float(within[0]) if within.size else float(q1)
+    whisker_high = float(within[-1]) if within.size else float(q3)
+    fliers = finite[(finite < whisker_low) | (finite > whisker_high)]
+    stats = {
+        "minimum_absolute_distance": float(finite[0]),
+        "q1_absolute_distance": float(q1),
+        "median_absolute_distance": float(median),
+        "mean_absolute_distance": float(np.mean(finite)),
+        "q3_absolute_distance": float(q3),
+        "maximum_absolute_distance": float(finite[-1]),
+        "whisker_low_absolute_distance": whisker_low,
+        "whisker_high_absolute_distance": whisker_high,
+    }
+    return stats, fliers
+
+
+def _percentile_boxplot_source_rows(
+    results: Sequence[ComparisonArrays],
+    main_label: str,
+    interval: int,
+    statistics_rows: Sequence[dict[str, object]],
+    args: argparse.Namespace,
+) -> list[dict[str, object]]:
+    """Build a compact, self-contained source table for the percentile boxplot.
+
+    The table contains one ``box`` row per comparison/percentile group, only
+    the outlier observations required to redraw fliers, and optional ``stat``
+    rows for pairwise annotations.  It therefore supports faithful replotting
+    without retaining every matched-pair distance.
+    """
+
+    fields = (
+        "row_type", "main_label", "comparison", "percentile_group",
+        "group_lower_percentile", "group_upper_percentile", "matched_pair_count",
+        "minimum_absolute_distance", "q1_absolute_distance",
+        "median_absolute_distance", "mean_absolute_distance",
+        "q3_absolute_distance", "maximum_absolute_distance",
+        "whisker_low_absolute_distance", "whisker_high_absolute_distance",
+        "outlier_absolute_distance", "comparison_1", "comparison_2", "test",
+        "paired", "n_1", "n_2", "n_paired", "statistic", "p_value",
+        "p_adjusted", "p_adjustment", "significance", "p_display",
+        "show_boxplot_outliers", "percentile_boxplot_y_max",
+    )
+
+    rows: list[dict[str, object]] = []
+    for result in results:
+        for lower, upper, label in _percentile_group_bounds(interval):
+            values = result.absolute_distance[result.group_mask(label)]
+            box_stats, fliers = _boxplot_stats(values)
+            box_row = {key: "" for key in fields}
+            box_row.update({
+                "row_type": "box",
+                "main_label": main_label,
+                "comparison": result.label,
+                "percentile_group": label,
+                "group_lower_percentile": lower,
+                "group_upper_percentile": upper,
+                "matched_pair_count": int(values.size),
+                "show_boxplot_outliers": int(bool(args.show_boxplot_outliers)),
+                "percentile_boxplot_y_max": float(args.percentile_boxplot_y_max),
+            })
+            box_row.update(box_stats)
+            rows.append(box_row)
+            for value in fliers:
+                flier_row = {key: "" for key in fields}
+                flier_row.update({
+                    "row_type": "flier",
+                    "main_label": main_label,
+                    "comparison": result.label,
+                    "percentile_group": label,
+                    "outlier_absolute_distance": float(value),
+                    "show_boxplot_outliers": int(bool(args.show_boxplot_outliers)),
+                    "percentile_boxplot_y_max": float(args.percentile_boxplot_y_max),
+                })
+                rows.append(flier_row)
+
+    for source in statistics_rows:
+        stat_row = {key: "" for key in fields}
+        stat_row.update({
+            "row_type": "stat",
+            "main_label": main_label,
+            "percentile_group": source.get("percentile_group", ""),
+            "comparison_1": source.get("comparison_1", ""),
+            "comparison_2": source.get("comparison_2", ""),
+            "test": source.get("test", ""),
+            "paired": source.get("paired", ""),
+            "n_1": source.get("n_1", ""),
+            "n_2": source.get("n_2", ""),
+            "n_paired": source.get("n_paired", ""),
+            "statistic": source.get("statistic", ""),
+            "p_value": source.get("p_value", ""),
+            "p_adjusted": source.get("p_adjusted", ""),
+            "p_adjustment": source.get("p_adjustment", ""),
+            "significance": source.get("significance", ""),
+            "p_display": args.p_display,
+            "show_boxplot_outliers": int(bool(args.show_boxplot_outliers)),
+            "percentile_boxplot_y_max": float(args.percentile_boxplot_y_max),
+        })
+        rows.append(stat_row)
     return rows
 
 
@@ -1255,6 +1399,90 @@ def _summary_row(result: ComparisonArrays, main_path: Path, main_label: str) -> 
         "pearson_main_vs_compare_score": score_pearson,
         "pearson_main_vs_compare_score_p_value": score_pearson_p,
     }
+
+
+def _write_score_agreement_plot_source(
+    path: Path,
+    result: ComparisonArrays,
+    main_label: str,
+    args: argparse.Namespace,
+) -> Path:
+    """Write only the sampled points and full-data statistics needed for replotting."""
+
+    x_all, y_all, axis_label = _selected_scores(result, args.score_normalization)
+    indices = _plot_indices(result.pair_count, args.plot_max_points, args.plot_seed)
+    spearman, spearman_p = _safe_corr(x_all, y_all, "spearman")
+    pearson, pearson_p = _safe_corr(x_all, y_all, "pearson")
+    _slope, _intercept, r2, _regression_p = _linear_stats(x_all, y_all)
+    rows: list[dict[str, object]] = []
+    for index in indices:
+        rows.append({
+            "main_label": main_label,
+            "comparison": result.label,
+            "main_score_plot": float(x_all[index]),
+            "compare_score_plot": float(y_all[index]),
+            "absolute_distance": float(result.absolute_distance[index]),
+            "score_axis_label": axis_label,
+            "plot_score_normalization": args.score_normalization,
+            "plot_score_z_limit": args.score_z_limit,
+            "plot_correlation_method": args.score_correlation,
+            "plot_score_agreement_distance_max": args.score_agreement_distance_max,
+            "full_matched_pair_count": result.pair_count,
+            "full_spearman": spearman,
+            "full_spearman_p_value": spearman_p,
+            "full_pearson": pearson,
+            "full_pearson_p_value": pearson_p,
+            "full_linear_r_squared": r2,
+        })
+    return _write_tsv(path, rows)
+
+
+def _write_score_distance_plot_source(
+    path: Path,
+    result: ComparisonArrays,
+    main_label: str,
+    args: argparse.Namespace,
+    stats_row: Mapping[str, object],
+) -> Path:
+    """Write the sampled score-distance points plus full-data fit statistics."""
+
+    y_all = (
+        result.absolute_distance
+        if args.score_distance_type == "absolute"
+        else result.signed_distance.astype(float)
+    )
+    indices = _plot_indices(result.pair_count, args.plot_max_points, args.plot_seed)
+    rows: list[dict[str, object]] = []
+    for index in indices:
+        rows.append({
+            "main_label": main_label,
+            "comparison": result.label,
+            "main_score": float(result.main_scores[index]),
+            "matched_distance": float(y_all[index]),
+            "distance_type": args.score_distance_type,
+            "plot_type": args.score_distance_plot,
+            "plot_score_distance_y_max": args.score_distance_y_max,
+            "full_matched_pair_count": result.pair_count,
+            "full_spearman_rho": stats_row.get("spearman_rho", math.nan),
+            "full_spearman_p_value": stats_row.get("spearman_p_value", math.nan),
+            "full_pearson_r": stats_row.get("pearson_r", math.nan),
+            "full_pearson_p_value": stats_row.get("pearson_p_value", math.nan),
+            "full_linear_slope": stats_row.get("linear_slope_bp_per_score_unit", math.nan),
+            "full_linear_intercept": stats_row.get("linear_intercept", math.nan),
+            "full_linear_r_squared": stats_row.get("linear_r_squared", math.nan),
+            "full_linear_slope_p_value": stats_row.get("linear_slope_p_value", math.nan),
+        })
+    return _write_tsv(path, rows)
+
+
+def _attach_plot_source(plot_path_value: Path, source_table: Path, plot_type: str) -> None:
+    """Record the compact table that can recreate an original command plot."""
+
+    from nucleosuite.plotting import write_plot_metadata
+    write_plot_metadata(
+        plot_path_value,
+        extra={"source_table": str(source_table), "detected_plot_type": plot_type},
+    )
 
 
 def _comparison_colors(count: int):
@@ -1496,7 +1724,7 @@ def _plot_percentile_boxplot(
                 continue
             box = axis.boxplot(
                 [values], positions=[pos], widths=width, patch_artist=True,
-                showfliers=False, whis=1.5,
+                showfliers=bool(args.show_boxplot_outliers), whis=1.5,
             )
             box["boxes"][0].set_facecolor(color)
             box["boxes"][0].set_edgecolor(color)
@@ -1594,21 +1822,33 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Path]:
             _histogram_rows(arrays, args.histogram_x_min, args.histogram_x_max, args.histogram_bin_width)
         )
         correlation_rows.extend(_distance_bin_rows(arrays, args.score_normalization, bounds))
-        _append_percentile_rows(percentile_path, arrays, main_label, write_header=(index == 1))
+        if args.write_detail_tables:
+            _append_percentile_rows(percentile_path, arrays, main_label, write_header=(index == 1))
         sd_stats = _score_distance_stats(arrays, args.score_distance_type)
         sd_stats["main_label"] = main_label
         score_distance_rows.append(sd_stats)
 
-        if not args.skip_pairs_tsv:
-            pair_path = Path(f"{prefix}_{_safe_token(spec.label)}_pairs.tsv")
+        token = _safe_token(spec.label)
+        if args.write_detail_tables and not args.skip_pairs_tsv:
+            pair_path = Path(f"{prefix}_{token}_pairs.tsv")
             _write_pairs(pair_path, arrays, main_label, args)
-            outputs[f"pairs_{_safe_token(spec.label)}"] = pair_path
-        outputs[f"score_agreement_plot_{_safe_token(spec.label)}"] = _plot_score_agreement(
-            prefix, arrays, main_label, args
-        )
-        outputs[f"score_distance_plot_{_safe_token(spec.label)}"] = _plot_score_distance(
-            prefix, arrays, main_label, args, sd_stats
-        )
+            outputs[f"pairs_{token}"] = pair_path
+
+        # Retain only the plotted sample plus full-data statistics so both
+        # per-comparison figures remain reproducible without the huge pair TSV.
+        score_agreement_source = Path(f"{prefix}_{token}_score_agreement.tsv.gz")
+        score_distance_source = Path(f"{prefix}_{token}_main_score_vs_distance.tsv.gz")
+        _write_score_agreement_plot_source(score_agreement_source, arrays, main_label, args)
+        _write_score_distance_plot_source(score_distance_source, arrays, main_label, args, sd_stats)
+        outputs[f"score_agreement_source_{token}"] = score_agreement_source
+        outputs[f"score_distance_source_{token}"] = score_distance_source
+
+        score_agreement_plot = _plot_score_agreement(prefix, arrays, main_label, args)
+        score_distance_plot = _plot_score_distance(prefix, arrays, main_label, args, sd_stats)
+        _attach_plot_source(score_agreement_plot, score_agreement_source, "compare-positions-score")
+        _attach_plot_source(score_distance_plot, score_distance_source, "compare-positions-score-distance")
+        outputs[f"score_agreement_plot_{token}"] = score_agreement_plot
+        outputs[f"score_distance_plot_{token}"] = score_distance_plot
 
     summary_path = Path(f"{prefix}_summary.tsv")
     histogram_path = Path(f"{prefix}_distance_histogram.tsv")
@@ -1624,10 +1864,11 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Path]:
         "summary": summary_path,
         "distance_histogram": histogram_path,
         "correlation_by_distance": correlation_path,
-        "percentile_distances": percentile_path,
         "percentile_summary": percentile_summary_path,
         "score_distance_statistics": score_distance_path,
     })
+    if args.write_detail_tables:
+        outputs["percentile_distances"] = percentile_path
 
     statistics_rows: list[dict[str, object]] = []
     if args.stats and len(results) >= 2:
@@ -1638,13 +1879,31 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Path]:
         _write_tsv(statistics_path, statistics_rows)
         outputs["percentile_statistics"] = statistics_path
 
-    outputs["distance_histogram_plot"] = _plot_distance_histograms(prefix, results, args)
-    outputs["correlation_by_distance_plot"] = _plot_correlation_by_distance(
+    # Always retain the compact plot source needed to faithfully recreate the
+    # percentile boxplot.  It contains box/whisker statistics, only the actual
+    # outliers, and optional statistical annotations rather than every pair.
+    percentile_boxplot_source = Path(f"{prefix}_percentile_boxplot.tsv")
+    _write_tsv(
+        percentile_boxplot_source,
+        _percentile_boxplot_source_rows(
+            results, main_label, args.percentile_interval, statistics_rows, args
+        ),
+    )
+    outputs["percentile_boxplot_source"] = percentile_boxplot_source
+
+    distance_histogram_plot = _plot_distance_histograms(prefix, results, args)
+    correlation_by_distance_plot = _plot_correlation_by_distance(
         prefix, correlation_rows, results, args
     )
-    outputs["percentile_boxplot"] = _plot_percentile_boxplot(
+    percentile_boxplot = _plot_percentile_boxplot(
         prefix, results, main_label, args.percentile_interval, statistics_rows, args
     )
+    _attach_plot_source(distance_histogram_plot, histogram_path, "compare-positions-histogram")
+    _attach_plot_source(correlation_by_distance_plot, correlation_path, "compare-positions-correlation")
+    _attach_plot_source(percentile_boxplot, percentile_boxplot_source, "compare-positions-percentile-boxplot")
+    outputs["distance_histogram_plot"] = distance_histogram_plot
+    outputs["correlation_by_distance_plot"] = correlation_by_distance_plot
+    outputs["percentile_boxplot"] = percentile_boxplot
 
     if not args.quiet:
         reporter.emit(f"Main positions: {main_records.count:,}")

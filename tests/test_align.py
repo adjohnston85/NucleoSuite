@@ -72,12 +72,25 @@ def test_alignment_outputs_include_exact_heatmap_matrix(tmp_path: Path):
         region_bed=Path("regions.bed"),
         output_dir=tmp_path,
         output_prefix="aligned",
+        write_detail_tables=True,
     )
     outputs = resolve_output_paths(config)
     stem = "aligned_win2500_zero5_maxscore300"
     assert outputs["heatmap"] == tmp_path / f"{stem}_heatmap.png"
     assert outputs["heatmap_matrix"] == tmp_path / f"{stem}_heatmap_matrix.tsv.gz"
     assert outputs["plotted_mean"] == tmp_path / f"{stem}_heatmap_mean.tsv"
+
+
+def test_alignment_detail_tables_are_omitted_by_default(tmp_path: Path):
+    config = AlignmentConfig(
+        bigwig=Path("signal.bw"),
+        region_bed=Path("regions.bed"),
+        output_dir=tmp_path,
+        output_prefix="aligned",
+    )
+    outputs = resolve_output_paths(config)
+    assert "heatmap_matrix" not in outputs
+    assert "row_metadata" not in outputs
 
 
 def test_mean_absolute_sort_places_highest_signal_first():
@@ -259,6 +272,7 @@ def test_minus_strand_regions_are_reversed_into_feature_orientation(tmp_path, mo
         sort_mode="unsorted",
         missing_strand="error",
         nrl=False,
+        write_detail_tables=True,
     ))
 
     with gzip.open(outputs["heatmap_matrix"], "rt") as handle:

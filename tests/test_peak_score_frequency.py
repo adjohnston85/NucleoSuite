@@ -33,7 +33,7 @@ def test_peak_score_frequency_overlays_observed_and_randomized(tmp_path: Path):
     for row in rows:
         totals[row["dataset"]] = totals.get(row["dataset"], 0) + int(row["count"])
     assert totals == {"observed": 5, "randomized": 5}
-    assert Path(f"{prefix}_scores.tsv.gz").is_file()
+    assert not Path(f"{prefix}_scores.tsv.gz").exists()
     assert Path(f"{prefix}_score_summary.tsv").is_file()
     assert Path(f"{prefix}_score_frequency.png").is_file()
 
@@ -58,3 +58,16 @@ def test_peak_score_frequency_defaults_to_integer_score_bins(tmp_path: Path):
     observed_rows = {int(row["score"]): int(row["count"]) for row in rows}
     assert observed_rows == {0: 1, 1: 2, 2: 1, 3: 0, 4: 1}
     assert int(rows[-1]["cumulative_count"]) == 5
+
+
+def test_peak_score_frequency_individual_scores_are_opt_in(tmp_path: Path):
+    observed = tmp_path / "observed_detail.bed"
+    _write_bed(observed, [1, 2, 3])
+    prefix = tmp_path / "detail_scores"
+    assert main([
+        "--peaks", f"observed={observed}",
+        "--output-prefix", str(prefix),
+        "--write-detail-tables",
+    ]) == 0
+    prefix = Path(f"{prefix}_binsinteger_scoreminnone_scoremaxnone")
+    assert Path(f"{prefix}_scores.tsv.gz").is_file()

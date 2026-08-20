@@ -91,6 +91,8 @@ def test_new_parser_defaults_to_main_plus_repeated_compare_and_quartiles():
     assert args.percentile_boxplot_y_max == 200.0
     assert args.score_agreement_distance_max == 100.0
     assert args.score_distance_y_max == 0.0
+    assert args.show_boxplot_outliers is True
+    assert args.write_detail_tables is False
     assert args.histogram_x_min == -250.0
     assert args.histogram_x_max == 250.0
     assert not any("--main-label" in action.option_strings for action in build_parser()._actions)
@@ -116,27 +118,45 @@ def test_multi_comparison_outputs_use_main_score_percentiles_and_combined_tables
     ])
     outputs = run_comparison(args)
     assert outputs["summary"].exists()
-    assert outputs["percentile_distances"].exists()
+    assert outputs["percentile_boxplot_source"].exists()
     assert outputs["percentile_boxplot"].exists()
     assert outputs["score_distance_statistics"].exists()
-    assert outputs["pairs_B"].exists() and outputs["pairs_C"].exists()
+    assert "percentile_distances" not in outputs
+    assert "pairs_B" not in outputs and "pairs_C" not in outputs
+    assert outputs["score_agreement_source_B"].exists()
+    assert outputs["score_agreement_source_C"].exists()
+    assert outputs["score_distance_source_B"].exists()
+    assert outputs["score_distance_source_C"].exists()
     with outputs["summary"].open() as handle:
         summary = list(csv.DictReader(handle, delimiter="\t"))
     assert [row["comparison"] for row in summary] == ["B", "C"]
     assert summary[0]["query_source"] == "main"
     assert summary[1]["query_source"] == "comparison"
-    with outputs["percentile_distances"].open() as handle:
+    with outputs["percentile_boxplot_source"].open() as handle:
         rows = list(csv.DictReader(handle, delimiter="\t"))
-    assert {row["comparison"] for row in rows} == {"B", "C"}
-    assert {row["percentile_group"] for row in rows} == {"0-25", "25-50", "50-75", "75-100"}
-    # Main scores rise with genomic order, so the first quartile contains the lowest main scores.
-    b_first = [row for row in rows if row["comparison"] == "B" and row["percentile_group"] == "0-25"]
-    b_last = [row for row in rows if row["comparison"] == "B" and row["percentile_group"] == "75-100"]
-    assert max(float(row["main_score"]) for row in b_first) < min(float(row["main_score"]) for row in b_last)
+    box_rows = [row for row in rows if row["row_type"] == "box"]
+    assert {row["comparison"] for row in box_rows} == {"B", "C"}
+    assert {row["percentile_group"] for row in box_rows} == {"0-25", "25-50", "50-75", "75-100"}
+    assert all(row["show_boxplot_outliers"] == "1" for row in box_rows)
     for plot_key in ("distance_histogram_plot", "correlation_by_distance_plot", "percentile_boxplot", "score_agreement_plot_B", "score_agreement_plot_C", "score_distance_plot_B", "score_distance_plot_C"):
         plot = outputs[plot_key]
         assert plot.exists() and plot.stat().st_size > 0
         assert plot.with_name(plot.stem + "_metadata.tsv").exists()
+
+
+def test_compare_position_large_detail_tables_are_opt_in(tmp_path: Path):
+    main = tmp_path / "main.bed"
+    compare = tmp_path / "compare.bed"
+    write_bed(main, [("chr1", i * 100, i * 100 + 10, f"m{i}", i) for i in range(1, 9)])
+    write_bed(compare, [("chr1", i * 100 + 2, i * 100 + 12, f"c{i}", i) for i in range(1, 9)])
+    args = build_parser().parse_args([
+        "--main-bed", str(main), "--compare-bed", f"C={compare}",
+        "--output-prefix", str(tmp_path / "detail"), "--write-detail-tables",
+        "--dpi", "40", "--quiet",
+    ])
+    outputs = run_comparison(args)
+    assert outputs["percentile_distances"].exists()
+    assert outputs["pairs_C"].exists()
 
 
 def test_within_percentile_nonparametric_stats_test_all_compare_pairs_and_holm(tmp_path: Path):

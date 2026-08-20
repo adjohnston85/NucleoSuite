@@ -79,7 +79,23 @@ def test_flank_spacing_cli_writes_ranked_outputs_and_plot_metadata(tmp_path: Pat
     plot = next(out.glob("*.png"))
     metadata = plot.with_name(plot.stem + "_metadata.tsv")
     assert metadata.is_file()
+    assert not list(out.glob("*_sites.tsv"))
     rows = list(csv.DictReader(ranking.open(), delimiter="\t"))
     assert rows
     # Automatic suffixes contain exactly three central parameter tokens.
     assert "_distcount_ratio90to190_xmax500" in plot.stem
+
+
+def test_flank_spacing_detail_sites_are_opt_in(tmp_path: Path) -> None:
+    from nucleosuite.flank_spacing import main
+    nuc = tmp_path / "nucleosomes.bed"
+    nuc.write_text("chr1\t99\t101\tn1\nchr1\t199\t201\tn2\nchr1\t299\t301\tn3\n", encoding="utf-8")
+    regions = tmp_path / "regions.bed"
+    regions.write_text("chr1\t149\t151\tA\nchr1\t249\t251\tA\n", encoding="utf-8")
+    out = tmp_path / "out"
+    assert main([
+        "--nucleosome-bed", str(nuc), "--region-bed", str(regions),
+        "--distribution", "count", "--ratio-x1", "100", "--ratio-x2", "200",
+        "--output-dir", str(out), "--output-prefix", "sample", "--write-detail-tables",
+    ]) == 0
+    assert list(out.glob("*_sites.tsv"))

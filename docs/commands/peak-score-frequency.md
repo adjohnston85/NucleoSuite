@@ -48,14 +48,9 @@ The underlying frequency table retains the corresponding count and normalized co
 
 ## What it writes
 
-Outputs include:
+Default outputs include the shared score-frequency table, per-input score summaries, and comparison figure. The frequency table is the compact source for `nucleosuite plot`.
 
-- the finite individual scores used;
-- the shared score-frequency table;
-- per-input score summaries; and
-- a comparison figure.
-
-Plot x/y limits do not remove values from the TSV or summary.
+Add `--write-detail-tables` to also retain the compressed table of every finite individual score used in the analysis. Plot x/y limits do not remove values from the frequency table or summary.
 
 ## Blacklist handling
 

@@ -40,6 +40,7 @@ PLOT_TYPES = (
     "positive-runs",
     "peak-score-frequency",
     "peak-states",
+    "flank-spacing",
     "compare-positions",
     "compare-positions-score",
     "compare-positions-histogram",
@@ -77,6 +78,7 @@ COMMAND_TYPES = {
     "positive-runs": "positive-runs",
     "peak-score-frequency": "peak-score-frequency",
     "peak-states": "peak-states",
+    "flank-spacing": "flank-spacing",
     "compare-positions": "compare-positions",
     "gene-expression": "gene-expression",
     "tss-expression-quintiles": "tss-expression",
@@ -204,8 +206,16 @@ def detect_plot_type(path: Path, headers: Sequence[str]) -> str:
         return "peak-score-frequency"
     if {"percentile_threshold", "state", "percentage_of_assigned_peaks"}.issubset(names):
         return "peak-states"
+    if {"category", "spacing_bp", "value", "distribution", "rank", "highlighted"}.issubset(names):
+        return "flank-spacing"
     if {"order", "scope", "distance_bp"}.issubset(names) and ({"count", "raw_count"} & names):
         return "distances"
+    if {"row_type", "percentile_group", "q1_absolute_distance", "whisker_low_absolute_distance"}.issubset(names):
+        return "compare-positions-percentile-boxplot"
+    if {"main_score_plot", "compare_score_plot", "absolute_distance"}.issubset(names):
+        return "compare-positions-score"
+    if {"main_score", "matched_distance", "distance_type"}.issubset(names):
+        return "compare-positions-score-distance"
     if {"a_score", "b_score", "absolute_distance"}.issubset(names):
         if "percentile_group" in names:
             return "compare-positions-percentile-boxplot"
@@ -1596,7 +1606,12 @@ def _plot_compare_positions_score(path, headers, rows, args, output, artist_kw):
     hm = _header_map(headers)
     metadata_row = rows[0] if rows else {}
     normalization = str(metadata_row.get(hm.get("plot_score_normalization", ""), "zscore") or "zscore")
-    if "main_score" in hm and "compare_score" in hm:
+
+    compact_source = "main_score_plot" in hm and "compare_score_plot" in hm
+    if compact_source:
+        x_key, y_key = hm["main_score_plot"], hm["compare_score_plot"]
+        score_label = str(metadata_row.get(hm.get("score_axis_label", ""), "score") or "score")
+    elif "main_score" in hm and "compare_score" in hm:
         if normalization == "raw":
             x_key, y_key, score_label = hm["main_score"], hm["compare_score"], "raw score"
         else:
@@ -1615,7 +1630,10 @@ def _plot_compare_positions_score(path, headers, rows, args, output, artist_kw):
     distance_key = hm.get("absolute_distance")
     if x_key is None or y_key is None or distance_key is None:
         raise ValueError("Score-agreement replots require main/A score, comparison/B score, and absolute_distance columns")
-    x_all = _numeric(rows, x_key); y_all = _numeric(rows, y_key); distance_all = _numeric(rows, distance_key)
+
+    x_all = _numeric(rows, x_key)
+    y_all = _numeric(rows, y_key)
+    distance_all = _numeric(rows, distance_key)
     mask = np.isfinite(x_all) & np.isfinite(y_all) & np.isfinite(distance_all)
     x_all, y_all, distance_all = x_all[mask], y_all[mask], distance_all[mask]
     if "plot_selected" in hm:
@@ -1623,6 +1641,7 @@ def _plot_compare_positions_score(path, headers, rows, args, output, artist_kw):
     else:
         selected = np.ones(x_all.size, dtype=bool)
     x, y, distance = x_all[selected], y_all[selected], distance_all[selected]
+
     fig, ax = plt.subplots()
     kw = {"c": distance, "s": 9, "alpha": 0.55, "linewidths": 0, "cmap": "viridis", "rasterized": True}
     if "plot_score_agreement_distance_max" in hm:
@@ -1633,89 +1652,175 @@ def _plot_compare_positions_score(path, headers, rows, args, output, artist_kw):
         if distance_max > 0:
             from matplotlib.colors import Normalize
             kw["norm"] = Normalize(vmin=0.0, vmax=distance_max, clip=True)
-    kw.update(artist_kw.get("points", {})); scatter = ax.scatter(x, y, **kw)
-    colorbar = fig.colorbar(scatter, ax=ax); colorbar.set_label("Absolute summit distance (bp)")
+    kw.update(artist_kw.get("points", {}))
+    scatter = ax.scatter(x, y, **kw)
+    colorbar = fig.colorbar(scatter, ax=ax)
+    colorbar.set_label("Absolute summit distance (bp)")
+
     if normalization == "zscore":
         z_limit = 10.0
         if "plot_score_z_limit" in hm:
-            try: z_limit = float(metadata_row.get(hm["plot_score_z_limit"], 10.0))
-            except (TypeError, ValueError): pass
+            try:
+                z_limit = float(metadata_row.get(hm["plot_score_z_limit"], 10.0))
+            except (TypeError, ValueError):
+                pass
         if z_limit > 0:
-            ax.set_xlim(-z_limit, z_limit); ax.set_ylim(-z_limit, z_limit)
-    label_a = str(metadata_row.get(hm.get("plot_label_a", ""), "Main") or "Main")
-    label_b = str(metadata_row.get(hm.get("plot_label_b", ""), metadata_row.get(hm.get("comparison", ""), "Comparison")) or "Comparison")
-    ax.set_xlabel(f"{label_a} {score_label}"); ax.set_ylabel(f"{label_b} {score_label}")
+            ax.set_xlim(-z_limit, z_limit)
+            ax.set_ylim(-z_limit, z_limit)
+
+    label_a = str(metadata_row.get(hm.get("main_label", ""), metadata_row.get(hm.get("plot_label_a", ""), "Main")) or "Main")
+    label_b = str(metadata_row.get(hm.get("comparison", ""), metadata_row.get(hm.get("plot_label_b", ""), "Comparison")) or "Comparison")
+    ax.set_xlabel(f"{label_a} {score_label}")
+    ax.set_ylabel(f"{label_b} {score_label}")
     ax.set_title("Score agreement coloured by summit distance")
-    if x_all.size >= 2:
+
+    annotation: list[str] = []
+    method = str(metadata_row.get(hm.get("plot_correlation_method", ""), "spearman") or "spearman")
+    if compact_source and "full_spearman" in hm:
+        try:
+            spearman = float(metadata_row.get(hm["full_spearman"], "nan"))
+            pearson = float(metadata_row.get(hm.get("full_pearson", ""), "nan"))
+            r_squared = float(metadata_row.get(hm.get("full_linear_r_squared", ""), "nan"))
+            n_full = int(float(metadata_row.get(hm.get("full_matched_pair_count", ""), len(x_all))))
+        except (TypeError, ValueError):
+            spearman = pearson = r_squared = math.nan
+            n_full = len(x_all)
+    elif x_all.size >= 2:
         try:
             from scipy.stats import pearsonr, spearmanr
             pearson = float(pearsonr(x_all, y_all).statistic)
             spearman = float(spearmanr(x_all, y_all).statistic)
         except Exception:
             pearson = spearman = math.nan
-        slope, intercept = np.polyfit(x_all, y_all, 1); fitted = intercept + slope * x_all
-        ss_res = float(np.sum((y_all - fitted) ** 2)); ss_tot = float(np.sum((y_all - np.mean(y_all)) ** 2))
+        slope, intercept = np.polyfit(x_all, y_all, 1)
+        fitted = intercept + slope * x_all
+        ss_res = float(np.sum((y_all - fitted) ** 2))
+        ss_tot = float(np.sum((y_all - np.mean(y_all)) ** 2))
         r_squared = 1.0 - ss_res / ss_tot if ss_tot else math.nan
-        method = str(metadata_row.get(hm.get("plot_correlation_method", ""), "spearman") or "spearman")
-        annotation = []
-        if method in {"spearman", "both"}: annotation.append(f"Spearman ρ = {spearman:.3f}")
-        if method in {"pearson", "both"}: annotation.append(f"Pearson r = {pearson:.3f}")
-        annotation.append(f"R² = {r_squared:.3f}")
-        ax.text(0.02, 0.98, "\n".join(annotation), transform=ax.transAxes, va="top", ha="left")
-    return _finish(ax, fig, args, output, artist_kw=artist_kw, default_size=(7.5, 6.5)), fig
+        n_full = len(x_all)
+    else:
+        spearman = pearson = r_squared = math.nan
+        n_full = len(x_all)
 
+    if method in {"spearman", "both"}:
+        annotation.append(f"Spearman ρ = {spearman:.3f}")
+    if method in {"pearson", "both"}:
+        annotation.append(f"Pearson r = {pearson:.3f}")
+    annotation.append(f"R² = {r_squared:.3f}")
+    annotation.append(f"n = {n_full:,}")
+    ax.text(0.02, 0.98, "\n".join(annotation), transform=ax.transAxes, va="top", ha="left")
+    return _finish(ax, fig, args, output, artist_kw=artist_kw, default_size=(7.5, 6.5)), fig
 
 def _plot_compare_positions_score_distance(path, headers, rows, args, output, artist_kw):
     import matplotlib.pyplot as plt
     hm = _header_map(headers)
+    metadata_row = rows[0] if rows else {}
+    compact_source = "matched_distance" in hm and "distance_type" in hm
+
     x_key = args.x_column or hm.get("main_score") or hm.get("a_score")
     if x_key is None:
         raise ValueError("Score-distance replots require main_score (or a_score)")
+
     if args.y_column:
         y_key = args.y_column
+    elif compact_source:
+        y_key = hm["matched_distance"]
     else:
         y_key = hm.get("absolute_distance")
     if y_key is None:
-        raise ValueError("Score-distance replots require absolute_distance or --y-column")
-    x = _numeric(rows, x_key); y = _numeric(rows, y_key)
-    mask = np.isfinite(x) & np.isfinite(y); x, y = x[mask], y[mask]
+        raise ValueError("Score-distance replots require matched_distance, absolute_distance, or --y-column")
+
+    x_all = _numeric(rows, x_key)
+    y_all = _numeric(rows, y_key)
+    mask = np.isfinite(x_all) & np.isfinite(y_all)
+    x_all, y_all = x_all[mask], y_all[mask]
     if "plot_selected" in hm:
         selected = _numeric(rows, hm["plot_selected"])[mask] > 0
-        xp, yp = x[selected], y[selected]
+        xp, yp = x_all[selected], y_all[selected]
     else:
-        xp, yp = x, y
-    metadata_row = rows[0] if rows else {}
-    y_max = 0.0
+        xp, yp = x_all, y_all
+
+    distance_type = str(metadata_row.get(hm.get("distance_type", ""), "absolute") or "absolute")
+    source_y_max = 0.0
     if "plot_score_distance_y_max" in hm:
         try:
-            y_max = float(metadata_row.get(hm["plot_score_distance_y_max"], 0.0))
+            source_y_max = float(metadata_row.get(hm["plot_score_distance_y_max"], 0.0))
         except (TypeError, ValueError):
-            y_max = 0.0
-    if y_max > 0:
-        visible = yp <= y_max
-        xp, yp = xp[visible], yp[visible]
+            source_y_max = 0.0
+
+    # Filter points before binning whenever a visible y-range is requested.
+    # This avoids giant hidden bins being clipped into vertical bands.
+    lower = args.y_min
+    upper = args.y_max
+    if lower is None and distance_type == "absolute":
+        lower = 0.0
+    if upper is None and source_y_max > 0:
+        upper = source_y_max
+    visible = np.isfinite(xp) & np.isfinite(yp)
+    if lower is not None:
+        visible &= yp >= float(lower)
+    if upper is not None:
+        visible &= yp <= float(upper)
+    xp, yp = xp[visible], yp[visible]
+
     fig, ax = plt.subplots()
-    kw = {"gridsize": 60, "mincnt": 1, "bins": "log", "rasterized": True}
-    artist = ax.hexbin(xp, yp, **kw)
-    fig.colorbar(artist, ax=ax).set_label("log10 plotted pair count")
-    if x.size >= 2 and np.nanmax(x) != np.nanmin(x):
+    render = str(metadata_row.get(hm.get("plot_type", ""), "hexbin") or "hexbin")
+    if render == "scatter":
+        kw = {"s": 7, "alpha": 0.35, "linewidths": 0, "rasterized": True}
+        kw.update(artist_kw.get("points", {}))
+        ax.scatter(xp, yp, **kw)
+    else:
+        kw = {"gridsize": 60, "mincnt": 1, "bins": "log", "rasterized": True}
+        artist = ax.hexbin(xp, yp, **kw)
+        fig.colorbar(artist, ax=ax).set_label("log10 plotted pair count")
+
+    if compact_source and "full_linear_slope" in hm:
+        try:
+            slope = float(metadata_row.get(hm["full_linear_slope"], "nan"))
+            intercept = float(metadata_row.get(hm["full_linear_intercept"], "nan"))
+            rho = float(metadata_row.get(hm.get("full_spearman_rho", ""), "nan"))
+            r2 = float(metadata_row.get(hm.get("full_linear_r_squared", ""), "nan"))
+            n_full = int(float(metadata_row.get(hm.get("full_matched_pair_count", ""), len(x_all))))
+        except (TypeError, ValueError):
+            slope = intercept = rho = r2 = math.nan
+            n_full = len(x_all)
+    elif x_all.size >= 2 and np.nanmax(x_all) != np.nanmin(x_all):
         try:
             from scipy.stats import linregress, spearmanr
-            reg = linregress(x, y); rho = spearmanr(x, y)
-            endpoints = np.asarray([np.nanmin(x), np.nanmax(x)], dtype=float)
-            line_kw = {"linestyle": ":", "linewidth": 1.2}; line_kw.update(artist_kw.get("line", {}))
-            ax.plot(endpoints, reg.intercept + reg.slope * endpoints, **line_kw)
-            ax.text(0.02, 0.98, f"Spearman ρ = {float(rho.statistic):.3f}\nLinear R² = {float(reg.rvalue**2):.3f}\nn = {x.size:,}", transform=ax.transAxes, va="top", ha="left")
+            reg = linregress(x_all, y_all)
+            rho_result = spearmanr(x_all, y_all)
+            slope, intercept = float(reg.slope), float(reg.intercept)
+            rho, r2 = float(rho_result.statistic), float(reg.rvalue**2)
         except Exception:
-            pass
+            slope = intercept = rho = r2 = math.nan
+        n_full = len(x_all)
+    else:
+        slope = intercept = rho = r2 = math.nan
+        n_full = len(x_all)
+
+    if x_all.size and math.isfinite(slope) and math.isfinite(intercept):
+        endpoints = np.asarray([np.nanmin(x_all), np.nanmax(x_all)], dtype=float)
+        line_kw = {"linestyle": ":", "linewidth": 1.2}
+        line_kw.update(artist_kw.get("line", {}))
+        ax.plot(endpoints, intercept + slope * endpoints, **line_kw)
+    ax.text(
+        0.02, 0.98,
+        f"Spearman ρ = {rho:.3f}\nLinear R² = {r2:.3f}\nn = {n_full:,}",
+        transform=ax.transAxes, va="top", ha="left",
+    )
+
     main_label = str(metadata_row.get(hm.get("main_label", ""), metadata_row.get(hm.get("plot_label_a", ""), "Main")) or "Main")
-    ax.set_xlabel(f"{main_label} peak score"); ax.set_ylabel("Absolute matched distance (bp)")
     label = str(metadata_row.get(hm.get("comparison", ""), "comparison")) if rows else "comparison"
-    if y_max > 0:
-        ax.set_ylim(0.0, y_max)
+    ax.set_xlabel(f"{main_label} peak score")
+    if distance_type == "signed":
+        ax.set_ylabel(f"Signed {label} − {main_label} distance (bp)")
+    else:
+        ax.set_ylabel("Absolute matched distance (bp)")
+    if lower is not None or upper is not None:
+        bottom, top = ax.get_ylim()
+        ax.set_ylim(bottom if lower is None else float(lower), top if upper is None else float(upper))
     ax.set_title(f"{main_label} peak score versus distance: {label}")
     return _finish(ax, fig, args, output, artist_kw=artist_kw, default_size=(8.0, 6.0)), fig
-
 
 def _plot_compare_positions_correlation(path, headers, rows, args, output, artist_kw):
     import matplotlib.pyplot as plt
@@ -1757,43 +1862,255 @@ def _plot_compare_positions_percentile_boxplot(path, headers, rows, args, output
     import matplotlib.pyplot as plt
     from matplotlib.patches import Patch
     hm = _header_map(headers)
-    group_key = hm.get("percentile_group"); distance_key = hm.get("absolute_distance"); comparison_key = hm.get("comparison")
-    if group_key is None or distance_key is None:
-        raise ValueError("Percentile boxplots require percentile_group and absolute_distance columns")
-    group_labels = []
-    comparison_labels = []
-    grouped = defaultdict(list)
-    for row in rows:
-        group = str(row.get(group_key, "")); comparison = str(row.get(comparison_key, "comparison")) if comparison_key else "comparison"
-        if group not in group_labels: group_labels.append(group)
-        if comparison not in comparison_labels: comparison_labels.append(comparison)
-        try: value = float(row.get(distance_key, "nan"))
-        except ValueError: continue
-        if math.isfinite(value): grouped[(group, comparison)].append(value)
+    group_key = hm.get("percentile_group")
+    comparison_key = hm.get("comparison")
+    row_type_key = hm.get("row_type")
+    compact = (
+        row_type_key is not None
+        and hm.get("q1_absolute_distance") is not None
+        and hm.get("whisker_low_absolute_distance") is not None
+    )
+
+    if group_key is None:
+        raise ValueError("Percentile boxplots require a percentile_group column")
+
+    # Preserve source order for percentile groups and comparison callsets.
+    group_labels: list[str] = []
+    comparison_labels: list[str] = []
+    if compact:
+        box_rows = [row for row in rows if str(row.get(row_type_key, "")).lower() == "box"]
+        for row in box_rows:
+            group = str(row.get(group_key, ""))
+            comparison = str(row.get(comparison_key, "comparison")) if comparison_key else "comparison"
+            if group and group not in group_labels:
+                group_labels.append(group)
+            if comparison and comparison not in comparison_labels:
+                comparison_labels.append(comparison)
+    else:
+        distance_key = hm.get("absolute_distance")
+        if distance_key is None:
+            raise ValueError(
+                "Percentile boxplots require either compact boxplot statistics or an absolute_distance column"
+            )
+        for row in rows:
+            group = str(row.get(group_key, ""))
+            comparison = str(row.get(comparison_key, "comparison")) if comparison_key else "comparison"
+            if group and group not in group_labels:
+                group_labels.append(group)
+            if comparison and comparison not in comparison_labels:
+                comparison_labels.append(comparison)
+
+    if not group_labels or not comparison_labels:
+        raise ValueError("No percentile boxplot groups were found")
+
     from nucleosuite.plotting import category_colors
     colors = category_colors(len(comparison_labels))
     fig, ax = plt.subplots()
     centres = np.arange(1, len(group_labels) + 1, dtype=float)
     if len(comparison_labels) <= 1:
-        offsets = np.asarray([0.0]); width = 0.48
+        offsets = np.asarray([0.0])
+        width = 0.48
     else:
-        spread = min(0.70, 0.14 * len(comparison_labels)); offsets = np.linspace(-spread/2.0, spread/2.0, len(comparison_labels)); width = min(0.16, 0.70/len(comparison_labels))
-    for ci, (comparison, color) in enumerate(zip(comparison_labels, colors)):
-        for gi, group in enumerate(group_labels):
-            values = grouped[(group, comparison)]
-            if not values: continue
-            box = ax.boxplot([values], positions=[float(centres[gi] + offsets[ci])], widths=width, patch_artist=True, showfliers=False, whis=1.5)
-            box["boxes"][0].set_facecolor(color); box["boxes"][0].set_edgecolor(color)
-            for key in ("whiskers", "caps"):
-                for artist in box[key]: artist.set_color(color)
-            for artist in box["medians"]: artist.set_color("black")
-    ax.set_xticks(centres, group_labels, rotation=0); ax.set_xlim(0.45, len(group_labels)+0.55); ax.set_ylim(0.0, 200.0)
-    main_label = str(rows[0].get(hm.get("main_label", ""), "Main") or "Main") if rows else "Main"
-    ax.set_xlabel(f"{main_label} peak score percentile group"); ax.set_ylabel("Absolute matched distance (bp)")
-    ax.set_title(f"Matched distance by {main_label} score percentile")
-    if comparison_key:
-        ax.legend([Patch(facecolor=c, edgecolor=c) for c in colors], comparison_labels, frameon=False)
-    return _finish(ax, fig, args, output, legend=bool(comparison_key), artist_kw=artist_kw, default_size=(max(9.0, 1.8*len(group_labels)+3.0), 6.5)), fig
+        spread = min(0.70, 0.14 * len(comparison_labels))
+        offsets = np.linspace(-spread / 2.0, spread / 2.0, len(comparison_labels))
+        width = min(0.16, 0.70 / len(comparison_labels))
+
+    # None means follow the compact source setting when available, otherwise
+    # use the current NucleoSuite default (outliers shown).
+    show_fliers = args.show_boxplot_outliers
+    if show_fliers is None:
+        show_fliers = True
+        if compact and hm.get("show_boxplot_outliers"):
+            for row in box_rows:
+                raw = str(row.get(hm["show_boxplot_outliers"], "")).strip().lower()
+                if raw in {"0", "false", "no", "off"}:
+                    show_fliers = False
+                    break
+                if raw in {"1", "true", "yes", "on"}:
+                    show_fliers = True
+                    break
+
+    positions: dict[tuple[str, str], float] = {}
+    if compact:
+        box_index = {
+            (str(row.get(group_key, "")), str(row.get(comparison_key, "comparison"))): row
+            for row in box_rows
+        }
+        flier_values: dict[tuple[str, str], list[float]] = defaultdict(list)
+        outlier_key = hm.get("outlier_absolute_distance")
+        if outlier_key:
+            for row in rows:
+                if str(row.get(row_type_key, "")).lower() != "flier":
+                    continue
+                group = str(row.get(group_key, ""))
+                comparison = str(row.get(comparison_key, "comparison"))
+                try:
+                    value = float(row.get(outlier_key, "nan"))
+                except (TypeError, ValueError):
+                    continue
+                if math.isfinite(value):
+                    flier_values[(group, comparison)].append(value)
+
+        required = {
+            "q1": hm["q1_absolute_distance"],
+            "med": hm["median_absolute_distance"],
+            "q3": hm["q3_absolute_distance"],
+            "whislo": hm["whisker_low_absolute_distance"],
+            "whishi": hm["whisker_high_absolute_distance"],
+        }
+        for ci, (comparison, color) in enumerate(zip(comparison_labels, colors)):
+            for gi, group in enumerate(group_labels):
+                row = box_index.get((group, comparison))
+                if row is None:
+                    continue
+                try:
+                    stats = {key: float(row.get(column, "nan")) for key, column in required.items()}
+                except (TypeError, ValueError):
+                    continue
+                if not all(math.isfinite(value) for value in stats.values()):
+                    continue
+                stats["fliers"] = flier_values.get((group, comparison), [])
+                pos = float(centres[gi] + offsets[ci])
+                positions[(group, comparison)] = pos
+                box = ax.bxp(
+                    [stats], positions=[pos], widths=width, patch_artist=True,
+                    showfliers=bool(show_fliers), manage_ticks=False,
+                )
+                box["boxes"][0].set_facecolor(color)
+                box["boxes"][0].set_edgecolor(color)
+                for key in ("whiskers", "caps"):
+                    for artist in box[key]:
+                        artist.set_color(color)
+                for artist in box["medians"]:
+                    artist.set_color("black")
+                for artist in box.get("fliers", []):
+                    artist.set_markeredgecolor(color)
+                    artist.set_markerfacecolor("none")
+                    artist.set_markersize(3.5)
+                    artist.set_alpha(0.7)
+    else:
+        distance_key = hm["absolute_distance"]
+        grouped = defaultdict(list)
+        for row in rows:
+            group = str(row.get(group_key, ""))
+            comparison = str(row.get(comparison_key, "comparison")) if comparison_key else "comparison"
+            try:
+                value = float(row.get(distance_key, "nan"))
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(value):
+                grouped[(group, comparison)].append(value)
+        for ci, (comparison, color) in enumerate(zip(comparison_labels, colors)):
+            for gi, group in enumerate(group_labels):
+                values = grouped[(group, comparison)]
+                if not values:
+                    continue
+                pos = float(centres[gi] + offsets[ci])
+                positions[(group, comparison)] = pos
+                box = ax.boxplot(
+                    [values], positions=[pos], widths=width, patch_artist=True,
+                    showfliers=bool(show_fliers), whis=1.5,
+                )
+                box["boxes"][0].set_facecolor(color)
+                box["boxes"][0].set_edgecolor(color)
+                for key in ("whiskers", "caps"):
+                    for artist in box[key]:
+                        artist.set_color(color)
+                for artist in box["medians"]:
+                    artist.set_color("black")
+                for artist in box.get("fliers", []):
+                    artist.set_markeredgecolor(color)
+                    artist.set_markerfacecolor("none")
+                    artist.set_markersize(3.5)
+                    artist.set_alpha(0.7)
+
+    ax.set_xticks(centres, group_labels, rotation=0)
+    ax.set_xlim(0.45, len(group_labels) + 0.55)
+
+    source_y_max = 200.0
+    if compact and hm.get("percentile_boxplot_y_max"):
+        for row in box_rows:
+            try:
+                candidate = float(row.get(hm["percentile_boxplot_y_max"], "nan"))
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(candidate):
+                source_y_max = candidate
+                break
+    if source_y_max > 0:
+        ax.set_ylim(0.0, source_y_max)
+
+    main_label = "Main"
+    if hm.get("main_label"):
+        for row in rows:
+            value = str(row.get(hm["main_label"], "")).strip()
+            if value:
+                main_label = value
+                break
+    ax.set_xlabel(f"{main_label} peak score percentile group")
+    ax.set_ylabel("Absolute matched distance (bp)")
+
+    # Recreate within-percentile statistical brackets from compact source rows.
+    max_levels = 0
+    if compact and row_type_key:
+        stat_rows = [row for row in rows if str(row.get(row_type_key, "")).lower() == "stat"]
+        by_group: dict[str, list[dict[str, str]]] = {group: [] for group in group_labels}
+        for row in stat_rows:
+            by_group.setdefault(str(row.get(group_key, "")), []).append(row)
+        for group in group_labels:
+            group_stats = by_group.get(group, [])
+            max_levels = max(max_levels, len(group_stats))
+            for level, row in enumerate(group_stats):
+                c1 = str(row.get(hm.get("comparison_1", ""), ""))
+                c2 = str(row.get(hm.get("comparison_2", ""), ""))
+                x1 = positions.get((group, c1))
+                x2 = positions.get((group, c2))
+                if x1 is None or x2 is None:
+                    continue
+                y = 1.03 + level * 0.065
+                transform = ax.get_xaxis_transform()
+                ax.plot(
+                    [x1, x1, x2, x2], [y - 0.015, y, y, y - 0.015],
+                    transform=transform, clip_on=False, color="black", linewidth=0.8,
+                )
+                display_mode = str(row.get(hm.get("p_display", ""), "value") or "value")
+                significance = str(row.get(hm.get("significance", ""), ""))
+                if display_mode == "stars" and significance:
+                    text = significance
+                else:
+                    p_adjustment = str(row.get(hm.get("p_adjustment", ""), "none") or "none")
+                    p_col = hm.get("p_adjusted") if p_adjustment == "holm" else hm.get("p_value")
+                    try:
+                        p_value = float(row.get(p_col, "nan")) if p_col else math.nan
+                    except (TypeError, ValueError):
+                        p_value = math.nan
+                    if not math.isfinite(p_value):
+                        text = "NA"
+                    elif p_value < 0.0001:
+                        text = "p_adj<1e-4" if p_adjustment == "holm" else "p<1e-4"
+                    else:
+                        text = ("p_adj=" if p_adjustment == "holm" else "p=") + f"{p_value:.3g}"
+                ax.text(
+                    (x1 + x2) / 2.0, y + 0.006, text, transform=transform,
+                    ha="center", va="bottom", fontsize=7, clip_on=False,
+                )
+
+    title_y = 1.02 if max_levels == 0 else 1.09 + max_levels * 0.065
+    ax.set_title(f"Matched distance by {main_label} score percentile", y=title_y)
+
+    # Create the comparison legend exactly once. The previous replot path first
+    # supplied proxy handles and then called ax.legend() a second time, which
+    # caused the "No artists with labels" warning seen on percentile replots.
+    if not args.no_legend:
+        proxies = [Patch(facecolor=color, edgecolor=color) for color in colors]
+        legend_kwargs = {"frameon": False}
+        legend_kwargs.update(artist_kw.get("legend", {}))
+        ax.legend(proxies, comparison_labels, **legend_kwargs)
+
+    return _finish(
+        ax, fig, args, output, legend=False, artist_kw=artist_kw,
+        default_size=(max(9.0, 1.8 * len(group_labels) + 3.0), 6.5),
+    ), fig
 
 def _plot_distance_state_overlay(path, headers, rows, args, output, artist_kw):
     import matplotlib.pyplot as plt
@@ -1919,6 +2236,100 @@ def _parse_rgb(value: str):
 
 def _natural_key(text: str):
     return [int(p) if p.isdigit() else p.casefold() for p in re.split(r"(\d+)", text)]
+
+
+def _plot_flank_spacing(path, headers, rows, args, output, artist_kw):
+    import matplotlib.pyplot as plt
+    hm = _header_map(headers)
+    category_key = hm["category"]
+    x_key = hm["spacing_bp"]
+    y_key = args.y_column or hm["value"]
+    rank_key = hm.get("rank")
+    highlighted_key = hm.get("highlighted")
+
+    categories: list[str] = []
+    by_category: dict[str, list[dict[str, str]]] = defaultdict(list)
+    for row in rows:
+        category = str(row.get(category_key, ""))
+        if category not in categories:
+            categories.append(category)
+        by_category[category].append(row)
+
+    def rank_of(category: str) -> int:
+        subset = by_category[category]
+        if rank_key and subset:
+            try:
+                return int(float(subset[0].get(rank_key, "nan")))
+            except (TypeError, ValueError):
+                pass
+        return categories.index(category) + 1
+
+    selected: list[str] = []
+    for category in categories:
+        subset = by_category[category]
+        highlighted = False
+        if highlighted_key and subset:
+            raw = str(subset[0].get(highlighted_key, "")).strip().lower()
+            highlighted = raw in {"1", "true", "yes", "on"}
+        if highlighted:
+            selected.append(category)
+    selected.sort(key=rank_of)
+
+    from nucleosuite.plotting import category_colors
+    colors = category_colors(len(selected))
+    color_by_category = {category: colors[index] for index, category in enumerate(selected)}
+
+    fig, ax = plt.subplots()
+    line_overrides = dict(artist_kw.get("line", {}))
+    for category in categories:
+        if category in color_by_category:
+            continue
+        subset = by_category[category]
+        x = _numeric(subset, x_key)
+        y = _numeric(subset, y_key)
+        mask = np.isfinite(x) & np.isfinite(y)
+        order = np.argsort(x[mask])
+        kw = {"color": "0.72", "linewidth": 1.0, "alpha": 0.75, "zorder": 1}
+        kw.update(line_overrides)
+        ax.plot(x[mask][order], y[mask][order], **kw)
+
+    # Lower-priority highlighted categories first; rank 1 is drawn last.
+    handles: dict[str, object] = {}
+    for category in reversed(selected):
+        subset = by_category[category]
+        x = _numeric(subset, x_key)
+        y = _numeric(subset, y_key)
+        mask = np.isfinite(x) & np.isfinite(y)
+        order = np.argsort(x[mask])
+        rank = rank_of(category)
+        kw = {
+            "color": color_by_category[category], "linewidth": 1.6,
+            "label": category, "zorder": 10 + (len(selected) - rank),
+        }
+        kw.update(line_overrides)
+        line, = ax.plot(x[mask][order], y[mask][order], **kw)
+        handles[category] = line
+
+    first = rows[0] if rows else {}
+    distribution = str(first.get(hm.get("distribution", ""), "density") or "density")
+    ratio_x1 = str(first.get(hm.get("ratio_x1", ""), "190") or "190")
+    ratio_x2 = str(first.get(hm.get("ratio_x2", ""), "260") or "260")
+    try:
+        source_x_min = float(first.get(hm.get("x_min", ""), np.nan))
+        source_x_max = float(first.get(hm.get("x_max", ""), np.nan))
+    except (TypeError, ValueError):
+        source_x_min = source_x_max = math.nan
+    if math.isfinite(source_x_min) and math.isfinite(source_x_max):
+        ax.set_xlim(source_x_min, source_x_max)
+    ax.set_xlabel("Distance (bp) between flanking nucleosome centres")
+    ax.set_ylabel("Density" if distribution == "density" else "Count")
+    ax.set_title(f"Flanking nucleosome spacing ({ratio_x1}/{ratio_x2} ratio ranking)")
+    ax.spines[["top", "right"]].set_visible(False)
+    if selected and not args.no_legend:
+        legend_kwargs = {"frameon": False, "title": "Category"}
+        legend_kwargs.update(artist_kw.get("legend", {}))
+        ax.legend([handles[c] for c in selected], selected, **legend_kwargs)
+    return _finish(ax, fig, args, output, legend=False, artist_kw=artist_kw, default_size=(6.5, 4.6)), fig
 
 
 def _plot_peak_states(path, headers, rows, args, output, artist_kw):
@@ -2472,6 +2883,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--axes-facecolor", help="Matplotlib color for the axes background.")
     parser.add_argument("--transparent", action="store_true", help="Save with a transparent figure background.")
     parser.add_argument("--no-legend", action="store_true", help="Hide the legend.")
+    boxplot_outliers = parser.add_mutually_exclusive_group()
+    boxplot_outliers.add_argument(
+        "--show-boxplot-outliers", dest="show_boxplot_outliers", action="store_true", default=None,
+        help="Show boxplot outlier points beyond the 1.5×IQR whiskers (default: source setting, otherwise shown).",
+    )
+    boxplot_outliers.add_argument(
+        "--hide-boxplot-outliers", dest="show_boxplot_outliers", action="store_false",
+        help="Hide boxplot outlier points while retaining the standard 1.5×IQR whiskers.",
+    )
     parser.add_argument("--x-column", help="Explicit x column for generic or ambiguous tables.")
     parser.add_argument("--y-column", help="Explicit y column for generic or ambiguous tables.")
     parser.add_argument("--group-column", help="Column used to split a table into multiple plotted series.")
@@ -2546,7 +2966,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "distance-percentile-peak-counts":_plot_distance_percentile_peak_counts,
         "aggregate-profile":_plot_aggregate_profile,"heatmap":_plot_heatmap,"generic-heatmap":_plot_heatmap,
         "fragment-lengths":_plot_fragment_lengths,"positive-runs":_plot_positive_runs,"peak-score-frequency":_plot_peak_score_frequency,
-        "peak-states":_plot_peak_states,"compare-positions":_plot_compare_positions,
+        "peak-states":_plot_peak_states,"flank-spacing":_plot_flank_spacing,"compare-positions":_plot_compare_positions,
         "compare-positions-histogram":_plot_compare_positions,
         "compare-positions-score":_plot_compare_positions_score,
         "compare-positions-correlation":_plot_compare_positions_correlation,

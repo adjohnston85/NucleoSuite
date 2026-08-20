@@ -248,6 +248,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--x-max", type=int, default=500, help="Maximum spacing displayed/evaluated in the distribution table.")
     parser.add_argument("--output-dir", type=Path, default=Path("."), help="Output directory.")
     parser.add_argument("--output-prefix", help="Base output prefix; automatic parameter tokens are appended.")
+    parser.add_argument(
+        "--write-detail-tables", action="store_true",
+        help="Write the per-reference-site flanking-pair table; omitted by default.",
+    )
     add_plotting_arguments(parser)
     return parser
 
@@ -295,15 +299,34 @@ def main(argv: Sequence[str] | None = None) -> int:
     ranking_path = Path(f"{base}_ranking.tsv")
     plot_path = Path(f"{base}.png")
 
-    _write_tsv(detail_path, detail, [
-        "chrom", "region_start", "region_end", "category", "region_center",
-        "upstream_nucleosome_center", "downstream_nucleosome_center", "flanking_spacing_bp", "status",
-    ])
+    if args.write_detail_tables:
+        _write_tsv(detail_path, detail, [
+            "chrom", "region_start", "region_end", "category", "region_center",
+            "upstream_nucleosome_center", "downstream_nucleosome_center", "flanking_spacing_bp", "status",
+        ])
     dist_rows = []
+    rank_by_category = {str(row["category"]): int(row["rank"]) for row in rankings}
     for category in sorted(curves):
+        rank = rank_by_category[category]
         for x, y in zip(x_grid, curves[category]):
-            dist_rows.append({"category": category, "spacing_bp": int(x), "value": float(y), "distribution": args.distribution})
-    _write_tsv(distribution_path, dist_rows, ["category", "spacing_bp", "value", "distribution"])
+            dist_rows.append({
+                "category": category,
+                "spacing_bp": int(x),
+                "value": float(y),
+                "distribution": args.distribution,
+                "rank": rank,
+                "highlighted": int(rank <= args.top_categories),
+                "ratio_x1": args.ratio_x1,
+                "ratio_x2": args.ratio_x2,
+                "top_categories": args.top_categories,
+                "x_min": args.x_min,
+                "x_max": args.x_max,
+            })
+    _write_tsv(
+        distribution_path, dist_rows,
+        ["category", "spacing_bp", "value", "distribution", "rank", "highlighted",
+         "ratio_x1", "ratio_x2", "top_categories", "x_min", "x_max"],
+    )
     ratio_col = f"ratio_{args.ratio_x1}_to_{args.ratio_x2}"
     _write_tsv(ranking_path, rankings, [
         "rank", "category", "reference_site_count", "valid_flanking_pair_count",
@@ -314,9 +337,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         x_min=args.x_min, x_max=args.x_max, top_categories=args.top_categories,
         ratio_x1=args.ratio_x1, ratio_x2=args.ratio_x2,
     )
+    from nucleosuite.plotting import write_plot_metadata
+    write_plot_metadata(saved, extra={"source_table": str(distribution_path), "detected_plot_type": "flank-spacing"})
     import matplotlib.pyplot as plt
     plt.close(fig)
-    print(f"Sites: {detail_path}")
+    if args.write_detail_tables:
+        print(f"Sites: {detail_path}")
     print(f"Distributions: {distribution_path}")
     print(f"Ranking: {ranking_path}")
     print(f"Plot: {saved}")

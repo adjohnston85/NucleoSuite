@@ -81,6 +81,16 @@ def test_gene_blacklist_filter_uses_only_strand_aware_tss_anchors(tmp_path):
     assert excluded == 1
 
 
+def test_gene_expression_detail_tables_default_off():
+    parser = gene_expression.build_parser()
+    args = parser.parse_args([
+        "--expression", "expression.tsv",
+        "--genes-bed", "genes.bed",
+        "--output-prefix", "out",
+    ])
+    assert args.write_detail_tables is False
+
+
 def test_gene_expression_all_outputs(tmp_path, monkeypatch):
     genes = tmp_path / "genes.bed"
     genes.write_text(
@@ -141,6 +151,7 @@ def test_gene_expression_all_outputs(tmp_path, monkeypatch):
             "--no-fft-recursive-filter",
             "--top-profiles", "3",
             "--focus-profile", "NB-4",
+            "--write-detail-tables",
         ]
     )
     assert gene_expression.run(args) == 0

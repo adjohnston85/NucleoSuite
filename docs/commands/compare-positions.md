@@ -53,7 +53,7 @@ The command produces:
 
 - a combined **signed matched-position distance distribution** for all comparisons. The default display range is **-250 to 250 bp**;
 - a combined **score-correlation-by-distance-bin** plot. These bins use absolute summit distance;
-- a grouped **main-callset score percentile distance boxplot**, with comparison callsets side-by-side within each percentile group. The default displayed y-axis range is **0-200 bp**;
+- a grouped **main-callset score percentile distance boxplot**, with comparison callsets side-by-side within each percentile group. The default displayed y-axis range is **0-200 bp**. Outliers beyond the 1.5 × IQR whiskers are shown by default; use `--hide-boxplot-outliers` to hide them;
 - a separate **main-versus-comparison score agreement** plot for each comparison, coloured by absolute summit distance. The default colour scale is capped at **100 bp**;
 - a separate **main-callset score versus matched distance** plot for each comparison. Absolute distance and Spearman correlation are the defaults. The distance axis uses the data range unless the user sets a plotting limit.
 
@@ -103,35 +103,35 @@ The corresponding statistics table reports Spearman and Pearson correlations, li
 
 ## Outputs
 
-Combined outputs include:
+Default outputs retain the compact tables needed for summaries, statistics, and faithful replotting:
 
 ```text
 <prefix>_summary.tsv
 <prefix>_distance_histogram.tsv
 <prefix>_correlation_by_distance.tsv
-<prefix>_percentile_distances.tsv
 <prefix>_percentile_summary.tsv
+<prefix>_percentile_boxplot.tsv
 <prefix>_main_score_vs_distance_statistics.tsv
+<prefix>_<comparison>_score_agreement.tsv.gz
+<prefix>_<comparison>_main_score_vs_distance.tsv.gz
 <prefix>_distance_histogram.png
 <prefix>_correlation_by_distance.png
 <prefix>_percentile_distance_boxplot.png
-```
-
-With `--stats` and at least two comparison BEDs:
-
-```text
-<prefix>_percentile_statistics.tsv
-```
-
-Each comparison also receives:
-
-```text
-<prefix>_<comparison>_pairs.tsv
 <prefix>_<comparison>_score_agreement.png
 <prefix>_<comparison>_main_score_vs_distance.png
 ```
 
-Use `--skip-pairs-tsv` to suppress the detailed per-comparison matched-pair tables.
+With `--stats` and at least two comparison BEDs, `<prefix>_percentile_statistics.tsv` is also written.
+
+The two compressed per-comparison plot-source tables contain only the sampled points needed to recreate their figures plus the full-data statistics used for annotations. The compact percentile-boxplot source stores box/whisker statistics, actual outliers, comparison labels, and optional statistical annotations rather than every matched pair. All default plot-source tables can be passed directly to [`nucleosuite plot`](plot.md).
+
+Large matched-pair tables are opt-in. Add:
+
+```text
+--write-detail-tables
+```
+
+to additionally write `<prefix>_percentile_distances.tsv` and each `<prefix>_<comparison>_pairs.tsv`. These files contain one row per matched pair and can be very large for whole-genome callsets.
 
 ## Blacklist handling
 

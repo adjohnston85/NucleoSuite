@@ -47,6 +47,14 @@ def add_aggregate_parser(subparsers: argparse._SubParsersAction) -> argparse.Arg
     parser.add_argument("--plotted-mean-output", type=Path, help="Explicit mean-of-plotted-rows path; default: <output-dir>/<prefix>_heatmap_mean.tsv.")
     parser.add_argument("--mean-plot-output", type=Path, help="Explicit plotted-mean image stem/path; final extension follows --plot-format (default stem: <output-dir>/<prefix>_heatmap_mean).")
     parser.add_argument("--summary-output", type=Path, help="Explicit processing-summary path; default: <output-dir>/<prefix>_summary.tsv.")
+    parser.add_argument(
+        "--write-detail-tables", action="store_true",
+        help=(
+            "Write row-level heatmap outputs: the sorted heatmap matrix, heatmap-row "
+            "metadata, and the heatmap figure. These are omitted by default; aggregate "
+            "mean profiles, summaries, NRL outputs, and their figures are still written."
+        ),
+    )
     parser.add_argument("--window-half", type=int, default=2500, help="Bases extracted on each side of the aggregation centre.")
     parser.add_argument("--chrom-col", type=int, default=1, help="One-based chromosome column in --region-bed (default: 1).")
     parser.add_argument("--start-col", type=int, default=2, help="One-based start-coordinate column in --region-bed (default: 2).")

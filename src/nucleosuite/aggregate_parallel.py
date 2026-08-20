@@ -145,6 +145,7 @@ def _worker(namespace_data: dict, contig: str, contig_dir: str, prefix: str, reg
             "plotted_mean_output": None,
             "mean_plot_output": None,
             "summary_output": None,
+            "write_detail_tables": True,
             "max_heatmap_rows": None,
             "stop_after_valid": None,
             "subsample_mode": "first",
@@ -299,8 +300,9 @@ def _combine(
     matrix = np.vstack(selected_rows)
     matrix, x_values = central_crop(matrix, config.breadth)
     matrix, original_order, sort_scores = sort_matrix(matrix, config.sort_mode)
-    write_heatmap_matrix(matrix, x_values, outputs["heatmap_matrix"])
-    write_heatmap_row_metadata(outputs["row_metadata"], original_order, sort_scores, config.sort_mode)
+    if config.write_detail_tables:
+        write_heatmap_matrix(matrix, x_values, outputs["heatmap_matrix"])
+        write_heatmap_row_metadata(outputs["row_metadata"], original_order, sort_scores, config.sort_mode)
     plotted_mean = plot_outputs(matrix, x_values, config, outputs)
     write_profile(plotted_mean, outputs["plotted_mean"], x_values)
     write_summary(outputs["summary"], config, stats, outputs)
@@ -433,6 +435,16 @@ def run_aggregate_per_contig(args: argparse.Namespace, serial_runner) -> int:
         print(f"Combined outputs: {root / 'combined'}")
         for path in outputs.values():
             print(path)
+        if not bool(getattr(args, "write_detail_tables", False)):
+            for entry in entries:
+                part_prefix = Path(str(entry["prefix"]))
+                for suffix in (
+                    "_heatmap_matrix.tsv.gz", "_heatmap_rows.tsv",
+                    "_heatmap.png", "_heatmap.svg", "_heatmap_metadata.tsv",
+                ):
+                    detail_path = part_prefix.parent / f"{part_prefix.name}{suffix}"
+                    if detail_path.exists():
+                        detail_path.unlink()
     else:
         print(f"Per-contig outputs: {per_contig}")
     return 0

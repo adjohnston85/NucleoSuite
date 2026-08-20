@@ -2,7 +2,7 @@
 
 ## What this command does
 
-`aggregate` extracts equal-sized BigWig windows around reference sites, orients them by strand when requested, and writes an individual-region heatmap and mean profile.
+`aggregate` extracts equal-sized BigWig windows around reference sites, orients them by strand when requested, and writes aggregate mean profiles. Individual-region heatmap outputs are available when detailed outputs are requested.
 
 If `--category-col` is supplied, the same aggregate analysis is run independently for every unique value in that region-BED column. NucleoSuite then writes a single overlay containing all category mean profiles and, when NRL analysis is enabled, a combined summary of the independently fitted category repeat lengths.
 
@@ -10,7 +10,7 @@ If `--category-col` is supplied, the same aggregate analysis is run independentl
 
 Use `aggregate` to examine signal around BED-defined positions such as transcription start sites, transcription-factor sites, nucleosome calls, or chromatin-state features.
 
-The heatmap shows whether the pattern is consistent across individual regions. The mean profile shows the average pattern across the complete retained set.
+The mean profile shows the average pattern across the complete retained set. Use `--write-detail-tables` when an individual-region heatmap, its matrix, and row metadata are also required.
 
 ## How it works
 
@@ -160,13 +160,15 @@ Recognized NucleoSuite BigWig suffixes set track-specific labels automatically. 
 
 ## What it writes
 
-A standard `aggregate` run writes:
+A standard `aggregate` run writes the complete aggregate profile, mean-profile figure, processing/parameter summaries, and the NRL outputs described below when NRL is enabled.
 
-- the heatmap matrix and row metadata;
-- the complete aggregate profile from all accepted rows;
-- the mean of the rows actually plotted in the heatmap;
-- heatmap and mean-profile figures; and
-- processing/parameter summaries.
+Individual-region outputs are disabled by default because they can be very large. Add:
+
+```text
+--write-detail-tables
+```
+
+to additionally write the heatmap matrix, row metadata, plotted-row mean, and heatmap figure. The matrix is retained as the source table for replotting that heatmap.
 
 With aggregate NRL enabled, it additionally writes:
 
@@ -176,7 +178,7 @@ With aggregate NRL enabled, it additionally writes:
 - `_aggregate_nrl_negative_regression.tsv` and `.png`, containing the negative-direction outward-distance fit; and
 - `_aggregate_nrl_summary.tsv`, containing both repeat lengths, fit statistics, caller settings and quality statuses.
 
-Category mode writes this complete standard output set separately for each category. It additionally writes the combined `_category_profiles.tsv`/plot and, when NRL is enabled, `_category_nrl_summary.tsv`.
+Category mode writes the same standard output set separately for each category; individual-region heatmap outputs remain controlled by `--write-detail-tables`. It additionally writes the combined `_category_profiles.tsv`/plot and, when NRL is enabled, `_category_nrl_summary.tsv`.
 
 The two regression plots are separate square figures with open circles and dotted fitted lines. All three NRL figures can be recreated with [`nucleosuite plot`](plot.md).
 

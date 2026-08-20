@@ -99,11 +99,11 @@ Multiple samples can be supplied by repeating `--peaks NAME=FILE` or `--signal N
 
 ## What it writes
 
-Spacing analysis writes per-gene spacing summaries, expression correlations, and correlation/scatter plots.
+Spacing analysis writes expression-correlation summaries and figures by default. A compressed plot-source table retains only the points used for the spacing scatter so it can be recreated with `nucleosuite plot`.
 
-FFT analysis writes per-gene spectral values, period-by-expression correlations, expression-profile rankings, optional rank changes, QC summaries, and plots.
+FFT analysis writes period-by-expression correlations, expression-profile rankings, optional rank changes, QC summaries, and figures by default.
 
-Metadata records the files, expression columns, filtering, and analysis settings used.
+Add `--write-detail-tables` to retain the large per-gene spacing table and, for FFT analysis, the per-gene spectral table. Metadata records the files, expression columns, filtering, and analysis settings used.
 
 ## Blacklist handling
 
