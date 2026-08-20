@@ -33,10 +33,35 @@ nucleosuite --help
 | [`pns`](docs/commands/pns.md) | Calculate PNS, BNS or TNS nucleosome score tracks and shared peak calls. |
 | [`wps`](docs/commands/wps.md) | Calculate window protection score tracks and WPS peak calls. |
 | [`coverage`](docs/commands/coverage.md) | Calculate per-base fragment coverage. |
+| [`mean-scale`](docs/commands/mean-scale.md) | Scale a BigWig relative to a supplied, region-derived, or non-zero-signal reference mean. |
 | [`dyads`](docs/commands/dyads.md) | Generate fragment-centre tracks. |
 | [`fragment-ends`](docs/commands/fragment-ends.md) | Generate combined, left-end, and right-end tracks. |
 | [`dinuc-profile`](docs/commands/dinuc-profile.md) | Calculate positional dinucleotide profiles. |
 | [`ww-types`](docs/commands/ww-types.md) | Classify fragments by centred WW/SS sequence patterns. |
+
+### Mean scaling BigWig tracks
+
+Use [`mean-scale`](docs/commands/mean-scale.md) to express a BigWig relative to a reference mean. The output is calculated as `value / reference_mean × scale`, with `--scale 100` by default. With the default scale, 100 therefore represents the reference mean.
+
+Without another reference input, NucleoSuite calculates the mean across finite, non-zero BigWig values:
+
+```bash
+nucleosuite mean-scale coverage.bw
+```
+
+A BED, BED.gz or bigBed can instead provide the reference through its region scores (column 5 by default):
+
+```bash
+nucleosuite mean-scale PNS.bw \
+  --regions nucleosome_protection_peaks.bb
+```
+
+Or provide a known reference mean directly:
+
+```bash
+nucleosuite mean-scale PNS.bw \
+  --reference-mean 16.7644
+```
 
 ### Peaks, spacing, and comparisons
 
@@ -48,11 +73,22 @@ nucleosuite --help
 | [`dac`](docs/commands/dac.md) | Calculate distance autocorrelation within one signal. |
 | [`dcc`](docs/commands/dcc.md) | Calculate distance cross-correlation between two signals. |
 | [`nrl`](docs/commands/nrl.md) | Estimate nucleosome repeat length from recurring DAC or DCC peaks. |
-| [`compare-positions`](docs/commands/compare-positions.md) | Compare one main callset with one or more callsets using one-to-one matching and main-score percentiles. |
+| [`compare-positions`](docs/commands/compare-positions.md) | Compare one main callset with one or more positional callsets and optional BigWig score comparators. |
 | [`positive-runs`](docs/commands/positive-runs.md) | Measure contiguous positive-signal intervals in a BigWig. |
 | [`peak-score-frequency`](docs/commands/peak-score-frequency.md) | Compare peak-score distributions. |
 | [`filter-coverage`](docs/commands/filter-coverage.md) | Filter BED peaks by BigWig coverage at the summit or interval midpoint. |
 | [`peak-states`](docs/commands/peak-states.md) | Measure peak abundance and score-dependent enrichment by chromatin state. |
+
+For example, coverage can be included as a score-only comparator while BED callsets are compared positionally:
+
+```bash
+nucleosuite compare-positions \
+  --main-bed PNS=PNS_nucleosomes.bed \
+  --compare-bed iNPS=iNPS_nucleosomes.bed \
+  --score-bigwig Coverage=coverage.bw
+```
+
+`Coverage` is sampled at the PNS summit coordinates and participates only in score-agreement/correlation outputs; it is not included in distance analyses.
 
 ### Regional and gene analyses
 

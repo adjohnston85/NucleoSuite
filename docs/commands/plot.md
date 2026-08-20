@@ -2,21 +2,31 @@
 
 ## What this command does
 
-`plot` recreates figures from NucleoSuite TSV or TSV.GZ output files without rerunning the underlying genomic analysis. It detects the plot family from the filename and table columns, then applies plot-specific defaults that can be overridden from the command line.
+`plot` recreates a NucleoSuite figure from its compact plot-source table and metadata sidecar without rerunning the underlying genomic analysis.
 
 ## Why use it
 
-Use it when the calculation is finished but you want to change the presentation of a figure for inspection, a manuscript, a presentation, or a supplementary figure.
+Use it to change figure presentation or plot-specific construction settings after an analysis has finished, without recalculating the genomic result.
 
-## Automatic detection
+## Metadata-driven replots
 
 The simplest form is:
 
 ```bash
-nucleosuite plot sample_dac.tsv
+nucleosuite plot sample_output.tsv
 ```
 
-The command recognises the major NucleoSuite plot families, including:
+For NucleoSuite-generated plot sources, the associated metadata records the plot family and the parameters used to construct the original figure. `plot` reads those values first and uses them as the replot defaults.
+
+If the metadata file is edited, the next replot uses the edited values. Command-line arguments supplied to `nucleosuite plot` override matching metadata values for that run without modifying the metadata file.
+
+The parser is two-stage: universal figure controls are always available, while plot-specific controls are added only after the source table and metadata identify the plot family. This keeps analysis-specific options out of unrelated replots.
+
+For example, a percentile-boxplot source may expose an outlier control, while a DAC source may expose peak-detection controls. Those options are available only for the corresponding plot type.
+
+## Automatic detection
+
+`plot` recognises the major NucleoSuite plot families, including:
 
 - DAC and DCC profiles;
 - NRL profiles and regression-point tables;
@@ -25,24 +35,21 @@ The command recognises the major NucleoSuite plot families, including:
 - fragment-length profiles and normalized fragment heatmap matrices;
 - positive-run distributions;
 - peak-score frequency distributions;
-- flank-spacing category distributions and ranked highlighting;
+- flank-spacing category distributions;
 - peak-state stacked compositions;
-- compare-positions multi-callset distance distributions, score scatters, main-score-versus-distance plots, distance-bin correlations, and grouped percentile boxplots;
-- gene-expression spacing summaries/scatters, FFT trajectories, and ranking plots;
+- compare-positions signed distance distributions, BED score-agreement plots, BigWig score-only agreement plots, distance-bin correlations, grouped percentile boxplots, and 1%-percentile median/IQR trends;
+- gene-expression spacing/FFT outputs;
 - TSS-expression-quintile profiles;
 - dinucleotide and WW/SS profiles;
-- WW/SS class counts and fragment-length compositions;
-- gene-set candidate-overlap Venn diagrams;
+- gene-set candidate-overlap plots;
 - multi-profile overlays; and
 - fragment-relocation/count profiles.
 
-When a table is unusual or has been renamed, specify the source command:
+When a table is unusual or has been renamed, specify the source command or exact plot family:
 
 ```bash
 nucleosuite plot output.tsv --from-command distances
 ```
-
-or the exact plot family:
 
 ```bash
 nucleosuite plot output.tsv --plot-type generic-line \
@@ -139,7 +146,7 @@ Large per-region or per-match detail tables are disabled by default in commands 
 
 These source tables can be passed directly to `nucleosuite plot`. Plot metadata sidecars record the associated source table and detected plot family where applicable.
 
-For compare-position percentile boxplots, outliers beyond the 1.5 × IQR whiskers are shown by default. Replot them with the same default or explicitly control them with:
+For compare-position percentile boxplots, outliers beyond the 1.5 × IQR whiskers are hidden by default. After the source and metadata identify a boxplot, they can be enabled or disabled with:
 
 ```text
 --show-boxplot-outliers

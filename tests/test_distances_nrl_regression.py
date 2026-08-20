@@ -164,11 +164,10 @@ def test_distances_main_automatically_writes_regression_for_multiple_orders(tmp_
     rows = list(csv.DictReader(summary.open(), delimiter="\t"))
     assert {(row["scope"], row["chromosome"]) for row in rows} == {
         ("combined_chromosomes", "."),
-        ("chromosome", "chr1"),
     }
     assert all(float(row["nrl_bp"]) == pytest.approx(185.0) for row in rows)
     assert Path(f"{stem}_nrl_regression_combined_chromosomes.png").is_file()
-    assert Path(f"{stem}_nrl_regression_chromosome_chr1.png").is_file()
+    assert not Path(f"{stem}_nrl_regression_chromosome_chr1.png").exists()
 
 
 def test_single_order_does_not_write_nrl_regression_outputs(tmp_path):
@@ -200,25 +199,29 @@ def test_distances_parser_defaults_nrl_to_smoothed_mode():
     assert args.count_smooth_polyorder == 2
 
 
-def test_smoothed_nrl_mode_uses_smoothed_distribution_mode(monkeypatch):
-    results = synthetic_results()
-    original = distances.summarize_distribution
-
-    def fake_summary(counter, **kwargs):
-        stats = original(counter, **kwargs)
-        # Shift only the pooled order modes so this test distinguishes the path.
-        if 185 in counter:
-            return stats.__class__(**{**stats.__dict__, "smoothed_mode": 186})
-        if 370 in counter:
-            return stats.__class__(**{**stats.__dict__, "smoothed_mode": 372})
-        if 555 in counter:
-            return stats.__class__(**{**stats.__dict__, "smoothed_mode": 558})
-        return stats
-
-    monkeypatch.setattr(distances, "summarize_distribution", fake_summary)
-    regressions = distances.collect_nrl_regressions(
-        results, max_order=3, include_chromosomes=False, include_genome=True,
-        nrl_mode="smoothed", count_smooth_window=21, count_smooth_polyorder=2,
+def test_smoothed_peak_calling_uses_full_profile_before_range_filtering():
+    # The profile is still rising at the requested 1500-bp boundary, then peaks
+    # outside the regression range. 1500 must therefore not be called as a peak.
+    counter = Counter({1300: 50, 1299: 20, 1301: 20, 1490: 30, 1500: 40, 1510: 60, 1520: 20})
+    peak = distances.select_order_peak_in_range(
+        counter, min_distance=1, max_distance=1500, nrl_mode="smoothed",
+        count_smooth_window=21, count_smooth_polyorder=2,
     )
-    assert [p.peak_distance for p in regressions[0].peaks] == [186, 372, 558]
-    assert regressions[0].slope == pytest.approx(186.0)
+    assert peak is not None
+    assert peak.peak_distance == 1300
+
+
+def test_peak_exactly_at_regression_max_is_allowed_when_full_profile_declines_after_it():
+    counter = Counter({1490: 20, 1499: 40, 1500: 100, 1501: 40, 1510: 10})
+    peak = distances.select_order_peak_in_range(
+        counter, min_distance=1, max_distance=1500, nrl_mode="raw",
+        count_smooth_window=21, count_smooth_polyorder=2,
+    )
+    assert peak is not None
+    assert peak.peak_distance == 1500
+
+
+def test_distances_parser_defaults_to_combined_regression_and_1500_bp_max():
+    args = distances.build_parser().parse_args(["peaks.bed"])
+    assert args.regression_scope == "combined"
+    assert args.max_distance == 1500

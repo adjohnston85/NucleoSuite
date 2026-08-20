@@ -25,7 +25,7 @@ def test_peak_score_frequency_overlays_observed_and_randomized(tmp_path: Path):
         "--output-prefix", str(prefix),
         "--bins", "4",
     ]) == 0
-    prefix = Path(f"{prefix}_bins4_scoreminnone_scoremaxnone")
+    prefix = Path(f"{prefix}_bins4_scorescale1_scoreminnone")
 
     with open(f"{prefix}_score_frequency.tsv", "rt", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle, delimiter="\t"))
@@ -47,7 +47,7 @@ def test_peak_score_frequency_defaults_to_integer_score_bins(tmp_path: Path):
         "--peaks", f"observed={observed}",
         "--output-prefix", str(prefix),
     ]) == 0
-    prefix = Path(f"{prefix}_binsinteger_scoreminnone_scoremaxnone")
+    prefix = Path(f"{prefix}_binsinteger_scorescale1_scoreminnone")
 
     with open(f"{prefix}_score_frequency.tsv", "rt", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle, delimiter="\t"))
@@ -69,5 +69,31 @@ def test_peak_score_frequency_individual_scores_are_opt_in(tmp_path: Path):
         "--output-prefix", str(prefix),
         "--write-detail-tables",
     ]) == 0
-    prefix = Path(f"{prefix}_binsinteger_scoreminnone_scoremaxnone")
+    prefix = Path(f"{prefix}_binsinteger_scorescale1_scoreminnone")
     assert Path(f"{prefix}_scores.tsv.gz").is_file()
+
+
+def test_peak_score_frequency_score_scale_applies_before_integer_binning(tmp_path: Path):
+    observed = tmp_path / "pns_scores.bed"
+    _write_bed(observed, [0.004, 0.006, 0.014, 0.016])
+    prefix = tmp_path / "scaled_scores"
+
+    assert main([
+        "--peaks", f"PNS={observed}",
+        "--output-prefix", str(prefix),
+        "--score-scale", "100",
+    ]) == 0
+    prefix = Path(f"{prefix}_binsinteger_scorescale100_scoreminnone")
+    with open(f"{prefix}_score_frequency.tsv", "rt", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    counts = {int(row["score"]): int(row["count"]) for row in rows}
+    assert counts == {0: 1, 1: 2, 2: 1}
+
+    # Raw-score summaries remain in the units of the supplied BED scores.
+    with open(f"{prefix}_score_summary.tsv", "rt", encoding="utf-8") as handle:
+        summary = next(csv.DictReader(handle, delimiter="\t"))
+    assert float(summary["maximum"]) == 0.016
+
+    metadata = Path(f"{prefix}_score_frequency_metadata.tsv").read_text()
+    assert "score_scale\t100.0" in metadata
+    assert "x_label\tPeak score (×100)" in metadata

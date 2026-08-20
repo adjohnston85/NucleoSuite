@@ -227,6 +227,16 @@ def _documented_command_option_map() -> dict[str, set[str]]:
         if builder is not None:
             option_map[command] = _all_parser_options(builder())
 
+    # `nucleosuite plot` uses a two-stage parser: plot-family options are
+    # exposed only after the input/metadata identifies the relevant renderer.
+    from nucleosuite import replot as replot_module
+    dynamic_plot_options = set(option_map.get("plot", set()))
+    for plot_type in replot_module.PLOT_TYPES:
+        if plot_type == "auto":
+            continue
+        dynamic_plot_options.update(_all_parser_options(replot_module.build_parser(plot_type)))
+    option_map["plot"] = dynamic_plot_options
+
     from nucleosuite.cli.aggregate import add_aggregate_parser
 
     aggregate_root = argparse.ArgumentParser(prog="nucleosuite")

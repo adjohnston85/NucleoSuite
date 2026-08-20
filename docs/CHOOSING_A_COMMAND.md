@@ -18,6 +18,8 @@ For a coordinated analysis with standard defaults, use [`cfdna-suite`](commands/
 
 ## I already have nucleosome or other peak calls
 
+Use [`mean-scale`](commands/mean-scale.md) when an existing BigWig should be expressed relative to a reference mean, including mean non-zero coverage, mean BED/bigBed region scores, or a supplied reference value.
+
 Use [`distances`](commands/distances.md) to measure nearest-neighbour or higher-order spacing. Use [`compare-positions`](commands/compare-positions.md) when one main nucleosome callset should be compared with one or more other callsets using one-to-one positional matching, main-score percentile groups, and optional within-percentile statistics. Use [`peak-score-frequency`](commands/peak-score-frequency.md) to compare their score distributions.
 
 Use [`flank-spacing`](commands/flank-spacing.md) when you have nucleosome calls plus a BED of reference sites divided into categories and want to compare the distance between the nearest upstream and downstream nucleosomes for each category. Column 4 is the default category column.

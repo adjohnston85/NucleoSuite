@@ -919,13 +919,41 @@ def plot_metadata_path(plot_path_value: str | Path) -> Path:
     return path.with_name(path.stem + "_metadata.tsv")
 
 
+def plot_source_metadata_path(source_path_value: str | Path) -> Path:
+    """Return the canonical metadata sidecar for a replot source table."""
+    path = Path(source_path_value)
+    name = path.name
+    lower = name.lower()
+    for suffix in (".tsv.gz", ".csv.gz", ".txt.gz", ".tsv", ".csv", ".txt", ".gz"):
+        if lower.endswith(suffix):
+            name = name[: -len(suffix)]
+            break
+    else:
+        name = path.stem
+    return path.with_name(name + "_metadata.tsv")
+
+
+def _write_metadata_rows(metadata: Path, rows) -> Path:
+    metadata.parent.mkdir(parents=True, exist_ok=True)
+    with metadata.open("w", encoding="utf-8", newline="") as handle:
+        handle.write("field\tvalue\n")
+        for key, value in rows:
+            text = "" if value is None else str(value).replace("\t", " ").replace("\n", " ")
+            handle.write(f"{key}\t{text}\n")
+    return metadata
+
+
 def write_plot_metadata(plot_path_value: str | Path, *, extra=None) -> Path:
-    """Write a complete parameter sidecar for one plot output."""
+    """Write complete plot metadata beside the figure and its replot source.
+
+    When ``extra`` supplies ``source_table``, the same metadata recipe is also
+    written beside that table. ``nucleosuite plot`` treats the source-table
+    sidecar as the canonical editable recipe for replots.
+    """
     import json
     from nucleosuite import __version__
     path = Path(plot_path_value)
     metadata = plot_metadata_path(path)
-    metadata.parent.mkdir(parents=True, exist_ok=True)
     rows = [
         ("nucleosuite_version", __version__),
         ("plot_output", str(path)),
@@ -938,15 +966,18 @@ def write_plot_metadata(plot_path_value: str | Path, *, extra=None) -> Path:
             if isinstance(value, (dict, list, tuple)):
                 value = json.dumps(value, sort_keys=True, separators=(",", ":"))
             rows.append((f"parameter.{key}", value))
-    for key, value in sorted((extra or {}).items()):
+    resolved_extra = dict(extra or {})
+    for key, value in sorted(resolved_extra.items()):
         if isinstance(value, (dict, list, tuple)):
             value = json.dumps(value, sort_keys=True, separators=(",", ":"))
         rows.append((str(key), value))
-    with metadata.open("w", encoding="utf-8", newline="") as handle:
-        handle.write("field\tvalue\n")
-        for key, value in rows:
-            text = "" if value is None else str(value).replace("\t", " ").replace("\n", " ")
-            handle.write(f"{key}\t{text}\n")
+    _write_metadata_rows(metadata, rows)
+    source_table = resolved_extra.get("source_table")
+    if source_table:
+        source_metadata = plot_source_metadata_path(source_table)
+        source_rows = list(rows)
+        source_rows.append(("metadata_role", "replot_source"))
+        _write_metadata_rows(source_metadata, source_rows)
     return metadata
 
 

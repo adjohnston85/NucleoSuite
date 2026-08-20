@@ -35,6 +35,25 @@ Use `--bins N` for a fixed number of shared continuous bins or `--bin-width N` f
 
 Shared boundaries are used across all labelled inputs so their distributions are directly comparable.
 
+
+## Scale small scores before binning
+
+`--score-scale` multiplies input scores **before histogram binning and plotting**. The default is `1`. This is useful for PNS callsets whose BED scores are often below 1 and would otherwise collapse into very few integer bins.
+
+For example:
+
+```bash
+nucleosuite peak-score-frequency \
+  --peaks PNS=sample_nucleosome_regions.bed \
+  --score-scale 100 \
+  --integer-bins \
+  --output-prefix sample_PNS_scores
+```
+
+A PNS score of `0.47` is therefore binned and displayed as `47` when `--score-scale 100` is used. `--score-min`, `--score-max`, `--bin-width` and integer-bin rounding operate on these scaled values.
+
+The compact score-frequency table contains the scaled score axis used by the figure. The per-input summary and optional individual-score detail table remain in the original input-score units. The score scale is recorded in the automatic output name and plot metadata so the plotted axis remains explicit and reproducible.
+
 ## Choose what the y-axis means
 
 `--normalization` can report:

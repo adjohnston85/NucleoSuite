@@ -272,7 +272,7 @@ flowchart LR
     C --> F[Main-score percentile groups]
     F --> G[Grouped percentile boxplot]
     F --> H[Optional within-percentile pairwise tests]
-    C --> I[Main score vs matched distance per comparison]
+    F --> I[1%-percentile median distance + IQR trend]
 ```
 
 [`compare-positions`](commands/compare-positions.md) compares one main nucleosome BED with one or more comparison BEDs using one-to-one matching. Matched pairs are grouped by the main BED score, with quartiles used by default. `--stats` performs pairwise tests separately within each percentile group. Main and comparison labels can be supplied as `LABEL=path.bed`.

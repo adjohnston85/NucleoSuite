@@ -259,17 +259,17 @@ NRL outputs are headered TSV files containing the selected profile, called peaks
 
 ## Position-comparison TSVs
 
-`compare-positions` accepts one main BED, BED.gz, or bigBed plus one or more comparison interval files. Inputs can be labelled as `LABEL=path.bed` for both `--main-bed` and `--compare-bed`. When no summit column is supplied, the position is the integer midpoint between BED start and end. Score columns are selected independently for the main BED and comparison BEDs.
+`compare-positions` accepts one main BED, BED.gz, or bigBed plus one or more comparison interval files. Inputs can be labelled as `LABEL=path.bed` for both `--main-bed` and `--compare-bed`. Repeatable `--score-bigwig LABEL=track.bw` inputs can also be supplied as score-only comparators. When no summit column is supplied, the position is the integer midpoint between BED start and end. Score columns are selected independently for the main BED and comparison BEDs. BigWig comparators are sampled at the retained main summit coordinate and are excluded from all distance-dependent analyses.
 
-`_summary.tsv` reports callset sizes, query direction, one-to-one matched-pair counts, unmatched counts, distance summaries, and main-versus-comparison score correlations for each comparison.
+`_summary.tsv` reports callset sizes, query direction, one-to-one matched-pair counts, unmatched counts, distance summaries, and main-versus-comparison score correlations for each BED comparison. It also contains one row per BigWig score comparator with its sampled-position count, missing/non-finite-as-zero count, and score correlation against the main BED.
 
-`_distance_histogram.tsv` stores the combined **signed** summit-distance distribution used by the distance plot. `_correlation_by_distance.tsv` reports score correlation in **absolute** summit-distance bins. `_percentile_summary.tsv` reports distance summaries for each main-score percentile group and comparison. `_percentile_boxplot.tsv` stores compact box/whisker statistics, actual outliers, labels, and optional statistical annotations so the grouped boxplot can be reproduced without retaining every matched pair.
+`_distance_histogram.tsv` stores the combined **signed** summit-distance distribution used by the distance plot. `_correlation_by_distance.tsv` reports score correlation in **absolute** summit-distance bins. `_percentile_summary.tsv` reports distance summaries for each main-score percentile group and comparison. `_percentile_boxplot.tsv` stores compact box/whisker statistics, optional outlier values, labels, and optional statistical annotations so the grouped boxplot can be reproduced without retaining every matched pair. `_percentile_distance_trend.tsv` stores the 1%-bin median absolute distance and 25th/75th percentiles for each comparison.
 
-Each comparison also receives compressed `_score_agreement.tsv.gz` and `_main_score_vs_distance.tsv.gz` plot-source tables containing the points retained for the corresponding figure plus full-data annotation statistics.
+Each BED or BigWig comparator receives a compressed `_score_agreement.tsv.gz` plot-source table containing the deterministic plotted sample and full-data annotation statistics. BED sources include absolute summit distance for colour mapping. BigWig score-only sources contain the sampled BigWig value axis instead and do not contain a distance field.
 
-When statistics are enabled, `_percentile_statistics.tsv` reports pairwise tests separately within each percentile group. `_main_score_vs_distance_statistics.tsv` reports the relationship between main peak score and matched distance for each comparison.
+When statistics are enabled, `_percentile_statistics.tsv` reports pairwise tests separately within each percentile group.
 
-`--write-detail-tables` additionally writes each `<comparison>_pairs.tsv` and the combined `_percentile_distances.tsv`. These one-row-per-match files are omitted by default because whole-genome comparisons can make them very large.
+`--write-detail-tables` additionally writes each BED `<comparison>_pairs.tsv`, the combined `_percentile_distances.tsv`, and each BigWig `<label>_score_bigwig_values.tsv`. These one-row-per-match or one-row-per-main-position files are omitted by default because whole-genome analyses can make them very large.
 
 ## Reference FASTA
 
@@ -379,9 +379,10 @@ Dinucleotide-profile commands write `_dinuc_profile_counts.tsv` alongside the fr
 | `_<comparison>_pairs.tsv` | Full one-row-per-match position/score table from `compare-positions`; written only with `--write-detail-tables` |
 | `_summary.tsv` | Position-comparison or other command summary metrics |
 | `_distance_histogram.tsv` | Exact histogram bin edges and matched-pair counts used for the distance histogram plot |
-| `_<comparison>_score_agreement.tsv.gz` / `.png` | Compact score-agreement plot source and main-versus-comparison score figure |
-| `_percentile_boxplot.tsv` | Compact grouped percentile-boxplot source containing box statistics and actual outliers |
-| `_<comparison>_main_score_vs_distance.tsv.gz` / `.png` | Compact main-score-versus-distance plot source and figure |
+| `_<comparison>_score_agreement.tsv.gz` / `.png` | Compact score-agreement source/figure for a BED score comparator or BigWig value sampled at main summits |
+| `_<label>_score_bigwig_values.tsv` | Full main-score/BigWig-value table; one row per retained main position, written only with `--write-detail-tables` |
+| `_percentile_boxplot.tsv` | Compact grouped percentile-boxplot source containing box statistics and optional outliers/statistical annotations |
+| `_percentile_distance_trend.tsv` / `.png` | 1%-percentile median absolute distance with 25th-75th percentile ribbon for each comparison |
 | `_distance_histogram.png` | Distribution of matched summit distances |
 | `_correlation_by_distance.png` | Score correlation within summit-distance bins |
 

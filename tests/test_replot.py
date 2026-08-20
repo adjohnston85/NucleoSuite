@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-from nucleosuite.replot import build_parser, detect_plot_type, main
+from nucleosuite.replot import build_parser, detect_plot_type, main, parse_cli_args
 
 
 def _write(path: Path, header: list[str], rows: list[list[object]]) -> None:
@@ -50,17 +50,17 @@ def test_detects_major_plot_tables(tmp_path: Path) -> None:
         assert detect_plot_type(tmp_path / filename, headers) == expected
 
 
-def test_plot_parser_exposes_independent_major_minor_ticks_and_grids() -> None:
+def test_plot_parser_keeps_only_universal_options_global() -> None:
     parser = build_parser()
     options = {flag for action in parser._actions for flag in action.option_strings}
     for option in (
         "--x-major-tick", "--x-minor-tick", "--y-major-tick", "--y-minor-tick",
         "--x-major-grid", "--x-minor-grid", "--y-major-grid", "--y-minor-grid",
-        "--major-grid-style", "--minor-grid-style", "--vmin", "--vmax",
-        "--mpl-rc", "--mpl-kw", "--nrl-inset",
-        "--normalization",
+        "--major-grid-style", "--minor-grid-style", "--mpl-rc", "--mpl-kw",
     ):
         assert option in options
+    for plot_specific in ("--vmin", "--vmax", "--nrl-inset", "--normalization", "--show-boxplot-outliers"):
+        assert plot_specific not in options
 
 
 def test_dac_replot_writes_figure_with_auto_detection(tmp_path: Path) -> None:
@@ -100,7 +100,7 @@ def test_dac_replot_default_is_raw_only_and_detection_uses_nrl_layers(tmp_path: 
     assert not raw_ax.collections
     assert not raw_ax.texts
 
-    detect_args = build_parser().parse_args([
+    detect_args = parse_cli_args([
         str(path), "--output", str(tmp_path / "detected.png"),
         "--detect-peaks", "--peak-resolution", "160", "--nrl-inset", "off",
     ])
@@ -389,7 +389,7 @@ def test_compare_score_replot_retains_original_scatter_selection_and_method(tmp_
     (_, figure) = _plot_compare_positions_score(path, headers, rows, args, tmp_path / "score.png", {})
     axis = figure.axes[0]
     assert axis.collections[0].get_offsets().shape[0] == 2
-    assert axis.get_xlim() == (-8.0, 8.0)
+    assert axis.get_xlim() == (-10.0, 10.0)
     assert axis.get_xlabel() == "Method A score z-score"
     assert "Spearman" in axis.texts[0].get_text()
     assert "Pearson" not in axis.texts[0].get_text()
@@ -411,18 +411,20 @@ def test_profile_overlay_replot_writes_all_numeric_series(tmp_path: Path) -> Non
     assert output.is_file() and output.stat().st_size > 1000
 
 
-def test_plot_parser_makes_dac_peak_detection_opt_in_and_nrl_labels_default():
-    args = build_parser().parse_args(["sample.tsv"])
+def test_plot_parser_adds_dac_options_only_for_dac_family():
+    args = build_parser("dac").parse_args(["sample.tsv"])
     assert args.detect_peaks is False
     assert args.peak_resolution == 160.0
     assert args.label_peaks == "auto"
 
 
-def test_plot_parser_exposes_boxplot_outlier_controls() -> None:
-    parser = build_parser()
+def test_plot_parser_exposes_boxplot_outlier_controls_only_for_boxplots() -> None:
+    parser = build_parser("compare-positions-percentile-boxplot")
     options = {flag for action in parser._actions for flag in action.option_strings}
     assert "--show-boxplot-outliers" in options
     assert "--hide-boxplot-outliers" in options
+    generic = {flag for action in build_parser()._actions for flag in action.option_strings}
+    assert "--show-boxplot-outliers" not in generic
 
 
 def test_compact_compare_percentile_boxplot_replots_with_legend_and_outlier_toggle(tmp_path: Path) -> None:
@@ -446,25 +448,25 @@ def test_compact_compare_percentile_boxplot_replots_with_legend_and_outlier_togg
     _write(path, header, rows)
     headers, table_rows = _read_table(path)
 
-    args = build_parser().parse_args([str(path), "--output", str(tmp_path / "shown.png")])
-    (_, fig) = _plot_compare_positions_percentile_boxplot(path, headers, table_rows, args, tmp_path / "shown.png", {})
+    args = build_parser("compare-positions-percentile-boxplot").parse_args([str(path), "--output", str(tmp_path / "hidden.png")])
+    (_, fig) = _plot_compare_positions_percentile_boxplot(path, headers, table_rows, args, tmp_path / "hidden.png", {})
     ax = fig.axes[0]
     assert ax.get_legend() is not None
     assert ax.get_xlabel() == "PNS peak score percentile group"
     assert ax.get_ylim()[1] == 200.0
-    assert any(line.get_marker() not in {"", "None", None} and len(line.get_ydata()) > 0 for line in ax.lines)
+    assert not any(line.get_marker() not in {"", "None", None} and len(line.get_ydata()) > 0 for line in ax.lines)
 
-    hidden_args = build_parser().parse_args([
-        str(path), "--output", str(tmp_path / "hidden.png"), "--hide-boxplot-outliers",
+    shown_args = build_parser("compare-positions-percentile-boxplot").parse_args([
+        str(path), "--output", str(tmp_path / "shown.png"), "--show-boxplot-outliers",
     ])
-    (_, hidden_fig) = _plot_compare_positions_percentile_boxplot(
-        path, headers, table_rows, hidden_args, tmp_path / "hidden.png", {}
+    (_, shown_fig) = _plot_compare_positions_percentile_boxplot(
+        path, headers, table_rows, shown_args, tmp_path / "shown.png", {}
     )
-    hidden_ax = hidden_fig.axes[0]
+    shown_ax = shown_fig.axes[0]
     # bxp represents fliers as marker-only Line2D artists.
-    assert not any(
+    assert any(
         line.get_marker() not in {"", "None", None} and len(line.get_ydata()) > 0
-        for line in hidden_ax.lines
+        for line in shown_ax.lines
     )
 
 
@@ -487,24 +489,7 @@ def test_compact_compare_score_sources_replot(tmp_path: Path) -> None:
     assert main([str(score_path), "--output", str(score_output)]) == 0
     assert score_output.is_file() and score_output.stat().st_size > 1000
 
-    distance_path = tmp_path / "sample_DANPOS_main_score_vs_distance.tsv"
-    _write(
-        distance_path,
-        [
-            "main_label", "comparison", "main_score", "matched_distance", "distance_type", "plot_type",
-            "plot_score_distance_y_max", "full_matched_pair_count", "full_spearman_rho",
-            "full_spearman_p_value", "full_pearson_r", "full_pearson_p_value",
-            "full_linear_slope", "full_linear_intercept", "full_linear_r_squared", "full_linear_slope_p_value",
-        ],
-        [
-            ["PNS", "DANPOS", 1, 10, "absolute", "scatter", 0, 1000, -0.2, 0.001, -0.1, 0.01, -0.5, 20, 0.01, 0.02],
-            ["PNS", "DANPOS", 2, 12, "absolute", "scatter", 0, 1000, -0.2, 0.001, -0.1, 0.01, -0.5, 20, 0.01, 0.02],
-            ["PNS", "DANPOS", 3, 8, "absolute", "scatter", 0, 1000, -0.2, 0.001, -0.1, 0.01, -0.5, 20, 0.01, 0.02],
-        ],
-    )
-    distance_output = tmp_path / "score_distance.png"
-    assert main([str(distance_path), "--output", str(distance_output)]) == 0
-    assert distance_output.is_file() and distance_output.stat().st_size > 1000
+
 
 
 def test_flank_spacing_compact_distribution_replots(tmp_path: Path) -> None:
@@ -526,3 +511,80 @@ def test_flank_spacing_compact_distribution_replots(tmp_path: Path) -> None:
     output = tmp_path / "flank.png"
     assert main([str(path), "--output", str(output)]) == 0
     assert output.is_file() and output.stat().st_size > 1000
+
+
+def test_plot_metadata_defaults_are_editable_and_cli_overrides(tmp_path: Path) -> None:
+    from nucleosuite.plotting import plot_source_metadata_path
+    from nucleosuite.replot import parse_cli_args
+
+    path = tmp_path / "sample_percentile_boxplot.tsv"
+    _write(
+        path,
+        [
+            "row_type", "main_label", "comparison", "percentile_group",
+            "q1_absolute_distance", "median_absolute_distance", "q3_absolute_distance",
+            "whisker_low_absolute_distance", "whisker_high_absolute_distance",
+        ],
+        [["box", "PNS", "DANPOS", "0-25", 5, 10, 15, 1, 25]],
+    )
+    metadata = plot_source_metadata_path(path)
+    metadata.write_text(
+        "field\tvalue\n"
+        "detected_plot_type\tcompare-positions-percentile-boxplot\n"
+        "parameter.show_boxplot_outliers\tfalse\n"
+        "parameter.percentile_boxplot_y_max\t250\n",
+        encoding="utf-8",
+    )
+
+    args = parse_cli_args([str(path)])
+    assert args.show_boxplot_outliers is False
+    assert args.percentile_boxplot_y_max == 250.0
+
+    # Editing the sidecar changes the next replot defaults.
+    metadata.write_text(
+        "field\tvalue\n"
+        "detected_plot_type\tcompare-positions-percentile-boxplot\n"
+        "parameter.show_boxplot_outliers\ttrue\n"
+        "parameter.percentile_boxplot_y_max\t350\n",
+        encoding="utf-8",
+    )
+    edited = parse_cli_args([str(path)])
+    assert edited.show_boxplot_outliers is True
+    assert edited.percentile_boxplot_y_max == 350.0
+
+    # Explicit CLI arguments take precedence over metadata without changing it.
+    overridden = parse_cli_args([
+        str(path), "--hide-boxplot-outliers", "--percentile-boxplot-y-max", "450",
+    ])
+    assert overridden.show_boxplot_outliers is False
+    assert overridden.percentile_boxplot_y_max == 450.0
+    assert "parameter.percentile_boxplot_y_max\t350" in metadata.read_text(encoding="utf-8")
+
+
+def test_compare_score_signal_source_replots_without_distance_controls(tmp_path: Path) -> None:
+    from nucleosuite.replot import parse_cli_args
+
+    path = tmp_path / "sample_Coverage_score_agreement.tsv"
+    _write(
+        path,
+        [
+            "main_label", "comparison", "score_comparator_type", "score_bigwig",
+            "score_sampling_position", "main_score_plot", "compare_score_plot",
+            "main_score_axis_label", "compare_score_axis_label", "plot_score_normalization",
+            "plot_score_z_limit", "plot_correlation_method", "full_observation_count",
+            "full_spearman", "full_spearman_p_value", "full_pearson", "full_pearson_p_value",
+            "full_linear_r_squared",
+        ],
+        [
+            ["PNS", "Coverage", "bigwig", "coverage.bw", "main summit", -1, -0.5, "score z-score", "value z-score", "zscore", 10, "spearman", 100, 0.7, 1e-5, 0.6, 1e-4, 0.36],
+            ["PNS", "Coverage", "bigwig", "coverage.bw", "main summit", 0, 0.1, "score z-score", "value z-score", "zscore", 10, "spearman", 100, 0.7, 1e-5, 0.6, 1e-4, 0.36],
+            ["PNS", "Coverage", "bigwig", "coverage.bw", "main summit", 1, 0.9, "score z-score", "value z-score", "zscore", 10, "spearman", 100, 0.7, 1e-5, 0.6, 1e-4, 0.36],
+        ],
+    )
+    args = parse_cli_args([str(path), "--output", str(tmp_path / "signal.png")])
+    assert args._detected_plot_type == "compare-positions-score-signal"
+    # Distance-colour controls are deliberately not part of this score-only plot family.
+    assert not hasattr(args, "score_agreement_distance_max") or args.score_agreement_distance_max == 100.0
+    output = tmp_path / "signal.png"
+    assert main([str(path), "--output", str(output)]) == 0
+    assert output.exists() and output.stat().st_size > 1000

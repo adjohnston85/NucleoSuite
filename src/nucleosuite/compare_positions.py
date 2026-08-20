@@ -102,6 +102,33 @@ class ComparisonSpec:
     path: Path
 
 
+@dataclass(frozen=True)
+class ScoreBigWigSpec:
+    """One BigWig sampled at main-callset summit positions for score comparison."""
+
+    label: str
+    path: Path
+
+
+@dataclass(frozen=True)
+class ScoreBigWigArrays:
+    """Main BED scores paired with BigWig values at the same main summits."""
+
+    label: str
+    path: Path
+    main_scores: np.ndarray
+    compare_scores: np.ndarray
+    main_summit: np.ndarray
+    main_line: np.ndarray
+    chrom_names: tuple[str, ...]
+    chrom_code: np.ndarray
+    missing_or_nonfinite_as_zero: int = 0
+
+    @property
+    def pair_count(self) -> int:
+        return int(self.main_scores.size)
+
+
 @dataclass
 class ComparisonArrays:
     label: str
@@ -147,8 +174,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="nucleosuite compare-positions",
         description=(
-            "Compare one main nucleosome BED with one or more comparison BEDs. "
-            "Each comparison is matched once using the smaller callset as the query, "
+            "Compare one main nucleosome BED with one or more comparison BEDs and optional score BigWigs. "
+            "Each BED comparison is matched once using the smaller callset as the query, "
             "with one-to-one unique matching. Matched pairs are ranked by the main "
             "BED score and divided into percentile groups (quartiles by default)."
         ),
@@ -167,6 +194,18 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Comparison BED. Repeat for multiple callsets. Prefix a path with LABEL= "
             "to set its plot/legend label; otherwise the basename is used."
+        ),
+    )
+    parser.add_argument(
+        "--score-bigwig",
+        dest="score_bigwigs",
+        action="append",
+        default=[],
+        metavar="[LABEL=]BIGWIG",
+        help=(
+            "BigWig sampled at every retained main-callset summit and used as a score-only "
+            "comparator. Repeat for multiple tracks. These comparators appear in score-agreement "
+            "outputs only and are excluded from all distance-dependent analyses."
         ),
     )
     # Backward-compatible two-file aliases. They are intentionally omitted from
@@ -230,7 +269,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--score-normalization", choices=("raw", "zscore", "percentile"), default="zscore",
-        help="Score representation for main-vs-comparison score-agreement plots (default: zscore).",
+        help="Score/value representation for main-vs-comparison score-agreement plots (default: zscore).",
     )
     parser.add_argument(
         "--score-correlation", choices=("spearman", "pearson", "both"), default="spearman",
@@ -239,18 +278,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--score-z-limit", type=float, default=10.0,
         help="Symmetric score z-axis limit for score-agreement plots; 0 disables (default: 10).",
-    )
-    parser.add_argument(
-        "--score-distance-type", choices=("absolute", "signed"), default="absolute",
-        help="Distance used for main-score-versus-distance plots (default: absolute).",
-    )
-    parser.add_argument(
-        "--score-distance-correlation", choices=("spearman", "pearson", "both"), default="spearman",
-        help="Correlation displayed for main peak score versus matched distance (default: spearman).",
-    )
-    parser.add_argument(
-        "--score-distance-plot", choices=("hexbin", "scatter"), default="hexbin",
-        help="Rendering for main-score-versus-distance plots (default: hexbin).",
     )
     parser.add_argument(
         "--plot-max-points", type=int, default=200000,
@@ -263,20 +290,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     outliers = parser.add_mutually_exclusive_group()
     outliers.add_argument(
-        "--show-boxplot-outliers", dest="show_boxplot_outliers", action="store_true", default=True,
-        help="Show boxplot outlier points beyond the 1.5×IQR whiskers (default: shown).",
+        "--show-boxplot-outliers", dest="show_boxplot_outliers", action="store_true", default=False,
+        help="Show boxplot outlier points beyond the 1.5×IQR whiskers (default: hidden).",
     )
     outliers.add_argument(
         "--hide-boxplot-outliers", dest="show_boxplot_outliers", action="store_false",
-        help="Hide boxplot outlier points while retaining the standard 1.5×IQR whiskers.",
+        help="Hide boxplot outlier points while retaining the standard 1.5×IQR whiskers (default).",
     )
     parser.add_argument(
         "--score-agreement-distance-max", type=float, default=100.0,
-        help="Upper colour-scale limit for absolute summit distance in score-agreement plots; 0 uses the data maximum (default: 100).",
-    )
-    parser.add_argument(
-        "--score-distance-y-max", type=float, default=0.0,
-        help="Optional displayed upper y-axis limit for absolute main-score-versus-distance plots; 0 uses the data range (default: 0).",
+        help="Upper colour-scale limit for absolute summit distance in BED-comparison score-agreement plots; ignored for --score-bigwig comparators (default: 100).",
     )
     parser.add_argument(
         "--stats", action="store_true",
@@ -301,9 +324,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--write-detail-tables", action="store_true",
         help=(
-            "Write large record-level supporting tables: one matched-pair TSV per "
-            "comparison and the combined percentile-distance TSV. These files are "
-            "omitted by default."
+            "Write large record-level supporting tables: one matched-pair TSV per BED "
+            "comparison, the combined percentile-distance TSV, and one per-main-position "
+            "score table for each --score-bigwig. These files are omitted by default."
         ),
     )
     parser.add_argument(
@@ -331,7 +354,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _default_label(path: str | Path) -> str:
     name = Path(path).name
-    for suffix in (".bed.gz", ".bed.bgz", ".bigBed", ".bigbed", ".bed", ".bb", ".gz"):
+    for suffix in (".bed.gz", ".bed.bgz", ".bigBed", ".bigbed", ".bigWig", ".bigwig", ".bed", ".bb", ".bw", ".gz"):
         if name.endswith(suffix):
             return name[: -len(suffix)]
     return Path(name).stem
@@ -353,6 +376,23 @@ def _parse_compare_spec(value: str) -> ComparisonSpec:
         label = _default_label(path_text)
     path = Path(path_text)
     return ComparisonSpec(label=label, path=path)
+
+
+def _parse_score_bigwig_spec(value: str) -> ScoreBigWigSpec:
+    if "=" in value:
+        label, path_text = value.split("=", 1)
+        label = label.strip()
+        if not label:
+            raise ValueError("--score-bigwig LABEL=BIGWIG requires a non-empty label.")
+    else:
+        path_text = value
+        label = _default_label(path_text)
+    path = Path(path_text)
+    return ScoreBigWigSpec(label=label, path=path)
+
+
+def _resolve_score_bigwigs(args: argparse.Namespace) -> list[ScoreBigWigSpec]:
+    return [_parse_score_bigwig_spec(str(value)) for value in (getattr(args, "score_bigwigs", None) or [])]
 
 
 def _resolve_inputs(args: argparse.Namespace) -> tuple[Path, list[ComparisonSpec]]:
@@ -381,10 +421,11 @@ def _resolve_inputs(args: argparse.Namespace) -> tuple[Path, list[ComparisonSpec
     args.main_bed = str(main_spec.path)
 
     specs = [_parse_compare_spec(str(value)) for value in compare_values]
-    labels = [spec.label for spec in specs]
+    score_specs = _resolve_score_bigwigs(args)
+    labels = [spec.label for spec in specs] + [spec.label for spec in score_specs]
     if len(labels) != len(set(labels)):
         duplicates = sorted({label for label in labels if labels.count(label) > 1})
-        raise ValueError("Comparison labels must be unique: " + ", ".join(duplicates))
+        raise ValueError("Comparison labels must be unique across --compare-bed and --score-bigwig: " + ", ".join(duplicates))
     return main_spec.path, specs
 
 
@@ -407,8 +448,6 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--percentile-boxplot-y-max must be finite and zero or greater.")
     if not math.isfinite(float(args.score_agreement_distance_max)) or float(args.score_agreement_distance_max) < 0:
         raise ValueError("--score-agreement-distance-max must be finite and zero or greater.")
-    if not math.isfinite(float(args.score_distance_y_max)) or float(args.score_distance_y_max) < 0:
-        raise ValueError("--score-distance-y-max must be finite and zero or greater.")
     for value, option in (
         (args.main_score_column, "--main-score-column"),
         (args.compare_score_column, "--compare-score-column"),
@@ -561,6 +600,116 @@ def read_compact_positions(
     if progress is not None:
         progress.file_complete(source, input_path, count)
     return CompactPeakSet(input_path, source, by_chrom, count, excluded)
+
+
+_BIGWIG_SCORE_CHUNK_BP = 2_000_000
+
+
+def _sample_score_bigwig(
+    main: CompactPeakSet,
+    spec: ScoreBigWigSpec,
+    *,
+    progress: ProgressReporter | None = None,
+) -> ScoreBigWigArrays:
+    """Sample one BigWig at retained main-callset summit coordinates.
+
+    Missing/non-finite BigWig values, absent contigs and out-of-range summit
+    coordinates are represented as zero, matching the suite's existing BigWig
+    missing-value convention. The BigWig is read in bounded genomic chunks so
+    whole chromosomes are never materialised in memory.
+    """
+
+    try:
+        import pyBigWig
+    except ImportError as exc:  # pragma: no cover - dependency declared by package
+        raise RuntimeError("pyBigWig is required for --score-bigwig.") from exc
+
+    if not spec.path.exists():
+        raise FileNotFoundError(spec.path)
+    handle = pyBigWig.open(str(spec.path))
+    if handle is None:
+        raise RuntimeError(f"Could not open BigWig: {spec.path}")
+    try:
+        if hasattr(handle, "isBigWig") and not handle.isBigWig():
+            raise ValueError(f"--score-bigwig input is not a BigWig file: {spec.path}")
+        chrom_sizes = {str(name): int(length) for name, length in handle.chroms().items()}
+        aliases: dict[str, list[str]] = {}
+        for name in chrom_sizes:
+            aliases.setdefault(canonical_contig_key(name), []).append(name)
+
+        score_parts: list[np.ndarray] = []
+        main_score_parts: list[np.ndarray] = []
+        summit_parts: list[np.ndarray] = []
+        line_parts: list[np.ndarray] = []
+        chrom_code_parts: list[np.ndarray] = []
+        chrom_names = tuple(chrom.name for chrom in main.by_chrom.values())
+        missing_or_nonfinite = 0
+
+        for chrom_number, (key, chrom) in enumerate(main.by_chrom.items()):
+            if progress is not None:
+                progress.contig(
+                    f"Sampling score BigWig {spec.label}",
+                    chrom.name, chrom_number + 1, len(main.by_chrom), chrom.count,
+                )
+            values = np.zeros(chrom.count, dtype=np.float64)
+            source_chrom: str | None = None
+            if chrom.name in chrom_sizes:
+                source_chrom = chrom.name
+            else:
+                matches = aliases.get(canonical_contig_key(chrom.name), [])
+                if len(matches) == 1:
+                    source_chrom = matches[0]
+            if source_chrom is None:
+                missing_or_nonfinite += chrom.count
+            else:
+                chrom_length = chrom_sizes[source_chrom]
+                summits = chrom.summits
+                valid = (summits >= 0) & (summits < chrom_length)
+                missing_or_nonfinite += int((~valid).sum())
+                valid_indices = np.flatnonzero(valid)
+                cursor = 0
+                while cursor < valid_indices.size:
+                    first_index = int(valid_indices[cursor])
+                    first_summit = int(summits[first_index])
+                    chunk_start = (first_summit // _BIGWIG_SCORE_CHUNK_BP) * _BIGWIG_SCORE_CHUNK_BP
+                    chunk_end = min(chrom_length, chunk_start + _BIGWIG_SCORE_CHUNK_BP)
+                    stop = cursor
+                    while stop < valid_indices.size and int(summits[int(valid_indices[stop])]) < chunk_end:
+                        stop += 1
+                    indices = valid_indices[cursor:stop]
+                    raw = np.asarray(
+                        handle.values(source_chrom, int(chunk_start), int(chunk_end), numpy=True),
+                        dtype=np.float64,
+                    )
+                    offsets = summits[indices] - int(chunk_start)
+                    sampled = raw[offsets.astype(np.int64)]
+                    finite = np.isfinite(sampled)
+                    missing_or_nonfinite += int((~finite).sum())
+                    values[indices] = np.where(finite, sampled, 0.0)
+                    cursor = stop
+
+            score_parts.append(values)
+            main_score_parts.append(chrom.scores.astype(np.float64, copy=False))
+            summit_parts.append(chrom.summits.astype(np.int64, copy=False))
+            line_parts.append(chrom.indices.astype(np.int64, copy=False))
+            chrom_code_parts.append(np.full(chrom.count, chrom_number, dtype=np.uint32))
+
+        def concat(parts: list[np.ndarray], dtype) -> np.ndarray:
+            return np.concatenate(parts).astype(dtype, copy=False) if parts else np.asarray([], dtype=dtype)
+
+        return ScoreBigWigArrays(
+            label=spec.label,
+            path=spec.path,
+            main_scores=concat(main_score_parts, np.float64),
+            compare_scores=concat(score_parts, np.float64),
+            main_summit=concat(summit_parts, np.int64),
+            main_line=concat(line_parts, np.int64),
+            chrom_names=chrom_names,
+            chrom_code=concat(chrom_code_parts, np.uint32),
+            missing_or_nonfinite_as_zero=int(missing_or_nonfinite),
+        )
+    finally:
+        handle.close()
 
 
 def _coordinate_groups(values: np.ndarray) -> list[tuple[int, int, int]]:
@@ -887,12 +1036,18 @@ def _percentile_ranks(values: np.ndarray) -> np.ndarray:
     return 100.0 * (ranks - 1.0) / (values.size - 1.0)
 
 
-def _selected_scores(result: ComparisonArrays, normalization: str) -> tuple[np.ndarray, np.ndarray, str]:
+def _selected_score_arrays(
+    main_scores: np.ndarray, compare_scores: np.ndarray, normalization: str
+) -> tuple[np.ndarray, np.ndarray, str]:
     if normalization == "raw":
-        return result.main_scores, result.compare_scores, "raw score"
+        return main_scores, compare_scores, "raw score"
     if normalization == "percentile":
-        return _percentile_ranks(result.main_scores), _percentile_ranks(result.compare_scores), "score percentile rank"
-    return _zscores(result.main_scores), _zscores(result.compare_scores), "score z-score"
+        return _percentile_ranks(main_scores), _percentile_ranks(compare_scores), "score percentile rank"
+    return _zscores(main_scores), _zscores(compare_scores), "score z-score"
+
+
+def _selected_scores(result: ComparisonArrays, normalization: str) -> tuple[np.ndarray, np.ndarray, str]:
+    return _selected_score_arrays(result.main_scores, result.compare_scores, normalization)
 
 
 def _safe_corr(x: np.ndarray, y: np.ndarray, method: str) -> tuple[float, float]:
@@ -953,7 +1108,7 @@ def _distance_label(lower: float | None, upper: float | None) -> str:
     return f"{fmt(lower)}-{fmt(upper)}"
 
 
-def _distance_bin_rows(result: ComparisonArrays, normalization: str, bounds: Sequence[float]) -> list[dict[str, object]]:
+def _distance_bin_rows(result: ComparisonArrays, main_label: str, normalization: str, bounds: Sequence[float]) -> list[dict[str, object]]:
     main_scores, compare_scores, score_label = _selected_scores(result, normalization)
     rows: list[dict[str, object]] = []
     lower: float | None = None
@@ -969,6 +1124,7 @@ def _distance_bin_rows(result: ComparisonArrays, normalization: str, bounds: Seq
         spearman, _ = _safe_corr(x, y, "spearman")
         pearson, _ = _safe_corr(x, y, "pearson")
         rows.append({
+            "main_label": main_label,
             "comparison": result.label,
             "distance_bin": _distance_label(lower, upper),
             "lower_exclusive": "" if lower is None else lower,
@@ -982,7 +1138,7 @@ def _distance_bin_rows(result: ComparisonArrays, normalization: str, bounds: Seq
     return rows
 
 
-def _histogram_rows(result: ComparisonArrays, x_min: float, x_max: float, width: float) -> list[dict[str, object]]:
+def _histogram_rows(result: ComparisonArrays, main_label: str, x_min: float, x_max: float, width: float) -> list[dict[str, object]]:
     edges = np.arange(float(x_min), float(x_max) + float(width), float(width), dtype=float)
     if edges[-1] < float(x_max):
         edges = np.append(edges, float(x_max))
@@ -991,6 +1147,7 @@ def _histogram_rows(result: ComparisonArrays, x_min: float, x_max: float, width:
     total = max(1, int(result.pair_count))
     for index, count in enumerate(counts):
         rows.append({
+            "main_label": main_label,
             "comparison": result.label,
             "bin_start_inclusive": edges[index],
             "bin_end_exclusive": edges[index + 1],
@@ -1026,7 +1183,7 @@ def _write_pairs(path: Path, result: ComparisonArrays, main_label: str, args: ar
         "compare_summit", "compare_score", "compare_score_normalized", "compare_line_number",
         "signed_distance_compare_minus_main", "absolute_distance", "main_score_percentile", "percentile_group",
         "plot_selected", "plot_score_normalization", "plot_score_z_limit", "plot_correlation_method",
-        "plot_score_agreement_distance_max", "plot_score_distance_y_max", "plot_label_a", "plot_label_b",
+        "plot_score_agreement_distance_max", "plot_label_a", "plot_label_b",
     ]
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as handle:
@@ -1058,7 +1215,6 @@ def _write_pairs(path: Path, result: ComparisonArrays, main_label: str, args: ar
                 "plot_score_z_limit": args.score_z_limit,
                 "plot_correlation_method": args.score_correlation,
                 "plot_score_agreement_distance_max": args.score_agreement_distance_max,
-                "plot_score_distance_y_max": args.score_distance_y_max,
                 "plot_label_a": main_label,
                 "plot_label_b": result.label,
             })
@@ -1118,6 +1274,82 @@ def _percentile_summary_rows(results: Sequence[ComparisonArrays], interval: int)
                 "maximum_absolute_distance": maximum,
             })
     return rows
+
+
+def _percentile_trend_rows(
+    results: Sequence[ComparisonArrays],
+    main_label: str,
+) -> list[dict[str, object]]:
+    """Summarise absolute matched distance in one-percent main-score bins."""
+
+    rows: list[dict[str, object]] = []
+    for result in results:
+        for percentile in range(1, 101):
+            values = result.absolute_distance[result.percentile == percentile]
+            finite = values[np.isfinite(values)]
+            if finite.size:
+                q25, median, q75 = np.percentile(finite, [25, 50, 75])
+            else:
+                q25 = median = q75 = math.nan
+            rows.append({
+                "main_label": main_label,
+                "comparison": result.label,
+                "percentile": percentile,
+                "matched_pair_count": int(finite.size),
+                "q25_absolute_distance": float(q25),
+                "median_absolute_distance": float(median),
+                "q75_absolute_distance": float(q75),
+            })
+    return rows
+
+
+def _plot_percentile_trend(
+    prefix: Path,
+    rows: Sequence[dict[str, object]],
+    results: Sequence[ComparisonArrays],
+    main_label: str,
+    args: argparse.Namespace,
+) -> Path:
+    """Plot median absolute distance in 1% score bins with IQR ribbons."""
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from nucleosuite.plotting import plot_path, save_figure
+
+    colors = _comparison_colors(len(results))
+    figure, axis = plt.subplots(figsize=(9.0, 5.8))
+
+    # Draw all uncertainty ribbons first so every comparison's main line sits
+    # above every ribbon, not only above its own ribbon.
+    prepared: list[tuple[ComparisonArrays, object, np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = []
+    for result, color in zip(results, colors):
+        subset = [row for row in rows if row["comparison"] == result.label]
+        x = np.asarray([float(row["percentile"]) for row in subset], dtype=float)
+        median = np.asarray([float(row["median_absolute_distance"]) for row in subset], dtype=float)
+        q25 = np.asarray([float(row["q25_absolute_distance"]) for row in subset], dtype=float)
+        q75 = np.asarray([float(row["q75_absolute_distance"]) for row in subset], dtype=float)
+        prepared.append((result, color, x, median, q25, q75))
+        mask = np.isfinite(x) & np.isfinite(q25) & np.isfinite(q75)
+        if np.any(mask):
+            axis.fill_between(x[mask], q25[mask], q75[mask], color=color, alpha=0.18, linewidth=0, zorder=1)
+
+    for result, color, x, median, _q25, _q75 in prepared:
+        mask = np.isfinite(x) & np.isfinite(median)
+        if np.any(mask):
+            axis.plot(x[mask], median[mask], color=color, linewidth=1.8, label=result.label, zorder=3)
+
+    axis.set_xlim(1, 100)
+    axis.set_ylim(bottom=0)
+    axis.set_xlabel(f"{main_label} peak score percentile")
+    axis.set_ylabel("Median absolute matched distance (bp)")
+    axis.set_title(f"Matched distance across {main_label} score percentiles")
+    axis.legend(frameon=False)
+    figure.tight_layout()
+    output = plot_path(Path(f"{prefix}_percentile_distance_trend.png"))
+    output = save_figure(figure, output, default_dpi=args.dpi)
+    plt.close(figure)
+    return output
 
 
 def _boxplot_stats(values: np.ndarray) -> tuple[dict[str, float], np.ndarray]:
@@ -1353,28 +1585,6 @@ def _pairwise_statistics(results: Sequence[ComparisonArrays], interval: int, fam
     return rows
 
 
-def _score_distance_stats(result: ComparisonArrays, distance_type: str) -> dict[str, object]:
-    y = result.absolute_distance if distance_type == "absolute" else result.signed_distance.astype(float)
-    spearman, spearman_p = _safe_corr(result.main_scores, y, "spearman")
-    pearson, pearson_p = _safe_corr(result.main_scores, y, "pearson")
-    slope, intercept, r2, regression_p = _linear_stats(result.main_scores, y)
-    return {
-        "comparison": result.label,
-        "matched_pair_count": result.pair_count,
-        "distance_type": distance_type,
-        "spearman_rho": spearman,
-        "spearman_p_value": spearman_p,
-        "pearson_r": pearson,
-        "pearson_p_value": pearson_p,
-        "linear_slope_bp_per_score_unit": slope,
-        "linear_intercept": intercept,
-        "linear_r_squared": r2,
-        "linear_slope_p_value": regression_p,
-        "median_absolute_distance": float(np.median(result.absolute_distance)) if result.pair_count else math.nan,
-        "mean_absolute_distance": float(np.mean(result.absolute_distance)) if result.pair_count else math.nan,
-    }
-
-
 def _summary_row(result: ComparisonArrays, main_path: Path, main_label: str) -> dict[str, object]:
     score_spearman, score_spearman_p = _safe_corr(result.main_scores, result.compare_scores, "spearman")
     score_pearson, score_pearson_p = _safe_corr(result.main_scores, result.compare_scores, "pearson")
@@ -1382,7 +1592,12 @@ def _summary_row(result: ComparisonArrays, main_path: Path, main_label: str) -> 
         "main_label": main_label,
         "main_bed": str(main_path),
         "comparison": result.label,
+        "comparison_type": "BED positional callset",
         "compare_bed": str(result.path),
+        "compare_bigwig": "",
+        "score_sampling_position": "matched BED summits",
+        "score_observation_count": result.pair_count,
+        "bigwig_missing_or_nonfinite_values_as_zero": "",
         "main_position_count": result.main_count,
         "compare_position_count": result.compare_count,
         "query_source": result.query_source,
@@ -1394,6 +1609,39 @@ def _summary_row(result: ComparisonArrays, main_path: Path, main_label: str) -> 
         "unmatched_query_unique_assignment": result.unmatched_unique,
         "median_absolute_distance": float(np.median(result.absolute_distance)) if result.pair_count else math.nan,
         "mean_absolute_distance": float(np.mean(result.absolute_distance)) if result.pair_count else math.nan,
+        "spearman_main_vs_compare_score": score_spearman,
+        "spearman_main_vs_compare_score_p_value": score_spearman_p,
+        "pearson_main_vs_compare_score": score_pearson,
+        "pearson_main_vs_compare_score_p_value": score_pearson_p,
+    }
+
+
+def _score_bigwig_summary_row(
+    result: ScoreBigWigArrays, main_path: Path, main_label: str, main_count: int
+) -> dict[str, object]:
+    score_spearman, score_spearman_p = _safe_corr(result.main_scores, result.compare_scores, "spearman")
+    score_pearson, score_pearson_p = _safe_corr(result.main_scores, result.compare_scores, "pearson")
+    return {
+        "main_label": main_label,
+        "main_bed": str(main_path),
+        "comparison": result.label,
+        "comparison_type": "BigWig score comparator",
+        "compare_bed": "",
+        "compare_bigwig": str(result.path),
+        "score_sampling_position": "main summit",
+        "score_observation_count": result.pair_count,
+        "bigwig_missing_or_nonfinite_values_as_zero": result.missing_or_nonfinite_as_zero,
+        "main_position_count": main_count,
+        "compare_position_count": "",
+        "query_source": "",
+        "query_position_count": "",
+        "target_position_count": "",
+        "matched_pair_count": "",
+        "unmatched_query_no_target_chromosome": "",
+        "unmatched_query_beyond_maximum_distance": "",
+        "unmatched_query_unique_assignment": "",
+        "median_absolute_distance": "",
+        "mean_absolute_distance": "",
         "spearman_main_vs_compare_score": score_spearman,
         "spearman_main_vs_compare_score_p_value": score_spearman_p,
         "pearson_main_vs_compare_score": score_pearson,
@@ -1437,51 +1685,125 @@ def _write_score_agreement_plot_source(
     return _write_tsv(path, rows)
 
 
-def _write_score_distance_plot_source(
+def _write_score_bigwig_plot_source(
     path: Path,
-    result: ComparisonArrays,
+    result: ScoreBigWigArrays,
     main_label: str,
     args: argparse.Namespace,
-    stats_row: Mapping[str, object],
 ) -> Path:
-    """Write the sampled score-distance points plus full-data fit statistics."""
+    """Write the sampled score-only points and full-data statistics needed for replotting."""
 
-    y_all = (
-        result.absolute_distance
-        if args.score_distance_type == "absolute"
-        else result.signed_distance.astype(float)
+    x_all, y_all, score_label = _selected_score_arrays(
+        result.main_scores, result.compare_scores, args.score_normalization
     )
     indices = _plot_indices(result.pair_count, args.plot_max_points, args.plot_seed)
+    spearman, spearman_p = _safe_corr(x_all, y_all, "spearman")
+    pearson, pearson_p = _safe_corr(x_all, y_all, "pearson")
+    _slope, _intercept, r2, _regression_p = _linear_stats(x_all, y_all)
+    main_axis_label = score_label
+    compare_axis_label = {
+        "raw": "value",
+        "percentile": "value percentile rank",
+        "zscore": "value z-score",
+    }[args.score_normalization]
     rows: list[dict[str, object]] = []
     for index in indices:
         rows.append({
             "main_label": main_label,
             "comparison": result.label,
-            "main_score": float(result.main_scores[index]),
-            "matched_distance": float(y_all[index]),
-            "distance_type": args.score_distance_type,
-            "plot_type": args.score_distance_plot,
-            "plot_score_distance_y_max": args.score_distance_y_max,
-            "full_matched_pair_count": result.pair_count,
-            "full_spearman_rho": stats_row.get("spearman_rho", math.nan),
-            "full_spearman_p_value": stats_row.get("spearman_p_value", math.nan),
-            "full_pearson_r": stats_row.get("pearson_r", math.nan),
-            "full_pearson_p_value": stats_row.get("pearson_p_value", math.nan),
-            "full_linear_slope": stats_row.get("linear_slope_bp_per_score_unit", math.nan),
-            "full_linear_intercept": stats_row.get("linear_intercept", math.nan),
-            "full_linear_r_squared": stats_row.get("linear_r_squared", math.nan),
-            "full_linear_slope_p_value": stats_row.get("linear_slope_p_value", math.nan),
+            "score_comparator_type": "bigwig",
+            "score_bigwig": str(result.path),
+            "score_sampling_position": "main summit",
+            "main_score_plot": float(x_all[index]),
+            "compare_score_plot": float(y_all[index]),
+            "main_score_axis_label": main_axis_label,
+            "compare_score_axis_label": compare_axis_label,
+            "plot_score_normalization": args.score_normalization,
+            "plot_score_z_limit": args.score_z_limit,
+            "plot_correlation_method": args.score_correlation,
+            "full_observation_count": result.pair_count,
+            "full_spearman": spearman,
+            "full_spearman_p_value": spearman_p,
+            "full_pearson": pearson,
+            "full_pearson_p_value": pearson_p,
+            "full_linear_r_squared": r2,
+            "missing_or_nonfinite_bigwig_values_as_zero": result.missing_or_nonfinite_as_zero,
         })
     return _write_tsv(path, rows)
 
 
-def _attach_plot_source(plot_path_value: Path, source_table: Path, plot_type: str) -> None:
+def _write_score_bigwig_detail(
+    path: Path, result: ScoreBigWigArrays, main_label: str
+) -> Path:
+    fields = [
+        "main_label", "comparison", "chrom", "main_summit", "main_line_number",
+        "main_score", "bigwig_value",
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields, delimiter="\t")
+        writer.writeheader()
+        for index in range(result.pair_count):
+            writer.writerow({
+                "main_label": main_label,
+                "comparison": result.label,
+                "chrom": result.chrom_names[int(result.chrom_code[index])],
+                "main_summit": int(result.main_summit[index]),
+                "main_line_number": int(result.main_line[index]),
+                "main_score": float(result.main_scores[index]),
+                "bigwig_value": float(result.compare_scores[index]),
+            })
+    return path
+
+
+def _plot_score_bigwig_agreement(
+    prefix: Path, result: ScoreBigWigArrays, main_label: str, args: argparse.Namespace
+) -> Path:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from nucleosuite.plotting import plot_path, save_figure
+
+    x, y, score_label = _selected_score_arrays(result.main_scores, result.compare_scores, args.score_normalization)
+    indices = _plot_indices(result.pair_count, args.plot_max_points, args.plot_seed)
+    compare_axis_label = {
+        "raw": "value",
+        "percentile": "value percentile rank",
+        "zscore": "value z-score",
+    }[args.score_normalization]
+    figure, axis = plt.subplots(figsize=(7.5, 6.5))
+    axis.scatter(x[indices], y[indices], s=9, alpha=0.45, linewidths=0, rasterized=True)
+    if args.score_normalization == "zscore" and float(args.score_z_limit) > 0:
+        axis.set_xlim(-float(args.score_z_limit), float(args.score_z_limit))
+        axis.set_ylim(-float(args.score_z_limit), float(args.score_z_limit))
+    axis.set_xlabel(f"{main_label} {score_label}")
+    axis.set_ylabel(f"{result.label} {compare_axis_label}")
+    axis.set_title("Score agreement")
+    annotation: list[str] = []
+    if args.score_correlation in {"spearman", "both"}:
+        coefficient, p_value = _safe_corr(x, y, "spearman")
+        annotation.append(f"Spearman ρ = {coefficient:.3f} (p={p_value:.3g})")
+    if args.score_correlation in {"pearson", "both"}:
+        coefficient, p_value = _safe_corr(x, y, "pearson")
+        annotation.append(f"Pearson r = {coefficient:.3f} (p={p_value:.3g})")
+    _slope, _intercept, r2, _p = _linear_stats(x, y)
+    annotation.append(f"R² = {r2:.3f}")
+    annotation.append(f"n = {result.pair_count:,}")
+    axis.text(0.02, 0.98, "\n".join(annotation), transform=axis.transAxes, va="top", ha="left")
+    figure.tight_layout()
+    output = plot_path(Path(f"{prefix}_{_safe_token(result.label)}_score_agreement.png"))
+    output = save_figure(figure, output, default_dpi=args.dpi)
+    plt.close(figure)
+    return output
+
+
+def _attach_plot_source(plot_path_value: Path, source_table: Path, plot_type: str, **extra: object) -> None:
     """Record the compact table that can recreate an original command plot."""
 
     from nucleosuite.plotting import write_plot_metadata
     write_plot_metadata(
         plot_path_value,
-        extra={"source_table": str(source_table), "detected_plot_type": plot_type},
+        extra={"source_table": str(source_table), "detected_plot_type": plot_type, **extra},
     )
 
 
@@ -1535,72 +1857,7 @@ def _plot_score_agreement(prefix: Path, result: ComparisonArrays, main_label: st
     return output
 
 
-def _plot_score_distance(prefix: Path, result: ComparisonArrays, main_label: str, args: argparse.Namespace, stats_row: dict[str, object]) -> Path:
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    from nucleosuite.plotting import plot_path, save_figure
-
-    y_all = result.absolute_distance if args.score_distance_type == "absolute" else result.signed_distance.astype(float)
-    indices = _plot_indices(result.pair_count, args.plot_max_points, args.plot_seed)
-    x = result.main_scores[indices]
-    y = y_all[indices]
-
-    # If a command-specific or shared y-range is explicitly requested, restrict
-    # plotting data before hexbin construction. This prevents bins spanning a
-    # much larger hidden distance range from appearing as full-height bands.
-    from nucleosuite.plotting import get_plot_options
-    plot_options = get_plot_options()
-    lower = plot_options.y_min
-    upper = plot_options.y_max
-    if args.score_distance_type == "absolute":
-        if lower is None:
-            lower = 0.0
-        if float(args.score_distance_y_max) > 0 and upper is None:
-            upper = float(args.score_distance_y_max)
-    mask = np.isfinite(x) & np.isfinite(y)
-    if lower is not None:
-        mask &= y >= float(lower)
-    if upper is not None:
-        mask &= y <= float(upper)
-    x = x[mask]
-    y = y[mask]
-
-    figure, axis = plt.subplots(figsize=(8.0, 6.0))
-    if args.score_distance_plot == "hexbin":
-        artist = axis.hexbin(x, y, gridsize=60, mincnt=1, bins="log", rasterized=True)
-        colorbar = figure.colorbar(artist, ax=axis)
-        colorbar.set_label("log10 plotted pair count")
-    else:
-        axis.scatter(x, y, s=7, alpha=0.35, linewidths=0, rasterized=True)
-    slope = float(stats_row["linear_slope_bp_per_score_unit"])
-    intercept = float(stats_row["linear_intercept"])
-    finite_x = result.main_scores[np.isfinite(result.main_scores)]
-    if finite_x.size and math.isfinite(slope) and math.isfinite(intercept):
-        endpoints = np.asarray([float(np.min(finite_x)), float(np.max(finite_x))])
-        axis.plot(endpoints, intercept + slope * endpoints, linestyle=":", linewidth=1.2, label="Linear fit")
-    axis.set_xlabel(f"{main_label} peak score")
-    axis.set_ylabel("Absolute matched distance (bp)" if args.score_distance_type == "absolute" else f"Signed {result.label} − {main_label} distance (bp)")
-    if lower is not None or upper is not None:
-        bottom, top = axis.get_ylim()
-        axis.set_ylim(bottom if lower is None else float(lower), top if upper is None else float(upper))
-    axis.set_title(f"{main_label} peak score versus distance: {result.label}")
-    annotation: list[str] = []
-    if args.score_distance_correlation in {"spearman", "both"}:
-        annotation.append(f"Spearman ρ = {float(stats_row['spearman_rho']):.3f} (p={float(stats_row['spearman_p_value']):.3g})")
-    if args.score_distance_correlation in {"pearson", "both"}:
-        annotation.append(f"Pearson r = {float(stats_row['pearson_r']):.3f} (p={float(stats_row['pearson_p_value']):.3g})")
-    annotation.append(f"Linear R² = {float(stats_row['linear_r_squared']):.3f}")
-    annotation.append(f"n = {result.pair_count:,}")
-    axis.text(0.02, 0.98, "\n".join(annotation), transform=axis.transAxes, va="top", ha="left")
-    figure.tight_layout()
-    output = plot_path(Path(f"{prefix}_{_safe_token(result.label)}_main_score_vs_distance.png"))
-    output = save_figure(figure, output, default_dpi=args.dpi)
-    plt.close(figure)
-    return output
-
-
-def _plot_distance_histograms(prefix: Path, results: Sequence[ComparisonArrays], args: argparse.Namespace) -> Path:
+def _plot_distance_histograms(prefix: Path, results: Sequence[ComparisonArrays], main_label: str, args: argparse.Namespace) -> Path:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -1618,7 +1875,7 @@ def _plot_distance_histograms(prefix: Path, results: Sequence[ComparisonArrays],
         centres = (resolved_edges[:-1] + resolved_edges[1:]) / 2.0
         axis.plot(centres, counts, label=result.label, color=color, linewidth=1.5)
     axis.set_xlim(float(args.histogram_x_min), float(args.histogram_x_max))
-    axis.set_xlabel("Signed summit distance, comparison − main (bp)")
+    axis.set_xlabel(f"Signed summit distance, comparison − {main_label} (bp)")
     axis.set_ylabel("Matched pairs")
     axis.set_title("Matched-position distance distributions")
     apply_distance_x_axis(
@@ -1635,7 +1892,7 @@ def _plot_distance_histograms(prefix: Path, results: Sequence[ComparisonArrays],
     return output
 
 
-def _plot_correlation_by_distance(prefix: Path, rows: Sequence[dict[str, object]], results: Sequence[ComparisonArrays], args: argparse.Namespace) -> Path:
+def _plot_correlation_by_distance(prefix: Path, rows: Sequence[dict[str, object]], results: Sequence[ComparisonArrays], main_label: str, args: argparse.Namespace) -> Path:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -1670,7 +1927,7 @@ def _plot_correlation_by_distance(prefix: Path, rows: Sequence[dict[str, object]
         axis.set_xticks(np.arange(len(labels)), labels, rotation=35, ha="right")
     axis.set_ylim(-1.05, 1.05)
     axis.set_xlabel("Absolute summit-distance bin (bp)")
-    axis.set_ylabel("Main/comparison score correlation")
+    axis.set_ylabel(f"{main_label}/comparison score correlation")
     axis.set_title("Score correlation by summit-distance bin")
     axis.legend(frameon=False)
     figure.tight_layout()
@@ -1771,6 +2028,7 @@ def _plot_percentile_boxplot(
 def run_comparison(args: argparse.Namespace) -> dict[str, Path]:
     _validate_args(args)
     main_path, specs = _resolve_inputs(args)
+    score_bigwig_specs = _resolve_score_bigwigs(args)
     reporter = ProgressReporter("compare-positions", quiet=bool(getattr(args, "quiet", False)))
     reporter.stage("Reading main nucleosome positions")
 
@@ -1787,10 +2045,10 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Path]:
     prefix.parent.mkdir(parents=True, exist_ok=True)
 
     results: list[ComparisonArrays] = []
+    score_bigwig_results: list[ScoreBigWigArrays] = []
     summary_rows: list[dict[str, object]] = []
     histogram_rows: list[dict[str, object]] = []
     correlation_rows: list[dict[str, object]] = []
-    score_distance_rows: list[dict[str, object]] = []
     percentile_path = Path(f"{prefix}_percentile_distances.tsv")
     outputs: dict[str, Path] = {}
     bounds = _parse_distance_bins(args.distance_bins)
@@ -1819,14 +2077,11 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Path]:
         summary["blacklist_overlapping_compare_records_excluded"] = compare_records.excluded_blacklist
         summary_rows.append(summary)
         histogram_rows.extend(
-            _histogram_rows(arrays, args.histogram_x_min, args.histogram_x_max, args.histogram_bin_width)
+            _histogram_rows(arrays, main_label, args.histogram_x_min, args.histogram_x_max, args.histogram_bin_width)
         )
-        correlation_rows.extend(_distance_bin_rows(arrays, args.score_normalization, bounds))
+        correlation_rows.extend(_distance_bin_rows(arrays, main_label, args.score_normalization, bounds))
         if args.write_detail_tables:
             _append_percentile_rows(percentile_path, arrays, main_label, write_header=(index == 1))
-        sd_stats = _score_distance_stats(arrays, args.score_distance_type)
-        sd_stats["main_label"] = main_label
-        score_distance_rows.append(sd_stats)
 
         token = _safe_token(spec.label)
         if args.write_detail_tables and not args.skip_pairs_tsv:
@@ -1837,35 +2092,52 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Path]:
         # Retain only the plotted sample plus full-data statistics so both
         # per-comparison figures remain reproducible without the huge pair TSV.
         score_agreement_source = Path(f"{prefix}_{token}_score_agreement.tsv.gz")
-        score_distance_source = Path(f"{prefix}_{token}_main_score_vs_distance.tsv.gz")
         _write_score_agreement_plot_source(score_agreement_source, arrays, main_label, args)
-        _write_score_distance_plot_source(score_distance_source, arrays, main_label, args, sd_stats)
         outputs[f"score_agreement_source_{token}"] = score_agreement_source
-        outputs[f"score_distance_source_{token}"] = score_distance_source
 
         score_agreement_plot = _plot_score_agreement(prefix, arrays, main_label, args)
-        score_distance_plot = _plot_score_distance(prefix, arrays, main_label, args, sd_stats)
-        _attach_plot_source(score_agreement_plot, score_agreement_source, "compare-positions-score")
-        _attach_plot_source(score_distance_plot, score_distance_source, "compare-positions-score-distance")
+        _attach_plot_source(score_agreement_plot, score_agreement_source, "compare-positions-score", main_label=main_label)
         outputs[f"score_agreement_plot_{token}"] = score_agreement_plot
-        outputs[f"score_distance_plot_{token}"] = score_distance_plot
+
+    for index, spec in enumerate(score_bigwig_specs, start=1):
+        reporter.stage(f"Score BigWig {index}/{len(score_bigwig_specs)}: {spec.label}")
+        arrays = _sample_score_bigwig(main_records, spec, progress=reporter)
+        score_bigwig_results.append(arrays)
+        summary_rows.append(_score_bigwig_summary_row(arrays, main_path, main_label, main_records.count))
+        token = _safe_token(spec.label)
+        if args.write_detail_tables:
+            detail_path = Path(f"{prefix}_{token}_score_bigwig_values.tsv")
+            _write_score_bigwig_detail(detail_path, arrays, main_label)
+            outputs[f"score_bigwig_values_{token}"] = detail_path
+
+        score_source = Path(f"{prefix}_{token}_score_agreement.tsv.gz")
+        _write_score_bigwig_plot_source(score_source, arrays, main_label, args)
+        outputs[f"score_agreement_source_{token}"] = score_source
+        score_plot = _plot_score_bigwig_agreement(prefix, arrays, main_label, args)
+        _attach_plot_source(
+            score_plot, score_source, "compare-positions-score-signal",
+            main_label=main_label, comparison_label=arrays.label,
+            score_comparator_type="bigwig", score_sampling_position="main summit",
+        )
+        outputs[f"score_agreement_plot_{token}"] = score_plot
 
     summary_path = Path(f"{prefix}_summary.tsv")
     histogram_path = Path(f"{prefix}_distance_histogram.tsv")
     correlation_path = Path(f"{prefix}_correlation_by_distance.tsv")
     percentile_summary_path = Path(f"{prefix}_percentile_summary.tsv")
-    score_distance_path = Path(f"{prefix}_main_score_vs_distance_statistics.tsv")
     _write_tsv(summary_path, summary_rows)
     _write_tsv(histogram_path, histogram_rows)
     _write_tsv(correlation_path, correlation_rows)
     _write_tsv(percentile_summary_path, _percentile_summary_rows(results, args.percentile_interval))
-    _write_tsv(score_distance_path, score_distance_rows)
+    percentile_trend_path = Path(f"{prefix}_percentile_distance_trend.tsv")
+    percentile_trend_rows = _percentile_trend_rows(results, main_label)
+    _write_tsv(percentile_trend_path, percentile_trend_rows)
     outputs.update({
         "summary": summary_path,
         "distance_histogram": histogram_path,
         "correlation_by_distance": correlation_path,
         "percentile_summary": percentile_summary_path,
-        "score_distance_statistics": score_distance_path,
+        "percentile_distance_trend": percentile_trend_path,
     })
     if args.write_detail_tables:
         outputs["percentile_distances"] = percentile_path
@@ -1891,25 +2163,35 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Path]:
     )
     outputs["percentile_boxplot_source"] = percentile_boxplot_source
 
-    distance_histogram_plot = _plot_distance_histograms(prefix, results, args)
+    distance_histogram_plot = _plot_distance_histograms(prefix, results, main_label, args)
     correlation_by_distance_plot = _plot_correlation_by_distance(
-        prefix, correlation_rows, results, args
+        prefix, correlation_rows, results, main_label, args
     )
     percentile_boxplot = _plot_percentile_boxplot(
         prefix, results, main_label, args.percentile_interval, statistics_rows, args
     )
-    _attach_plot_source(distance_histogram_plot, histogram_path, "compare-positions-histogram")
-    _attach_plot_source(correlation_by_distance_plot, correlation_path, "compare-positions-correlation")
-    _attach_plot_source(percentile_boxplot, percentile_boxplot_source, "compare-positions-percentile-boxplot")
+    percentile_trend_plot = _plot_percentile_trend(
+        prefix, percentile_trend_rows, results, main_label, args
+    )
+    _attach_plot_source(distance_histogram_plot, histogram_path, "compare-positions-histogram", main_label=main_label)
+    _attach_plot_source(correlation_by_distance_plot, correlation_path, "compare-positions-correlation", main_label=main_label)
+    _attach_plot_source(percentile_boxplot, percentile_boxplot_source, "compare-positions-percentile-boxplot", main_label=main_label)
+    _attach_plot_source(percentile_trend_plot, percentile_trend_path, "compare-positions-percentile-trend", main_label=main_label)
     outputs["distance_histogram_plot"] = distance_histogram_plot
     outputs["correlation_by_distance_plot"] = correlation_by_distance_plot
     outputs["percentile_boxplot"] = percentile_boxplot
+    outputs["percentile_distance_trend_plot"] = percentile_trend_plot
 
     if not args.quiet:
         reporter.emit(f"Main positions: {main_records.count:,}")
         for result in results:
             reporter.emit(
                 f"{result.label}: {result.compare_count:,} positions; {result.pair_count:,} one-to-one pairs"
+            )
+        for result in score_bigwig_results:
+            reporter.emit(
+                f"{result.label}: BigWig values sampled at {result.pair_count:,} main summits; "
+                f"missing/non-finite as zero={result.missing_or_nonfinite_as_zero:,}"
             )
         for name, path in outputs.items():
             reporter.emit(f"{name}: {path}")
@@ -1937,7 +2219,6 @@ def run(args: argparse.Namespace) -> int:
             (
                 ("pct", args.percentile_interval),
                 ("maxdist", args.max_distance),
-                ("dist", args.score_distance_type),
             ),
         )
     )

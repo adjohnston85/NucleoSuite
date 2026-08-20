@@ -86,12 +86,10 @@ def test_new_parser_defaults_to_main_plus_repeated_compare_and_quartiles():
     assert args.percentile_interval == 25
     assert args.stats_test == "nonparametric"
     assert args.p_adjust == "holm"
-    assert args.score_distance_type == "absolute"
-    assert args.score_distance_correlation == "spearman"
     assert args.percentile_boxplot_y_max == 200.0
     assert args.score_agreement_distance_max == 100.0
-    assert args.score_distance_y_max == 0.0
-    assert args.show_boxplot_outliers is True
+    assert args.show_boxplot_outliers is False
+    assert args.stats is False
     assert args.write_detail_tables is False
     assert args.histogram_x_min == -250.0
     assert args.histogram_x_max == 250.0
@@ -120,13 +118,10 @@ def test_multi_comparison_outputs_use_main_score_percentiles_and_combined_tables
     assert outputs["summary"].exists()
     assert outputs["percentile_boxplot_source"].exists()
     assert outputs["percentile_boxplot"].exists()
-    assert outputs["score_distance_statistics"].exists()
     assert "percentile_distances" not in outputs
     assert "pairs_B" not in outputs and "pairs_C" not in outputs
     assert outputs["score_agreement_source_B"].exists()
     assert outputs["score_agreement_source_C"].exists()
-    assert outputs["score_distance_source_B"].exists()
-    assert outputs["score_distance_source_C"].exists()
     with outputs["summary"].open() as handle:
         summary = list(csv.DictReader(handle, delimiter="\t"))
     assert [row["comparison"] for row in summary] == ["B", "C"]
@@ -137,8 +132,10 @@ def test_multi_comparison_outputs_use_main_score_percentiles_and_combined_tables
     box_rows = [row for row in rows if row["row_type"] == "box"]
     assert {row["comparison"] for row in box_rows} == {"B", "C"}
     assert {row["percentile_group"] for row in box_rows} == {"0-25", "25-50", "50-75", "75-100"}
-    assert all(row["show_boxplot_outliers"] == "1" for row in box_rows)
-    for plot_key in ("distance_histogram_plot", "correlation_by_distance_plot", "percentile_boxplot", "score_agreement_plot_B", "score_agreement_plot_C", "score_distance_plot_B", "score_distance_plot_C"):
+    assert all(row["show_boxplot_outliers"] == "0" for row in box_rows)
+    assert outputs["percentile_distance_trend"].exists()
+    assert outputs["percentile_distance_trend_plot"].exists()
+    for plot_key in ("distance_histogram_plot", "correlation_by_distance_plot", "percentile_boxplot", "percentile_distance_trend_plot", "score_agreement_plot_B", "score_agreement_plot_C"):
         plot = outputs[plot_key]
         assert plot.exists() and plot.stat().st_size > 0
         assert plot.with_name(plot.stem + "_metadata.tsv").exists()
@@ -187,31 +184,6 @@ def test_within_percentile_nonparametric_stats_test_all_compare_pairs_and_holm(t
     assert all(int(row["n_paired"]) == 4 for row in rows)
 
 
-def test_score_distance_statistics_report_spearman_pearson_and_linear_fit(tmp_path: Path):
-    main = tmp_path / "main.bed"; compare = tmp_path / "compare.bed"
-    main_rows=[]; compare_rows=[]
-    # Distance grows monotonically with main score, giving Spearman rho = 1.
-    for index in range(1, 11):
-        summit = index * 1000
-        main_rows.append(("chr1", summit-5, summit+5, f"m{index}", index))
-        shift = index
-        compare_rows.append(("chr1", summit-5+shift, summit+5+shift, f"c{index}", index*2))
-    write_bed(main, main_rows); write_bed(compare, compare_rows)
-    args = build_parser().parse_args([
-        "--main-bed", str(main), "--compare-bed", f"C={compare}", "--output-prefix", str(tmp_path/'corr'),
-        "--score-distance-type", "absolute", "--dpi", "40", "--quiet",
-    ])
-    outputs = run_comparison(args)
-    with outputs["score_distance_statistics"].open() as handle:
-        row = next(csv.DictReader(handle, delimiter="\t"))
-    assert np.isclose(float(row["spearman_rho"]), 1.0)
-    assert float(row["spearman_p_value"]) < 1e-6
-    assert np.isclose(float(row["pearson_r"]), 1.0)
-    assert np.isclose(float(row["linear_r_squared"]), 1.0)
-    assert np.isclose(float(row["linear_slope_bp_per_score_unit"]), 1.0)
-
-
-
 def test_main_bed_accepts_label_equals_path_and_normalizes_for_processing(tmp_path: Path):
     main = tmp_path / "main.bed"
     compare = tmp_path / "compare.bed"
@@ -244,7 +216,7 @@ def test_distance_histogram_uses_signed_distance():
         group_index=np.asarray([0, 1, 3], dtype=np.uint8),
         group_names=("0-25", "25-50", "50-75", "75-100"),
     )
-    rows = _histogram_rows(result, -20, 20, 10)
+    rows = _histogram_rows(result, "PNS", -20, 20, 10)
     counts = {(float(row["bin_start_inclusive"]), float(row["bin_end_exclusive"])): int(row["pair_count"]) for row in rows}
     assert counts[(-10.0, 0.0)] == 1
     assert counts[(0.0, 10.0)] == 1
@@ -258,3 +230,120 @@ def test_legacy_two_file_alias_is_accepted(tmp_path: Path):
     args = build_parser().parse_args(["--bed-a", str(main), "--bed-b", str(compare), "--output-prefix", str(tmp_path/'legacy'), "--dpi", "40", "--quiet"])
     outputs = run_comparison(args)
     assert outputs["summary"].exists()
+
+
+def test_score_bigwig_parser_is_repeatable_and_labelled():
+    args = build_parser().parse_args([
+        "--main-bed", "main.bed", "--compare-bed", "B=b.bed",
+        "--score-bigwig", "Coverage=coverage.bw", "--score-bigwig", "Signal=signal.bigWig",
+    ])
+    assert args.score_bigwigs == ["Coverage=coverage.bw", "Signal=signal.bigWig"]
+
+
+def test_score_bigwig_is_score_only_and_samples_main_summits(tmp_path: Path, monkeypatch):
+    import sys
+    import types
+
+    main = tmp_path / "main.bed"
+    compare = tmp_path / "compare.bed"
+    bigwig = tmp_path / "coverage.bw"
+    write_bed(main, [
+        ("chr1", 95, 105, "m1", 1.0),
+        ("chr1", 195, 205, "m2", 2.0),
+        ("chr1", 295, 305, "m3", 3.0),
+        ("chr1", 395, 405, "m4", 4.0),
+    ])
+    write_bed(compare, [
+        ("chr1", 97, 107, "c1", 1.5),
+        ("chr1", 197, 207, "c2", 2.5),
+        ("chr1", 297, 307, "c3", 3.5),
+        ("chr1", 397, 407, "c4", 4.5),
+    ])
+    bigwig.write_bytes(b"fake")
+
+    class FakeBigWig:
+        def isBigWig(self):
+            return True
+        def chroms(self):
+            return {"chr1": 1000}
+        def values(self, chrom, start, end, numpy=False):
+            values = np.arange(start, end, dtype=float) / 100.0
+            # Simulate one missing BigWig base; suite convention converts it to zero.
+            if start <= 300 < end:
+                values[300 - start] = np.nan
+            return values if numpy else values.tolist()
+        def close(self):
+            pass
+
+    monkeypatch.setitem(sys.modules, "pyBigWig", types.SimpleNamespace(open=lambda path: FakeBigWig()))
+    args = build_parser().parse_args([
+        "--main-bed", f"PNS={main}", "--compare-bed", f"DANPOS={compare}",
+        "--score-bigwig", f"Coverage={bigwig}",
+        "--output-prefix", str(tmp_path / "with_signal"), "--plot-max-points", "100",
+        "--dpi", "40", "--quiet",
+    ])
+    outputs = run_comparison(args)
+
+    assert outputs["score_agreement_plot_Coverage"].exists()
+    assert outputs["score_agreement_source_Coverage"].exists()
+    assert "score_bigwig_values_Coverage" not in outputs
+
+    with outputs["summary"].open() as handle:
+        summary = list(csv.DictReader(handle, delimiter="\t"))
+    coverage_row = next(row for row in summary if row["comparison"] == "Coverage")
+    assert coverage_row["comparison_type"] == "BigWig score comparator"
+    assert coverage_row["score_sampling_position"] == "main summit"
+    assert coverage_row["matched_pair_count"] == ""
+    assert coverage_row["score_observation_count"] == "4"
+    assert coverage_row["bigwig_missing_or_nonfinite_values_as_zero"] == "1"
+
+    # BigWig comparators must never appear in distance-dependent summaries.
+    with outputs["correlation_by_distance"].open() as handle:
+        distance_corr = list(csv.DictReader(handle, delimiter="\t"))
+    assert {row["comparison"] for row in distance_corr} == {"DANPOS"}
+    with outputs["distance_histogram"].open() as handle:
+        histogram = list(csv.DictReader(handle, delimiter="\t"))
+    assert {row["comparison"] for row in histogram} == {"DANPOS"}
+
+    import gzip
+    with gzip.open(outputs["score_agreement_source_Coverage"], "rt", encoding="utf-8") as handle:
+        source_rows = list(csv.DictReader(handle, delimiter="\t"))
+    assert source_rows[0]["score_comparator_type"] == "bigwig"
+    assert source_rows[0]["score_sampling_position"] == "main summit"
+    assert "absolute_distance" not in source_rows[0]
+    metadata = outputs["score_agreement_source_Coverage"].with_name("with_signal_Coverage_score_agreement_metadata.tsv")
+    assert metadata.exists()
+    assert "detected_plot_type\tcompare-positions-score-signal" in metadata.read_text()
+
+
+def test_score_bigwig_detail_table_is_opt_in(tmp_path: Path, monkeypatch):
+    import sys
+    import types
+
+    main = tmp_path / "main.bed"
+    compare = tmp_path / "compare.bed"
+    bigwig = tmp_path / "coverage.bw"
+    write_bed(main, [("chr1", 95, 105, "m1", 1.0), ("chr1", 195, 205, "m2", 2.0)])
+    write_bed(compare, [("chr1", 96, 106, "c1", 1.0), ("chr1", 196, 206, "c2", 2.0)])
+    bigwig.write_bytes(b"fake")
+
+    class FakeBigWig:
+        def isBigWig(self): return True
+        def chroms(self): return {"chr1": 1000}
+        def values(self, chrom, start, end, numpy=False):
+            values = np.ones(end - start, dtype=float) * 5
+            return values if numpy else values.tolist()
+        def close(self): pass
+
+    monkeypatch.setitem(sys.modules, "pyBigWig", types.SimpleNamespace(open=lambda path: FakeBigWig()))
+    args = build_parser().parse_args([
+        "--main-bed", str(main), "--compare-bed", str(compare),
+        "--score-bigwig", f"Coverage={bigwig}", "--write-detail-tables",
+        "--output-prefix", str(tmp_path / "detail_signal"), "--dpi", "40", "--quiet",
+    ])
+    outputs = run_comparison(args)
+    detail = outputs["score_bigwig_values_Coverage"]
+    with detail.open() as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    assert [int(row["main_summit"]) for row in rows] == [100, 200]
+    assert [float(row["bigwig_value"]) for row in rows] == [5.0, 5.0]

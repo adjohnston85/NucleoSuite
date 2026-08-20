@@ -16,6 +16,7 @@ Each command page describes the calculation, a typical invocation, analysis opti
 - [`pns`](commands/pns.md) — calculate PNS, BNS or TNS and call positive/negative regions.
 - [`wps`](commands/wps.md) — calculate WPS-family tracks and WPS peak calls.
 - [`coverage`](commands/coverage.md) — count fragment coverage per base.
+- [`mean-scale`](commands/mean-scale.md) — scale a BigWig relative to a supplied, region-score, or non-zero-signal reference mean.
 - [`dyads`](commands/dyads.md) — place signal at fragment centres.
 - [`fragment-ends`](commands/fragment-ends.md) — place signal at fragment starts and ends.
 - [`dinuc-profile`](commands/dinuc-profile.md) — calculate dyad-aligned dinucleotide frequencies.
@@ -26,7 +27,7 @@ Each command page describes the calculation, a typical invocation, analysis opti
 - [`call-peaks`](commands/call-peaks.md) — call PNS or WPS features from an existing signal track.
 - [`distances`](commands/distances.md) — measure adjacent and higher-order peak spacing.
 - [`flank-spacing`](commands/flank-spacing.md) — compare category-wise spacing between nucleosomes flanking reference sites and rank the distributions.
-- [`compare-positions`](commands/compare-positions.md) — compare one main callset with one or more callsets using one-to-one matching and main-score percentile groups.
+- [`compare-positions`](commands/compare-positions.md) — compare one main callset with positional callsets and optional BigWig score comparators.
 - [`peak-score-frequency`](commands/peak-score-frequency.md) — compare peak-score distributions.
 - [`filter-coverage`](commands/filter-coverage.md) — retain peaks that meet a BigWig coverage threshold at their selected position.
 - [`peak-states`](commands/peak-states.md) — count peaks and score-dependent enrichment across chromatin states.

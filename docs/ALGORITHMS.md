@@ -736,7 +736,7 @@ After matching, accepted pairs are sorted by the **main call score**. Equal-freq
 
 For optional statistical testing, pairwise comparisons are made separately within each percentile group. If all observations in both comparison distributions within that group correspond to the same main calls, the observations are paired. If complete pairing is unavailable, the full distributions are treated as unpaired. The default non-parametric analysis uses a two-sided Wilcoxon signed-rank test for completely paired data and a two-sided Mann-Whitney U test otherwise. The parametric alternative uses a paired t-test or Welch's t-test. Holm adjustment is applied independently to the pairwise tests within each percentile group by default.
 
-For each comparison, main peak score is also related to matched distance. Spearman correlation is the default reported relationship; Pearson correlation and ordinary linear-regression slope/intercept/R-squared are also written to the statistics table. Plot subsampling affects only rendering, not these statistics.
+For the 1%-percentile trend, matched pairs are divided into 100 equal-frequency bins by main-callset score. Each comparison is summarized by the median absolute matched distance in each bin, with the 25th-75th percentile interval retained as the dispersion band.
 
 ## Flanking nucleosome spacing around categorized reference sites
 

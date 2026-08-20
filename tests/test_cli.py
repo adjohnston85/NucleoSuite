@@ -22,13 +22,13 @@ def subparser_choices(parser: argparse.ArgumentParser) -> set[str]:
 
 
 def test_version_is_current_release():
-    assert __version__ == "0.8.13"
+    assert __version__ == "0.8.16"
 
 
 def test_all_primary_commands_are_registered():
     choices = subparser_choices(build_parser())
     assert {
-        "tracks", "pns", "wps", "coverage", "dyads", "dyad", "fragment-ends",
+        "tracks", "pns", "wps", "coverage", "dyads", "dyad", "fragment-ends", "mean-scale",
         "dinuc-profile", "ww-types", "call-peaks", "peak-call",
         "aggregate", "compare-positions", "dac", "dcc", "distances", "fragment-lengths",
         "fragment-heatmap", "filter-coverage", "gene-sets", "gene-expression", "tss-expression-quintiles", "mnase-suite", "cfdna-suite", "chrom-sizes", "nrl", "plot", "positive-runs", "peak-score-frequency", "peak-states", "resources", "region-extract", "validate-inputs",

@@ -97,6 +97,12 @@ def _fragments_main(argv: Sequence[str] | None = None) -> int:
     return main(argv)
 
 
+
+
+def _mean_scale_main(argv: Sequence[str] | None = None) -> int:
+    from nucleosuite.mean_scale import main
+    return main(argv)
+
 def _merge_bams_main(argv: Sequence[str] | None = None) -> int:
     from nucleosuite.merge_bams import main
     return main(argv)
@@ -175,6 +181,7 @@ def _region_extract_main(argv: Sequence[str] | None = None) -> int:
 DELEGATED_COMMANDS: dict[str, tuple[CommandMain, str]] = {
     "fragments": (_fragments_main, "Write paired-end fragments as BED intervals."),
     "merge-bams": (_merge_bams_main, "Combine BAM files while keeping full alignment records."),
+    "mean-scale": (_mean_scale_main, "Scale a BigWig relative to a supplied or calculated reference mean."),
     "randomize-fragments": (_randomize_fragments_main, "Create a reproducible control fragment set for comparison."),
     "fragment-lengths": (_fragment_lengths_main, "Count how many fragments occur at each length."),
     "flank-spacing": (_flank_spacing_main, "Compare nucleosome spacing around categorized reference sites."),
@@ -208,6 +215,7 @@ DELEGATED_COMMANDS: dict[str, tuple[CommandMain, str]] = {
 DELEGATED_MODULES: dict[str, str] = {
     "fragments": "nucleosuite.fragments_command",
     "merge-bams": "nucleosuite.merge_bams",
+    "mean-scale": "nucleosuite.mean_scale",
     "randomize-fragments": "nucleosuite.randomize_fragments_command",
     "fragment-lengths": "nucleosuite.fragment_lengths",
     "flank-spacing": "nucleosuite.flank_spacing",
@@ -255,6 +263,9 @@ def _preparse_delegated(
     validator = getattr(module, "validate_argv", None)
     if validator is not None:
         validator(list(argv))
+    custom_parser = getattr(module, "parse_cli_args", None)
+    if custom_parser is not None:
+        return custom_parser(list(argv))
     builder = getattr(module, "build_parser", None)
     if builder is not None:
         return builder().parse_args(list(argv))
@@ -304,6 +315,7 @@ def build_parser() -> argparse.ArgumentParser:
     visible = (
         "fragments",
         "merge-bams",
+        "mean-scale",
         "randomize-fragments",
         "fragment-lengths",
         "flank-spacing",

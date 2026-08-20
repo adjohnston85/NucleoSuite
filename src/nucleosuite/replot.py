@@ -43,10 +43,11 @@ PLOT_TYPES = (
     "flank-spacing",
     "compare-positions",
     "compare-positions-score",
+    "compare-positions-score-signal",
     "compare-positions-histogram",
     "compare-positions-correlation",
     "compare-positions-percentile-boxplot",
-    "compare-positions-score-distance",
+    "compare-positions-percentile-trend",
     "gene-expression",
     "gene-expression-spacing",
     "gene-expression-spacing-scatter",
@@ -210,12 +211,14 @@ def detect_plot_type(path: Path, headers: Sequence[str]) -> str:
         return "flank-spacing"
     if {"order", "scope", "distance_bp"}.issubset(names) and ({"count", "raw_count"} & names):
         return "distances"
+    if {"comparison", "percentile", "median_absolute_distance", "q25_absolute_distance", "q75_absolute_distance"}.issubset(names):
+        return "compare-positions-percentile-trend"
     if {"row_type", "percentile_group", "q1_absolute_distance", "whisker_low_absolute_distance"}.issubset(names):
         return "compare-positions-percentile-boxplot"
+    if {"main_score_plot", "compare_score_plot", "score_comparator_type"}.issubset(names) and "absolute_distance" not in names:
+        return "compare-positions-score-signal"
     if {"main_score_plot", "compare_score_plot", "absolute_distance"}.issubset(names):
         return "compare-positions-score"
-    if {"main_score", "matched_distance", "distance_type"}.issubset(names):
-        return "compare-positions-score-distance"
     if {"a_score", "b_score", "absolute_distance"}.issubset(names):
         if "percentile_group" in names:
             return "compare-positions-percentile-boxplot"
@@ -1591,7 +1594,15 @@ def _plot_compare_positions(path, headers, rows, args, output, artist_kw):
     minimum = float(np.nanmin(finite_start)) if finite_start.size else 0.0
     maximum = float(np.nanmax(finite_end)) if finite_end.size else 300.0
     ax.set_xlim(minimum, maximum)
-    ax.set_xlabel("Signed summit distance, comparison − main (bp)"); ax.set_ylabel("Matched pairs"); ax.set_title("Matched-position distance distributions")
+    main_label = "Main"
+    if "main_label" in hm and rows:
+        candidate = str(rows[0].get(hm["main_label"], "")).strip()
+        if candidate:
+            main_label = candidate
+    metadata_label = str(getattr(args, "_replot_metadata", {}).get("main_label", "")).strip()
+    if metadata_label:
+        main_label = metadata_label
+    ax.set_xlabel(f"Signed summit distance, comparison − {main_label} (bp)"); ax.set_ylabel("Matched pairs"); ax.set_title("Matched-position distance distributions")
     from nucleosuite.plotting import apply_distance_x_axis, apply_integer_y_axis
     if all(getattr(args, name) is None for name in ("x_major_grid", "x_minor_grid")):
         apply_distance_x_axis(ax, major_interval=args.x_major_tick, minor_interval=args.x_minor_tick); bp_x = False
@@ -1605,93 +1616,143 @@ def _plot_compare_positions_score(path, headers, rows, args, output, artist_kw):
     import matplotlib.pyplot as plt
     hm = _header_map(headers)
     metadata_row = rows[0] if rows else {}
-    normalization = str(metadata_row.get(hm.get("plot_score_normalization", ""), "zscore") or "zscore")
+    normalization = str(
+        getattr(args, "score_normalization", None)
+        or metadata_row.get(hm.get("plot_score_normalization", ""), "zscore")
+        or "zscore"
+    )
 
     compact_source = "main_score_plot" in hm and "compare_score_plot" in hm
     if compact_source:
         x_key, y_key = hm["main_score_plot"], hm["compare_score_plot"]
-        score_label = str(metadata_row.get(hm.get("score_axis_label", ""), "score") or "score")
+        default_score_label = str(metadata_row.get(hm.get("score_axis_label", ""), "score") or "score")
+        main_score_label = str(
+            metadata_row.get(hm.get("main_score_axis_label", ""), default_score_label) or default_score_label
+        )
+        compare_score_label = str(
+            metadata_row.get(hm.get("compare_score_axis_label", ""), default_score_label) or default_score_label
+        )
     elif "main_score" in hm and "compare_score" in hm:
         if normalization == "raw":
-            x_key, y_key, score_label = hm["main_score"], hm["compare_score"], "raw score"
+            x_key, y_key, default_score_label = hm["main_score"], hm["compare_score"], "raw score"
         else:
             x_key = hm.get("main_score_normalized", hm["main_score"])
             y_key = hm.get("compare_score_normalized", hm["compare_score"])
-            score_label = "score percentile rank" if normalization == "percentile" else "score z-score"
+            default_score_label = "score percentile rank" if normalization == "percentile" else "score z-score"
+        main_score_label = compare_score_label = default_score_label
     else:
         default_columns = {
             "raw": ("a_score", "b_score", "raw score"),
             "zscore": ("a_score_z", "b_score_z", "score z-score"),
             "percentile": ("a_score_percentile", "b_score_percentile", "score percentile rank"),
         }
-        x_name, y_name, score_label = default_columns.get(normalization, default_columns["zscore"])
+        x_name, y_name, default_score_label = default_columns.get(normalization, default_columns["zscore"])
         x_key = args.x_column or hm.get(x_name) or hm.get("a_score_z") or hm.get("a_score")
         y_key = args.y_column or hm.get(y_name) or hm.get("b_score_z") or hm.get("b_score")
+        main_score_label = compare_score_label = default_score_label
+
     distance_key = hm.get("absolute_distance")
-    if x_key is None or y_key is None or distance_key is None:
-        raise ValueError("Score-agreement replots require main/A score, comparison/B score, and absolute_distance columns")
+    score_only = distance_key is None and "score_comparator_type" in hm
+    if x_key is None or y_key is None or (distance_key is None and not score_only):
+        raise ValueError(
+            "Score-agreement replots require main/A and comparison/B score columns; "
+            "BED positional sources also require absolute_distance."
+        )
 
     x_all = _numeric(rows, x_key)
     y_all = _numeric(rows, y_key)
-    distance_all = _numeric(rows, distance_key)
-    mask = np.isfinite(x_all) & np.isfinite(y_all) & np.isfinite(distance_all)
-    x_all, y_all, distance_all = x_all[mask], y_all[mask], distance_all[mask]
+    if distance_key is not None:
+        distance_all = _numeric(rows, distance_key)
+        mask = np.isfinite(x_all) & np.isfinite(y_all) & np.isfinite(distance_all)
+        x_all, y_all, distance_all = x_all[mask], y_all[mask], distance_all[mask]
+    else:
+        mask = np.isfinite(x_all) & np.isfinite(y_all)
+        x_all, y_all = x_all[mask], y_all[mask]
+        distance_all = None
     if "plot_selected" in hm:
         selected = _numeric(rows, hm["plot_selected"])[mask] > 0
     else:
         selected = np.ones(x_all.size, dtype=bool)
-    x, y, distance = x_all[selected], y_all[selected], distance_all[selected]
+    x, y = x_all[selected], y_all[selected]
+    distance = distance_all[selected] if distance_all is not None else None
 
     fig, ax = plt.subplots()
-    kw = {"c": distance, "s": 9, "alpha": 0.55, "linewidths": 0, "cmap": "viridis", "rasterized": True}
-    if "plot_score_agreement_distance_max" in hm:
+    if distance is not None:
+        kw = {"c": distance, "s": 9, "alpha": 0.55, "linewidths": 0, "cmap": "viridis", "rasterized": True}
         try:
-            distance_max = float(metadata_row.get(hm["plot_score_agreement_distance_max"], 0.0))
+            distance_max = float(getattr(args, "score_agreement_distance_max", 0.0) or 0.0)
         except (TypeError, ValueError):
             distance_max = 0.0
+        if distance_max <= 0 and "plot_score_agreement_distance_max" in hm:
+            try:
+                distance_max = float(metadata_row.get(hm["plot_score_agreement_distance_max"], 0.0))
+            except (TypeError, ValueError):
+                distance_max = 0.0
         if distance_max > 0:
             from matplotlib.colors import Normalize
             kw["norm"] = Normalize(vmin=0.0, vmax=distance_max, clip=True)
-    kw.update(artist_kw.get("points", {}))
-    scatter = ax.scatter(x, y, **kw)
-    colorbar = fig.colorbar(scatter, ax=ax)
-    colorbar.set_label("Absolute summit distance (bp)")
+        kw.update(artist_kw.get("points", {}))
+        scatter = ax.scatter(x, y, **kw)
+        colorbar = fig.colorbar(scatter, ax=ax)
+        colorbar.set_label("Absolute summit distance (bp)")
+    else:
+        kw = {"s": 9, "alpha": 0.45, "linewidths": 0, "rasterized": True}
+        kw.update(artist_kw.get("points", {}))
+        ax.scatter(x, y, **kw)
 
     if normalization == "zscore":
-        z_limit = 10.0
-        if "plot_score_z_limit" in hm:
+        try:
+            z_limit = float(getattr(args, "score_z_limit", 10.0))
+        except (TypeError, ValueError):
+            z_limit = 10.0
+        if not math.isfinite(z_limit) and "plot_score_z_limit" in hm:
             try:
                 z_limit = float(metadata_row.get(hm["plot_score_z_limit"], 10.0))
             except (TypeError, ValueError):
-                pass
+                z_limit = 10.0
         if z_limit > 0:
             ax.set_xlim(-z_limit, z_limit)
             ax.set_ylim(-z_limit, z_limit)
 
-    label_a = str(metadata_row.get(hm.get("main_label", ""), metadata_row.get(hm.get("plot_label_a", ""), "Main")) or "Main")
-    label_b = str(metadata_row.get(hm.get("comparison", ""), metadata_row.get(hm.get("plot_label_b", ""), "Comparison")) or "Comparison")
-    ax.set_xlabel(f"{label_a} {score_label}")
-    ax.set_ylabel(f"{label_b} {score_label}")
-    ax.set_title("Score agreement coloured by summit distance")
+    label_a = str(
+        metadata_row.get(hm.get("main_label", ""), metadata_row.get(hm.get("plot_label_a", ""), "Main"))
+        or "Main"
+    )
+    label_b = str(
+        metadata_row.get(hm.get("comparison", ""), metadata_row.get(hm.get("plot_label_b", ""), "Comparison"))
+        or "Comparison"
+    )
+    ax.set_xlabel(f"{label_a} {main_score_label}")
+    ax.set_ylabel(f"{label_b} {compare_score_label}")
+    ax.set_title("Score agreement" if distance is None else "Score agreement coloured by summit distance")
 
     annotation: list[str] = []
-    method = str(metadata_row.get(hm.get("plot_correlation_method", ""), "spearman") or "spearman")
+    method = str(
+        getattr(args, "score_correlation", None)
+        or metadata_row.get(hm.get("plot_correlation_method", ""), "spearman")
+        or "spearman"
+    )
     if compact_source and "full_spearman" in hm:
         try:
             spearman = float(metadata_row.get(hm["full_spearman"], "nan"))
+            spearman_p = float(metadata_row.get(hm.get("full_spearman_p_value", ""), "nan"))
             pearson = float(metadata_row.get(hm.get("full_pearson", ""), "nan"))
+            pearson_p = float(metadata_row.get(hm.get("full_pearson_p_value", ""), "nan"))
             r_squared = float(metadata_row.get(hm.get("full_linear_r_squared", ""), "nan"))
-            n_full = int(float(metadata_row.get(hm.get("full_matched_pair_count", ""), len(x_all))))
+            count_key = hm.get("full_observation_count") or hm.get("full_matched_pair_count")
+            n_full = int(float(metadata_row.get(count_key, len(x_all)))) if count_key else len(x_all)
         except (TypeError, ValueError):
-            spearman = pearson = r_squared = math.nan
+            spearman = spearman_p = pearson = pearson_p = r_squared = math.nan
             n_full = len(x_all)
     elif x_all.size >= 2:
         try:
             from scipy.stats import pearsonr, spearmanr
-            pearson = float(pearsonr(x_all, y_all).statistic)
-            spearman = float(spearmanr(x_all, y_all).statistic)
+            pearson_result = pearsonr(x_all, y_all)
+            spearman_result = spearmanr(x_all, y_all)
+            pearson, pearson_p = float(pearson_result.statistic), float(pearson_result.pvalue)
+            spearman, spearman_p = float(spearman_result.statistic), float(spearman_result.pvalue)
         except Exception:
-            pearson = spearman = math.nan
+            pearson = pearson_p = spearman = spearman_p = math.nan
         slope, intercept = np.polyfit(x_all, y_all, 1)
         fitted = intercept + slope * x_all
         ss_res = float(np.sum((y_all - fitted) ** 2))
@@ -1699,17 +1760,18 @@ def _plot_compare_positions_score(path, headers, rows, args, output, artist_kw):
         r_squared = 1.0 - ss_res / ss_tot if ss_tot else math.nan
         n_full = len(x_all)
     else:
-        spearman = pearson = r_squared = math.nan
+        spearman = spearman_p = pearson = pearson_p = r_squared = math.nan
         n_full = len(x_all)
 
     if method in {"spearman", "both"}:
-        annotation.append(f"Spearman ρ = {spearman:.3f}")
+        annotation.append(f"Spearman ρ = {spearman:.3f} (p={spearman_p:.3g})")
     if method in {"pearson", "both"}:
-        annotation.append(f"Pearson r = {pearson:.3f}")
+        annotation.append(f"Pearson r = {pearson:.3f} (p={pearson_p:.3g})")
     annotation.append(f"R² = {r_squared:.3f}")
     annotation.append(f"n = {n_full:,}")
     ax.text(0.02, 0.98, "\n".join(annotation), transform=ax.transAxes, va="top", ha="left")
     return _finish(ax, fig, args, output, artist_kw=artist_kw, default_size=(7.5, 6.5)), fig
+
 
 def _plot_compare_positions_score_distance(path, headers, rows, args, output, artist_kw):
     import matplotlib.pyplot as plt
@@ -1834,7 +1896,7 @@ def _plot_compare_positions_correlation(path, headers, rows, args, output, artis
     else:
         groups = [""]
     fig, ax = plt.subplots(); plotted = 0
-    method = str(rows[0].get(hm.get("plot_correlation_method", ""), "spearman") or "spearman") if rows else "spearman"
+    method = str(getattr(args, "score_correlation", None) or (rows[0].get(hm.get("plot_correlation_method", ""), "spearman") if rows else "spearman") or "spearman")
     base_labels = []
     for group in groups:
         subset = rows if comparison_key is None else [row for row in rows if str(row.get(comparison_key, "")) == group]
@@ -1853,9 +1915,69 @@ def _plot_compare_positions_correlation(path, headers, rows, args, output, artis
             ax.plot(x, values, **kw); plotted += 1
     ax.axhline(0, color="black", linewidth=0.8)
     ax.set_xticks(np.arange(len(base_labels), dtype=float), base_labels, rotation=35, ha="right"); ax.set_ylim(-1.05, 1.05)
-    ax.set_xlabel("Absolute summit-distance bin (bp)"); ax.set_ylabel("Main/comparison score correlation")
+    main_label = "Main"
+    if "main_label" in hm and rows:
+        candidate = str(rows[0].get(hm["main_label"], "")).strip()
+        if candidate:
+            main_label = candidate
+    metadata_label = str(getattr(args, "_replot_metadata", {}).get("main_label", "")).strip()
+    if metadata_label:
+        main_label = metadata_label
+    ax.set_xlabel("Absolute summit-distance bin (bp)"); ax.set_ylabel(f"{main_label}/comparison score correlation")
     ax.set_title("Score correlation by summit-distance bin")
     return _finish(ax, fig, args, output, legend=plotted > 1 or bool(comparison_key), artist_kw=artist_kw, default_size=(9.0, 5.8)), fig
+
+
+def _plot_compare_positions_percentile_trend(path, headers, rows, args, output, artist_kw):
+    import matplotlib.pyplot as plt
+    from nucleosuite.plotting import category_colors
+
+    hm = _header_map(headers)
+    required = {"comparison", "percentile", "median_absolute_distance", "q25_absolute_distance", "q75_absolute_distance"}
+    if not required.issubset(hm):
+        raise ValueError("Percentile trend replots require comparison, percentile, median, q25, and q75 columns")
+    comparisons: list[str] = []
+    for row in rows:
+        label = str(row.get(hm["comparison"], ""))
+        if label and label not in comparisons:
+            comparisons.append(label)
+    colors = category_colors(len(comparisons))
+    fig, ax = plt.subplots()
+    prepared = []
+    for comparison, color in zip(comparisons, colors):
+        subset = [row for row in rows if str(row.get(hm["comparison"], "")) == comparison]
+        x = _numeric(subset, hm["percentile"])
+        med = _numeric(subset, hm["median_absolute_distance"])
+        q25 = _numeric(subset, hm["q25_absolute_distance"])
+        q75 = _numeric(subset, hm["q75_absolute_distance"])
+        order = np.argsort(x)
+        x, med, q25, q75 = x[order], med[order], q25[order], q75[order]
+        prepared.append((comparison, color, x, med, q25, q75))
+        mask = np.isfinite(x) & np.isfinite(q25) & np.isfinite(q75)
+        if np.any(mask):
+            fill_kw = {"alpha": 0.18, "linewidth": 0, "zorder": 1}
+            fill_kw.update(artist_kw.get("fill", {}))
+            ax.fill_between(x[mask], q25[mask], q75[mask], color=color, **fill_kw)
+    for comparison, color, x, med, _q25, _q75 in prepared:
+        mask = np.isfinite(x) & np.isfinite(med)
+        if np.any(mask):
+            line_kw = {"linewidth": 1.8, "label": comparison, "zorder": 3}
+            line_kw.update(artist_kw.get("line", {}))
+            ax.plot(x[mask], med[mask], color=color, **line_kw)
+    main_label = "Main"
+    if "main_label" in hm and rows:
+        candidate = str(rows[0].get(hm["main_label"], "")).strip()
+        if candidate:
+            main_label = candidate
+    metadata_label = getattr(args, "main_label", None)
+    if metadata_label:
+        main_label = str(metadata_label)
+    ax.set_xlim(1, 100)
+    ax.set_ylim(bottom=0)
+    ax.set_xlabel(f"{main_label} peak score percentile")
+    ax.set_ylabel("Median absolute matched distance (bp)")
+    ax.set_title(f"Matched distance across {main_label} score percentiles")
+    return _finish(ax, fig, args, output, legend=True, artist_kw=artist_kw, default_size=(9.0, 5.8)), fig
 
 
 def _plot_compare_positions_percentile_boxplot(path, headers, rows, args, output, artist_kw):
@@ -1915,11 +2037,11 @@ def _plot_compare_positions_percentile_boxplot(path, headers, rows, args, output
         offsets = np.linspace(-spread / 2.0, spread / 2.0, len(comparison_labels))
         width = min(0.16, 0.70 / len(comparison_labels))
 
-    # None means follow the compact source setting when available, otherwise
-    # use the current NucleoSuite default (outliers shown).
-    show_fliers = args.show_boxplot_outliers
+    # Metadata is the primary recipe; source columns are a compatibility fallback.
+    # Current NucleoSuite default is to hide outliers.
+    show_fliers = getattr(args, "show_boxplot_outliers", None)
     if show_fliers is None:
-        show_fliers = True
+        show_fliers = False
         if compact and hm.get("show_boxplot_outliers"):
             for row in box_rows:
                 raw = str(row.get(hm["show_boxplot_outliers"], "")).strip().lower()
@@ -2027,8 +2149,11 @@ def _plot_compare_positions_percentile_boxplot(path, headers, rows, args, output
     ax.set_xticks(centres, group_labels, rotation=0)
     ax.set_xlim(0.45, len(group_labels) + 0.55)
 
-    source_y_max = 200.0
-    if compact and hm.get("percentile_boxplot_y_max"):
+    try:
+        source_y_max = float(getattr(args, "percentile_boxplot_y_max", 200.0))
+    except (TypeError, ValueError):
+        source_y_max = 200.0
+    if getattr(args, "percentile_boxplot_y_max", None) is None and compact and hm.get("percentile_boxplot_y_max"):
         for row in box_rows:
             try:
                 candidate = float(row.get(hm["percentile_boxplot_y_max"], "nan"))
@@ -2047,12 +2172,15 @@ def _plot_compare_positions_percentile_boxplot(path, headers, rows, args, output
             if value:
                 main_label = value
                 break
+    metadata_label = str(getattr(args, "_replot_metadata", {}).get("main_label", "")).strip()
+    if metadata_label:
+        main_label = metadata_label
     ax.set_xlabel(f"{main_label} peak score percentile group")
     ax.set_ylabel("Absolute matched distance (bp)")
 
     # Recreate within-percentile statistical brackets from compact source rows.
     max_levels = 0
-    if compact and row_type_key:
+    if compact and row_type_key and bool(getattr(args, "stats", False)):
         stat_rows = [row for row in rows if str(row.get(row_type_key, "")).lower() == "stat"]
         by_group: dict[str, list[dict[str, str]]] = {group: [] for group in group_labels}
         for row in stat_rows:
@@ -2073,12 +2201,12 @@ def _plot_compare_positions_percentile_boxplot(path, headers, rows, args, output
                     [x1, x1, x2, x2], [y - 0.015, y, y, y - 0.015],
                     transform=transform, clip_on=False, color="black", linewidth=0.8,
                 )
-                display_mode = str(row.get(hm.get("p_display", ""), "value") or "value")
+                display_mode = str(getattr(args, "p_display", None) or row.get(hm.get("p_display", ""), "value") or "value")
                 significance = str(row.get(hm.get("significance", ""), ""))
                 if display_mode == "stars" and significance:
                     text = significance
                 else:
-                    p_adjustment = str(row.get(hm.get("p_adjustment", ""), "none") or "none")
+                    p_adjustment = str(getattr(args, "p_adjust", None) or row.get(hm.get("p_adjustment", ""), "none") or "none")
                     p_col = hm.get("p_adjusted") if p_adjustment == "holm" else hm.get("p_value")
                     try:
                         p_value = float(row.get(p_col, "nan")) if p_col else math.nan
@@ -2830,164 +2958,403 @@ def _generic_plot(path, headers, rows, args, output, artist_kw, kind: str):
     return _finish(ax,fig,args,output,bp_x=args.bp_x,artist_kw=artist_kw),fig
 
 
-def build_parser() -> argparse.ArgumentParser:
+def _read_replot_metadata(path: Path) -> dict[str, str]:
+    """Read the editable metadata recipe associated with a plot source table."""
+
+    from nucleosuite.plotting import plot_source_metadata_path
+
+    metadata_path = plot_source_metadata_path(path)
+    if not metadata_path.is_file():
+        return {}
+    metadata: dict[str, str] = {}
+    with metadata_path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        if not reader.fieldnames or "field" not in reader.fieldnames or "value" not in reader.fieldnames:
+            raise ValueError(f"Invalid plot metadata file: {metadata_path}")
+        for row in reader:
+            key = str(row.get("field", "")).strip()
+            if key:
+                metadata[key] = str(row.get("value", ""))
+    return metadata
+
+
+def _metadata_value(metadata: Mapping[str, str] | None, key: str, default: Any = None) -> Any:
+    if not metadata:
+        return default
+    raw = metadata.get(f"parameter.{key}", metadata.get(key, None))
+    if raw is None or str(raw).strip() == "":
+        return default
+    text = str(raw).strip()
+    lower = text.lower()
+    if lower in {"true", "yes", "on"}:
+        return True
+    if lower in {"false", "no", "off"}:
+        return False
+    if lower in {"none", "null"}:
+        return None
+    try:
+        return ast.literal_eval(text)
+    except (ValueError, SyntaxError):
+        return text
+
+
+def _option_present(parser: argparse.ArgumentParser, option: str) -> bool:
+    return any(option in action.option_strings for action in parser._actions)
+
+
+def _add_dynamic_parameter(
+    parser: argparse.ArgumentParser,
+    key: str,
+    value: Any,
+    *,
+    help_text: str = argparse.SUPPRESS,
+    choices: Sequence[str] | None = None,
+    inverse_alias: str | None = None,
+) -> None:
+    """Expose one metadata parameter only for the detected plot family."""
+
+    option = "--" + key.replace("_", "-")
+    if _option_present(parser, option):
+        parser.set_defaults(**{key: value})
+        return
+    if isinstance(value, bool):
+        group = parser.add_mutually_exclusive_group()
+        group.add_argument(option, dest=key, action="store_true", default=value, help=help_text)
+        negative = inverse_alias or ("--no-" + key.replace("_", "-"))
+        group.add_argument(negative, dest=key, action="store_false", help=argparse.SUPPRESS if help_text is argparse.SUPPRESS else f"Disable {key.replace('_', ' ')}.")
+        return
+    kwargs: dict[str, Any] = {"default": value, "help": help_text}
+    if choices is not None:
+        kwargs["choices"] = tuple(choices)
+    float_keys = {
+        "vmin", "vmax", "peak_resolution", "peak_min_distance", "peak_label_offset",
+        "nrl_min_distance", "bar_gap", "percentile_boxplot_y_max", "score_z_limit",
+        "score_agreement_distance_max",
+    }
+    int_keys = {"smooth_window"}
+    if key in int_keys or (isinstance(value, int) and not isinstance(value, bool)):
+        kwargs["type"] = int
+    elif key in float_keys or isinstance(value, float):
+        kwargs["type"] = float
+    elif isinstance(value, (tuple, list)) and value and all(isinstance(item, (int, float)) for item in value):
+        kwargs["type"] = float
+        kwargs["nargs"] = len(value)
+    else:
+        kwargs["type"] = str
+    parser.add_argument(option, dest=key, **kwargs)
+
+
+_PLOT_PARAMETER_SPECS: dict[str, tuple[tuple[str, Any, Sequence[str] | None, str | None, str], ...]] = {
+    "compare-positions-percentile-boxplot": (
+        ("show_boxplot_outliers", False, None, "--hide-boxplot-outliers", "Show boxplot outlier points beyond the 1.5×IQR whiskers."),
+        ("stats", False, None, None, "Show statistical annotations stored in the compact plot source."),
+        ("p_adjust", "holm", ("holm", "none"), None, "P-value adjustment represented by statistical annotations."),
+        ("p_display", "value", ("value", "stars"), None, "Display statistical annotations as p-values or stars."),
+        ("percentile_boxplot_y_max", 200.0, None, None, "Displayed upper y-axis limit; 0 uses the data range."),
+    ),
+    "compare-positions-score": (
+        ("score_normalization", "zscore", ("raw", "zscore", "percentile"), None, "Score representation used by the score-agreement plot."),
+        ("score_correlation", "spearman", ("spearman", "pearson", "both"), None, "Correlation annotation shown on the score-agreement plot."),
+        ("score_z_limit", 10.0, None, None, "Symmetric z-score axis limit; 0 disables."),
+        ("score_agreement_distance_max", 100.0, None, None, "Upper colour-scale limit for absolute summit distance; 0 uses the data maximum."),
+    ),
+    "compare-positions-score-signal": (
+        ("score_normalization", "zscore", ("raw", "zscore", "percentile"), None, "Score/value representation used by the score-agreement plot."),
+        ("score_correlation", "spearman", ("spearman", "pearson", "both"), None, "Correlation annotation shown on the score-agreement plot."),
+        ("score_z_limit", 10.0, None, None, "Symmetric z-score axis limit; 0 disables."),
+    ),
+    "compare-positions-correlation": (
+        ("score_correlation", "spearman", ("spearman", "pearson", "both"), None, "Correlation series displayed."),
+    ),
+    "dac": (
+        ("smooth_window", 21, None, None, "Display smoothing window."),
+        ("show_raw", False, None, None, "Retain the raw DAC profile."),
+        ("detect_peaks", False, None, None, "Detect and display DAC peaks."),
+        ("peak_resolution", 160.0, None, None, "Peak resolution used for detection."),
+        ("peak_min_distance", 100.0, None, None, "Peak-spacing display setting."),
+        ("label_peaks", "auto", ("auto", "none", "peaks"), None, "Peak-label display mode."),
+        ("peak_label_value", "x", ("x", "y", "both"), None, "Peak-label value."),
+        ("peak_label_offset", 5.0, None, None, "Peak-label offset in points."),
+        ("nrl_inset", "auto", ("auto", "on", "off"), None, "NRL regression inset mode."),
+        ("nrl_min_distance", 100.0, None, None, "Minimum peak distance for an NRL inset."),
+        ("inset_bounds", (0.70, 0.57, 0.27, 0.36), None, None, "Inset X Y WIDTH HEIGHT as axes fractions."),
+    ),
+    "nrl-profile": (
+        ("label_peaks", "auto", ("auto", "none", "peaks"), None, "Peak-label display mode."),
+        ("peak_label_value", "x", ("x", "y", "both"), None, "Peak-label value."),
+        ("peak_label_offset", 5.0, None, None, "Peak-label offset in points."),
+        ("nrl_inset", "auto", ("auto", "on", "off"), None, "NRL regression inset mode."),
+        ("nrl_min_distance", 100.0, None, None, "Minimum peak distance for an NRL inset."),
+        ("inset_bounds", (0.70, 0.57, 0.27, 0.36), None, None, "Inset X Y WIDTH HEIGHT as axes fractions."),
+    ),
+    "heatmap": (
+        ("vmin", None, None, None, "Heatmap lower saturation value."),
+        ("vmax", None, None, None, "Heatmap upper saturation value."),
+    ),
+    "generic-heatmap": (
+        ("vmin", None, None, None, "Heatmap lower saturation value."),
+        ("vmax", None, None, None, "Heatmap upper saturation value."),
+    ),
+    "peak-states": (
+        ("bar_gap", 0.18, None, None, "Fractional gap between stacked bars."),
+    ),
+    "fragment-lengths": (
+        ("normalization", "auto", ("auto", "count", "density"), None, "Fragment-length y normalization."),
+    ),
+}
+
+
+def _plot_parameter_specs(plot_type: str | None):
+    specs: list[tuple[str, Any, Sequence[str] | None, str | None, str]] = []
+    for key in (plot_type or "",):
+        specs.extend(_PLOT_PARAMETER_SPECS.get(key, ()))
+    if plot_type in {"fragment-size-nrl-profile", "aggregate-nrl-profile"}:
+        specs.extend(_PLOT_PARAMETER_SPECS.get("nrl-profile", ()))
+    return specs
+
+
+def _generic_metadata_default(metadata: Mapping[str, str] | None, attr: str, default: Any) -> Any:
+    aliases = {
+        "format": ("plot_format", "format"),
+        "width": ("plot_width", "width"),
+        "height": ("plot_height", "height"),
+        "dpi": ("plot_dpi", "dpi"),
+        "title": ("plot_title", "title"),
+        "no_title": ("no_plot_title", "no_title"),
+        "x_label": ("plot_x_label", "x_label"),
+        "y_label": ("plot_y_label", "y_label"),
+        "font_size": ("plot_font_size", "font_size"),
+        "x_min": ("plot_x_min", "x_min"),
+        "x_max": ("plot_x_max", "x_max"),
+        "y_min": ("plot_y_min", "y_min"),
+        "y_max": ("plot_y_max", "y_max"),
+        "x_tick_rotation": ("plot_x_tick_rotation", "x_tick_rotation"),
+        "y_tick_rotation": ("plot_y_tick_rotation", "y_tick_rotation"),
+        "transparent": ("plot_transparent", "transparent"),
+    }
+    for key in aliases.get(attr, (attr,)):
+        value = _metadata_value(metadata, key, None)
+        if value is not None:
+            return value
+    return default
+
+
+def build_parser(
+    plot_type: str | None = None,
+    metadata: Mapping[str, str] | None = None,
+) -> argparse.ArgumentParser:
+    """Build the generic replot parser plus options for one detected plot family."""
+
     parser = argparse.ArgumentParser(
         prog="nucleosuite plot",
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("input", type=Path, help="NucleoSuite TSV/TSV.GZ output used to recreate a figure.")
-    parser.add_argument("--plot-type", choices=PLOT_TYPES, default="auto", help="Plot family; default auto-detects from filename and columns.")
+    parser.add_argument("--plot-type", choices=PLOT_TYPES, default="auto", help="Plot family; default uses metadata first, then filename/column detection.")
     parser.add_argument("--from-command", choices=tuple(sorted(COMMAND_TYPES)), help="Identify the NucleoSuite command that produced the input when auto-detection is ambiguous.")
     parser.add_argument("--output", type=Path, help="Output image; default <input>_replot.<format>.")
-    parser.add_argument("--format", choices=("png", "svg", "pdf"), default="png", help="Output image format (default: png).")
-    parser.add_argument("--width", type=float, default=None, help="Figure width in inches. Default: 10, or 6.5 for regression plots.")
-    parser.add_argument("--height", type=float, default=None, help="Figure height in inches. Default: 5.5, or 6.5 for regression plots.")
-    parser.add_argument("--dpi", type=int, default=300, help="Raster resolution in dots per inch (default: 300).")
-    parser.add_argument("--title", help="Override the automatically generated plot title.")
-    parser.add_argument("--no-title", action="store_true", help="Remove the plot title.")
-    parser.add_argument("--x-label", help="Override the x-axis label.")
-    parser.add_argument("--y-label", help="Override the y-axis label.")
-    parser.add_argument("--font-size", type=float, default=10.0, help="Base font size in points (default: 10).")
-    parser.add_argument("--x-min", type=float, help="Displayed x-axis minimum.")
-    parser.add_argument("--x-max", type=float, help="Displayed x-axis maximum.")
-    parser.add_argument("--y-min", type=float, help="Displayed y-axis minimum.")
-    parser.add_argument("--y-max", type=float, help="Displayed y-axis maximum.")
-    parser.add_argument("--x-major-tick", type=float, help="Major x tick increment.")
-    parser.add_argument("--x-minor-tick", type=float, help="Minor x tick increment; minor tick labels remain hidden.")
-    parser.add_argument("--y-major-tick", type=float, help="Major y tick increment.")
-    parser.add_argument("--y-minor-tick", type=float, help="Minor y tick increment; minor tick labels remain hidden.")
+    parser.add_argument("--format", choices=("png", "svg", "pdf"), default=_generic_metadata_default(metadata, "format", "png"), help="Output image format; defaults to metadata, otherwise png.")
+    parser.add_argument("--width", type=float, default=_generic_metadata_default(metadata, "width", None), help="Figure width in inches; defaults to metadata/source style.")
+    parser.add_argument("--height", type=float, default=_generic_metadata_default(metadata, "height", None), help="Figure height in inches; defaults to metadata/source style.")
+    parser.add_argument("--dpi", type=int, default=int(_generic_metadata_default(metadata, "dpi", 300) or 300), help="Raster resolution in dots per inch; defaults to metadata, otherwise 300.")
+    parser.add_argument("--title", default=_generic_metadata_default(metadata, "title", None), help="Override the plot title.")
+    parser.add_argument("--no-title", action="store_true", default=bool(_generic_metadata_default(metadata, "no_title", False)), help="Remove the plot title.")
+    parser.add_argument("--x-label", default=_generic_metadata_default(metadata, "x_label", None), help="Override the x-axis label.")
+    parser.add_argument("--y-label", default=_generic_metadata_default(metadata, "y_label", None), help="Override the y-axis label.")
+    parser.add_argument("--font-size", type=float, default=float(_generic_metadata_default(metadata, "font_size", 10.0) or 10.0), help="Base font size in points.")
+    parser.add_argument("--x-min", type=float, default=_generic_metadata_default(metadata, "x_min", None), help="Displayed x-axis minimum.")
+    parser.add_argument("--x-max", type=float, default=_generic_metadata_default(metadata, "x_max", None), help="Displayed x-axis maximum.")
+    parser.add_argument("--y-min", type=float, default=_generic_metadata_default(metadata, "y_min", None), help="Displayed y-axis minimum.")
+    parser.add_argument("--y-max", type=float, default=_generic_metadata_default(metadata, "y_max", None), help="Displayed y-axis maximum.")
+    parser.add_argument("--x-major-tick", type=float, default=_generic_metadata_default(metadata, "x_major_tick", None), help="Major x tick increment.")
+    parser.add_argument("--x-minor-tick", type=float, default=_generic_metadata_default(metadata, "x_minor_tick", None), help="Minor x tick increment; minor tick labels remain hidden.")
+    parser.add_argument("--y-major-tick", type=float, default=_generic_metadata_default(metadata, "y_major_tick", None), help="Major y tick increment.")
+    parser.add_argument("--y-minor-tick", type=float, default=_generic_metadata_default(metadata, "y_minor_tick", None), help="Minor y tick increment; minor tick labels remain hidden.")
     for axis in ("x", "y"):
         for which in ("major", "minor"):
             group = parser.add_mutually_exclusive_group()
-            group.add_argument(
-                f"--{axis}-{which}-grid", dest=f"{axis}_{which}_grid",
-                action="store_true", default=None,
-                help=f"Show {which} {axis}-axis grid lines.",
-            )
-            group.add_argument(
-                f"--no-{axis}-{which}-grid", dest=f"{axis}_{which}_grid",
-                action="store_false",
-                help=f"Hide {which} {axis}-axis grid lines.",
-            )
-    parser.add_argument("--major-grid-color", default="0.65", help="Matplotlib color for major grid lines (default: 0.65).")
-    parser.add_argument("--minor-grid-color", default="0.65", help="Matplotlib color for minor grid lines (default: 0.65).")
-    parser.add_argument("--major-grid-alpha", type=float, default=0.65, help="Major grid-line opacity (default: 0.65).")
-    parser.add_argument("--minor-grid-alpha", type=float, default=0.55, help="Minor grid-line opacity (default: 0.55).")
-    parser.add_argument("--major-grid-width", type=float, default=0.75, help="Major grid-line width in points (default: 0.75).")
-    parser.add_argument("--minor-grid-width", type=float, default=0.65, help="Minor grid-line width in points (default: 0.65).")
-    parser.add_argument("--major-grid-style", default="-", help="Matplotlib linestyle for major grids (default: -).")
-    parser.add_argument("--minor-grid-style", default="--", help="Matplotlib linestyle for minor grids (default: --).")
-    parser.add_argument("--x-tick-rotation", type=float, default=None, help="Rotate x tick labels by this many degrees; defaults to the source command style.")
-    parser.add_argument("--y-tick-rotation", type=float, default=None, help="Rotate y tick labels by this many degrees; defaults to the source command style.")
-    parser.add_argument("--axes-facecolor", help="Matplotlib color for the axes background.")
-    parser.add_argument("--transparent", action="store_true", help="Save with a transparent figure background.")
-    parser.add_argument("--no-legend", action="store_true", help="Hide the legend.")
-    boxplot_outliers = parser.add_mutually_exclusive_group()
-    boxplot_outliers.add_argument(
-        "--show-boxplot-outliers", dest="show_boxplot_outliers", action="store_true", default=None,
-        help="Show boxplot outlier points beyond the 1.5×IQR whiskers (default: source setting, otherwise shown).",
-    )
-    boxplot_outliers.add_argument(
-        "--hide-boxplot-outliers", dest="show_boxplot_outliers", action="store_false",
-        help="Hide boxplot outlier points while retaining the standard 1.5×IQR whiskers.",
-    )
+            group.add_argument(f"--{axis}-{which}-grid", dest=f"{axis}_{which}_grid", action="store_true", default=_generic_metadata_default(metadata, f"{axis}_{which}_grid", None), help=f"Show {which} {axis}-axis grid lines.")
+            group.add_argument(f"--no-{axis}-{which}-grid", dest=f"{axis}_{which}_grid", action="store_false", help=f"Hide {which} {axis}-axis grid lines.")
+    parser.add_argument("--major-grid-color", default=_generic_metadata_default(metadata, "major_grid_color", "0.65"), help="Matplotlib color for major grid lines.")
+    parser.add_argument("--minor-grid-color", default=_generic_metadata_default(metadata, "minor_grid_color", "0.65"), help="Matplotlib color for minor grid lines.")
+    parser.add_argument("--major-grid-alpha", type=float, default=float(_generic_metadata_default(metadata, "major_grid_alpha", 0.65)), help="Major grid-line opacity.")
+    parser.add_argument("--minor-grid-alpha", type=float, default=float(_generic_metadata_default(metadata, "minor_grid_alpha", 0.55)), help="Minor grid-line opacity.")
+    parser.add_argument("--major-grid-width", type=float, default=float(_generic_metadata_default(metadata, "major_grid_width", 0.75)), help="Major grid-line width in points.")
+    parser.add_argument("--minor-grid-width", type=float, default=float(_generic_metadata_default(metadata, "minor_grid_width", 0.65)), help="Minor grid-line width in points.")
+    parser.add_argument("--major-grid-style", default=_generic_metadata_default(metadata, "major_grid_style", "-"), help="Matplotlib linestyle for major grids.")
+    parser.add_argument("--minor-grid-style", default=_generic_metadata_default(metadata, "minor_grid_style", "--"), help="Matplotlib linestyle for minor grids.")
+    parser.add_argument("--x-tick-rotation", type=float, default=_generic_metadata_default(metadata, "x_tick_rotation", None), help="Rotate x tick labels by this many degrees.")
+    parser.add_argument("--y-tick-rotation", type=float, default=_generic_metadata_default(metadata, "y_tick_rotation", None), help="Rotate y tick labels by this many degrees.")
+    parser.add_argument("--axes-facecolor", default=_generic_metadata_default(metadata, "axes_facecolor", None), help="Matplotlib color for the axes background.")
+    parser.add_argument("--transparent", action="store_true", default=bool(_generic_metadata_default(metadata, "transparent", False)), help="Save with a transparent figure background.")
+    parser.add_argument("--no-legend", action="store_true", default=bool(_generic_metadata_default(metadata, "no_legend", False)), help="Hide the legend.")
     parser.add_argument("--x-column", help="Explicit x column for generic or ambiguous tables.")
     parser.add_argument("--y-column", help="Explicit y column for generic or ambiguous tables.")
     parser.add_argument("--group-column", help="Column used to split a table into multiple plotted series.")
-    parser.add_argument(
-        "--normalization", "--normalisation", dest="normalization",
-        choices=("auto", "count", "density"), default="auto",
-        help=(
-            "Fragment-length y normalization. Auto reproduces the source command: "
-            "density for fragment-lengths and counts for fragments (default: auto)."
-        ),
-    )
     parser.add_argument("--bp-x", action="store_true", help="Treat a generic x axis as base pairs and use bp tick defaults.")
-    parser.add_argument("--smooth-window", type=int, default=21, help="DAC display-smoothing window. NRL-style DAC peak detection uses --peak-resolution.")
-    parser.add_argument("--show-raw", action="store_true", help="Retain the raw DAC profile; raw DAC is shown by default.")
-    parser.add_argument("--detect-peaks", action="store_true", help="Detect and display DAC peaks using the same resolution-driven method as `nucleosuite nrl` (default: off).")
-    parser.add_argument("--peak-resolution", type=float, default=160.0, help="Peak resolution for opt-in DAC peak detection; also controls NRL-style smoothing windows (default: 160 bp).")
-    parser.add_argument("--peak-min-distance", type=float, default=100.0, help="Display peak-spacing setting; DAC detection uses --peak-resolution.")
-    parser.add_argument("--label-peaks", choices=("auto", "none", "peaks"), default="auto", help="Peak labels: auto follows the source command (shown for NRL, hidden for distance distributions).")
-    parser.add_argument("--peak-label-value", choices=("x", "y", "both"), default="x", help="Value written for peak labels (default: x).")
-    parser.add_argument("--peak-label-offset", type=float, default=5.0, help="Vertical peak-label offset in points (default: 5).")
-    parser.add_argument("--nrl-inset", choices=("auto", "on", "off"), default="auto", help="Embed peak-number versus distance regression in DAC/NRL plots; auto uses it for long-range profiles.")
-    parser.add_argument("--nrl-min-distance", type=float, default=100.0, help="Minimum peak distance included in an auto NRL inset (default: 100 bp).")
-    parser.add_argument("--inset-bounds", type=float, nargs=4, metavar=("X", "Y", "W", "H"), default=(0.70, 0.57, 0.27, 0.36), help="Inset position as axes fractions X Y WIDTH HEIGHT.")
-    parser.add_argument("--vmin", type=float, help="Heatmap lower saturation value.")
-    parser.add_argument("--vmax", type=float, help="Heatmap upper saturation value.")
-    parser.add_argument("--bar-gap", type=float, default=0.18, help="Fractional gap between peak-state stacked bars (default: 0.18).")
     parser.add_argument("--mpl-rc", action="append", default=[], metavar="KEY=VALUE", help="Set any Matplotlib rcParam; repeatable.")
-    parser.add_argument("--mpl-kw", action="append", default=[], metavar="TARGET.KEY=VALUE", help="Pass Matplotlib artist keyword arguments. TARGET is line, raw, smooth, points, bar, heatmap, or legend; repeatable.")
+    parser.add_argument("--mpl-kw", action="append", default=[], metavar="TARGET.KEY=VALUE", help="Pass Matplotlib artist keyword arguments; repeatable.")
+
+    # Plot-family options exist only after that family is known. Metadata values
+    # become defaults, so editing the sidecar changes the next replot. CLI values
+    # then override those defaults naturally through argparse.
+    registered: set[str] = set()
+    for key, fallback, choices, inverse_alias, help_text in _plot_parameter_specs(plot_type):
+        default = _metadata_value(metadata, key, fallback)
+        _add_dynamic_parameter(parser, key, default, help_text=help_text, choices=choices, inverse_alias=inverse_alias)
+        registered.add(key)
+
+    # Accept other originating-command parameters only for this particular
+    # source. They are hidden unless a renderer explicitly uses them, but this
+    # keeps the metadata recipe fully editable/overridable without polluting the
+    # global `nucleosuite plot --help` interface.
+    for field, raw in sorted((metadata or {}).items()):
+        if not field.startswith("parameter."):
+            continue
+        key = field[len("parameter."):]
+        if not key or key in registered:
+            continue
+        option = "--" + key.replace("_", "-")
+        if _option_present(parser, option):
+            continue
+        _add_dynamic_parameter(parser, key, _metadata_value(metadata, key), help_text=argparse.SUPPRESS)
+    # Internal renderers can also be called directly by tests/downstream code.
+    # Populate missing renderer attributes without exposing plot-family options
+    # in the generic command-line interface.
+    destinations = {action.dest for action in parser._actions}
+    parser.set_defaults(**{key: value for key, value in _RENDER_DEFAULTS.items() if key not in destinations})
     return parser
 
+
+def _detect_plot_request(input_path: Path, requested: str, from_command: str | None, metadata: Mapping[str, str]) -> tuple[list[str], list[dict[str, str]], str]:
+    headers, rows = _read_table(input_path)
+    detected = detect_plot_type(input_path, headers)
+    if requested != "auto":
+        return headers, rows, requested
+    metadata_type = str(metadata.get("detected_plot_type", "")).strip()
+    if metadata_type in PLOT_TYPES and metadata_type != "auto":
+        return headers, rows, metadata_type
+    plot_type = COMMAND_TYPES.get(from_command, detected) if from_command else detected
+    if (
+        detected in {
+            "nrl-regression", "fragment-size-nrl-profile", "fragment-size-nrl-regression", "heatmap",
+            "distance-state-overlay", "aggregate-nrl-profile", "aggregate-nrl-regression",
+            "distance-percentile-curves", "distance-percentile-peak-counts", "gene-expression-spacing",
+            "gene-expression-fft-trajectory", "gene-expression-spacing-scatter", "gene-expression-ranking",
+        }
+        or detected.startswith("compare-positions-")
+    ):
+        plot_type = detected
+    return headers, rows, plot_type
+
+
+def parse_cli_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    values = list(argv or [])
+    if not values:
+        return build_parser().parse_args(values)
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("input", type=Path)
+    pre.add_argument("--plot-type", choices=PLOT_TYPES, default="auto")
+    pre.add_argument("--from-command", choices=tuple(sorted(COMMAND_TYPES)))
+    try:
+        preliminary, _unknown = pre.parse_known_args(values)
+    except SystemExit:
+        return build_parser().parse_args(values)
+    metadata = _read_replot_metadata(preliminary.input)
+    # Reading the table here lets the parser expose only options relevant to the
+    # actual source, including when the user asks for source-specific --help.
+    _headers, _rows, plot_type = _detect_plot_request(preliminary.input, preliminary.plot_type, preliminary.from_command, metadata)
+    args = build_parser(plot_type, metadata).parse_args(values)
+    args._replot_metadata = metadata
+    args._detected_plot_type = plot_type
+    return args
+
+
+_RENDER_DEFAULTS = {
+    "normalization": "auto", "smooth_window": 21, "show_raw": False,
+    "detect_peaks": False, "peak_resolution": 160.0, "peak_min_distance": 100.0,
+    "label_peaks": "auto", "peak_label_value": "x", "peak_label_offset": 5.0,
+    "nrl_inset": "auto", "nrl_min_distance": 100.0, "inset_bounds": (0.70, 0.57, 0.27, 0.36),
+    "vmin": None, "vmax": None, "bar_gap": 0.18, "show_boxplot_outliers": None,
+    "stats": False, "p_adjust": "holm", "p_display": "value", "percentile_boxplot_y_max": 200.0,
+    "score_normalization": "zscore", "score_correlation": "spearman", "score_z_limit": 10.0,
+    "score_agreement_distance_max": 100.0,
+}
+
+
+def _ensure_render_defaults(args: argparse.Namespace) -> None:
+    for key, value in _RENDER_DEFAULTS.items():
+        if not hasattr(args, key):
+            setattr(args, key, value)
+
 def validate_argv(argv: Sequence[str] | None = None) -> None:
-    args=build_parser().parse_args(argv)
+    args = parse_cli_args(argv)
+    _ensure_render_defaults(args)
     if ((args.width is not None and args.width <= 0)
             or (args.height is not None and args.height <= 0)
             or args.dpi <= 0 or args.font_size <= 0):
         raise ValueError("Figure dimensions, DPI, and font size must be greater than zero")
-    if args.smooth_window<1 or args.smooth_window%2==0: raise ValueError("--smooth-window must be a positive odd integer")
-    if args.peak_resolution < 0: raise ValueError("--peak-resolution must be zero or greater")
-    if args.vmin is not None and args.vmax is not None and args.vmin>=args.vmax: raise ValueError("--vmin must be less than --vmax")
+    if args.smooth_window < 1 or args.smooth_window % 2 == 0:
+        raise ValueError("--smooth-window must be a positive odd integer")
+    if args.peak_resolution < 0:
+        raise ValueError("--peak-resolution must be zero or greater")
+    if args.vmin is not None and args.vmax is not None and args.vmin >= args.vmax:
+        raise ValueError("--vmin must be less than --vmax")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args=build_parser().parse_args(argv); validate_argv(argv)
+    args = parse_cli_args(argv)
+    _ensure_render_defaults(args)
     import matplotlib
     matplotlib.use("Agg")
-    _apply_rc(args.mpl_rc); matplotlib.rcParams["font.size"] = args.font_size
-    headers,rows=_read_table(args.input); detected=detect_plot_type(args.input,headers)
-    plot_type=args.plot_type
-    if plot_type=="auto": plot_type=COMMAND_TYPES.get(args.from_command,detected) if args.from_command else detected
-    # Specific table families should win over broad source-command hints.
-    if args.plot_type=="auto" and (
-        detected in {
-            "nrl-regression", "fragment-size-nrl-profile",
-            "fragment-size-nrl-regression", "heatmap", "distance-state-overlay",
-            "aggregate-nrl-profile", "aggregate-nrl-regression",
-            "distance-percentile-curves", "distance-percentile-peak-counts",
-            "gene-expression-spacing", "gene-expression-fft-trajectory",
-            "gene-expression-spacing-scatter", "gene-expression-ranking",
-        }
-        or detected.startswith("compare-positions-")
-    ):
-        plot_type=detected
-    output=_resolve_output(args.input,args.output,args.format); artist_kw=_parse_artist_values(args.mpl_kw)
-    dispatch={
-        "dac":_plot_dac,"dcc":_plot_dcc,"nrl-profile":_plot_nrl_profile,"nrl-regression":_plot_nrl_regression,
-        "fragment-size-nrl-profile":_plot_fragment_size_nrl_profile,
-        "fragment-size-nrl-regression":_plot_fragment_size_nrl_regression,
-        "aggregate-nrl-profile":_plot_aggregate_nrl_profile,
-        "aggregate-nrl-regression":_plot_aggregate_nrl_regression,
-        "distances":_plot_distances,"distance-state-overlay":_plot_distance_state_overlay,
-        "distance-percentile-curves":_plot_distance_percentile_curves,
-        "distance-percentile-peak-counts":_plot_distance_percentile_peak_counts,
-        "aggregate-profile":_plot_aggregate_profile,"heatmap":_plot_heatmap,"generic-heatmap":_plot_heatmap,
-        "fragment-lengths":_plot_fragment_lengths,"positive-runs":_plot_positive_runs,"peak-score-frequency":_plot_peak_score_frequency,
-        "peak-states":_plot_peak_states,"flank-spacing":_plot_flank_spacing,"compare-positions":_plot_compare_positions,
-        "compare-positions-histogram":_plot_compare_positions,
-        "compare-positions-score":_plot_compare_positions_score,
-        "compare-positions-correlation":_plot_compare_positions_correlation,
-        "compare-positions-percentile-boxplot":_plot_compare_positions_percentile_boxplot,
-        "compare-positions-score-distance":_plot_compare_positions_score_distance,
-        "gene-expression":_plot_gene_expression,
-        "gene-expression-spacing":_plot_gene_expression_spacing,
-        "gene-expression-spacing-scatter":_plot_gene_expression_spacing_scatter,
-        "gene-expression-fft-trajectory":_plot_gene_expression_fft_trajectory,
-        "gene-expression-ranking":_plot_gene_expression_ranking,
-        "tss-expression":_plot_tss_expression,
-        "dinucleotide-profile":_plot_dinucleotide_profile,"ww-ss-profile":_plot_ww_ss_profile,"ww-type-summary":_plot_ww_type_summary,
-        "ww-type-by-length":_plot_ww_type_by_length,"gene-sets-venn":_plot_gene_sets_venn,"profile-overlay":_plot_profile_overlay,"count-profile":_plot_count_profile,
+    _apply_rc(args.mpl_rc)
+    matplotlib.rcParams["font.size"] = args.font_size
+    headers, rows = _read_table(args.input)
+    plot_type = str(getattr(args, "_detected_plot_type", "auto"))
+    if args.plot_type != "auto":
+        plot_type = args.plot_type
+    output = _resolve_output(args.input, args.output, args.format)
+    artist_kw = _parse_artist_values(args.mpl_kw)
+    dispatch = {
+        "dac": _plot_dac, "dcc": _plot_dcc, "nrl-profile": _plot_nrl_profile, "nrl-regression": _plot_nrl_regression,
+        "fragment-size-nrl-profile": _plot_fragment_size_nrl_profile,
+        "fragment-size-nrl-regression": _plot_fragment_size_nrl_regression,
+        "aggregate-nrl-profile": _plot_aggregate_nrl_profile,
+        "aggregate-nrl-regression": _plot_aggregate_nrl_regression,
+        "distances": _plot_distances, "distance-state-overlay": _plot_distance_state_overlay,
+        "distance-percentile-curves": _plot_distance_percentile_curves,
+        "distance-percentile-peak-counts": _plot_distance_percentile_peak_counts,
+        "aggregate-profile": _plot_aggregate_profile, "heatmap": _plot_heatmap, "generic-heatmap": _plot_heatmap,
+        "fragment-lengths": _plot_fragment_lengths, "positive-runs": _plot_positive_runs, "peak-score-frequency": _plot_peak_score_frequency,
+        "peak-states": _plot_peak_states, "flank-spacing": _plot_flank_spacing, "compare-positions": _plot_compare_positions,
+        "compare-positions-histogram": _plot_compare_positions,
+        "compare-positions-score": _plot_compare_positions_score,
+        "compare-positions-score-signal": _plot_compare_positions_score,
+        "compare-positions-correlation": _plot_compare_positions_correlation,
+        "compare-positions-percentile-boxplot": _plot_compare_positions_percentile_boxplot,
+        "compare-positions-percentile-trend": _plot_compare_positions_percentile_trend,
+        "gene-expression": _plot_gene_expression,
+        "gene-expression-spacing": _plot_gene_expression_spacing,
+        "gene-expression-spacing-scatter": _plot_gene_expression_spacing_scatter,
+        "gene-expression-fft-trajectory": _plot_gene_expression_fft_trajectory,
+        "gene-expression-ranking": _plot_gene_expression_ranking,
+        "tss-expression": _plot_tss_expression,
+        "dinucleotide-profile": _plot_dinucleotide_profile, "ww-ss-profile": _plot_ww_ss_profile, "ww-type-summary": _plot_ww_type_summary,
+        "ww-type-by-length": _plot_ww_type_by_length, "gene-sets-venn": _plot_gene_sets_venn, "profile-overlay": _plot_profile_overlay, "count-profile": _plot_count_profile,
     }
-    if plot_type in dispatch: saved,fig=dispatch[plot_type](args.input,headers,rows,args,output,artist_kw)
-    elif plot_type in {"generic-line","generic-scatter","generic-bar"}: saved,fig=_generic_plot(args.input,headers,rows,args,output,artist_kw,plot_type)
-    else: raise ValueError(f"Unsupported plot type: {plot_type}")
+    if plot_type in dispatch:
+        saved, fig = dispatch[plot_type](args.input, headers, rows, args, output, artist_kw)
+    elif plot_type in {"generic-line", "generic-scatter", "generic-bar"}:
+        saved, fig = _generic_plot(args.input, headers, rows, args, output, artist_kw, plot_type)
+    else:
+        raise ValueError(f"Unsupported plot type: {plot_type}")
     from nucleosuite.plotting import write_plot_metadata
     write_plot_metadata(saved, extra={"detected_plot_type": plot_type, "source_table": str(args.input)})
-    import matplotlib.pyplot as plt; plt.close(fig)
-    print(f"Detected plot type: {plot_type}"); print(f"Wrote: {saved}")
+    import matplotlib.pyplot as plt
+    plt.close(fig)
+    print(f"Detected plot type: {plot_type}")
+    print(f"Wrote: {saved}")
     return 0
 
 

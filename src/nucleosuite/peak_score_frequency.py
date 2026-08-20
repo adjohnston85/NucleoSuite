@@ -110,8 +110,9 @@ def _histogram_edges(
     score_min: float | None,
     score_max: float | None,
     integer_bins: bool,
+    score_scale: float = 1.0,
 ) -> tuple[np.ndarray, np.ndarray | None]:
-    all_scores = np.concatenate([dataset.scores for dataset in datasets])
+    all_scores = np.concatenate([dataset.scores for dataset in datasets]) * float(score_scale)
     if integer_bins:
         if bins is not None or bin_width is not None:
             raise ValueError("--integer-bins cannot be combined with --bins or --bin-width")
@@ -219,6 +220,7 @@ def _write_frequency(
     output: Path,
     *,
     integer_labels: np.ndarray | None = None,
+    score_scale: float = 1.0,
 ) -> dict[str, np.ndarray]:
     output.parent.mkdir(parents=True, exist_ok=True)
     histograms: dict[str, np.ndarray] = {}
@@ -240,7 +242,8 @@ def _write_frequency(
             )
         widths = np.diff(edges)
         for dataset in datasets:
-            counts, _ = np.histogram(dataset.scores, bins=edges)
+            scaled_scores = dataset.scores * float(score_scale)
+            counts, _ = np.histogram(scaled_scores, bins=edges)
             histograms[dataset.label] = counts
             total = counts.sum()
             fractions = counts / total if total else np.zeros_like(counts, dtype=float)
@@ -293,6 +296,7 @@ def _plot_frequency(
     plot_x_min: float | None,
     plot_x_max: float | None,
     integer_labels: np.ndarray | None = None,
+    score_scale: float = 1.0,
 ) -> Path:
     import matplotlib
 
@@ -306,7 +310,10 @@ def _plot_frequency(
     for dataset in datasets:
         values = _normalised_values(histograms[dataset.label], edges, normalization)
         ax.step(midpoints, values, where="mid", linewidth=1.5, label=dataset.label)
-    ax.set_xlabel("Peak score")
+    ax.set_xlabel(
+        "Peak score" if math.isclose(score_scale, 1.0)
+        else f"Peak score (×{score_scale:g})"
+    )
     ylabel = {
         "count": "Frequency (count)",
         "fraction": "Frequency (fraction)",
@@ -359,6 +366,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--score-column", type=int, default=5, help="1-based score column. Default: 5")
     parser.add_argument(
+        "--score-scale", type=float, default=1.0,
+        help=(
+            "Multiply scores by this value before histogram binning and plotting "
+            "(default: 1). Raw score summaries/detail tables remain unscaled."
+        ),
+    )
+    parser.add_argument(
         "--integer-bins",
         action="store_true",
         help=(
@@ -377,8 +391,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         help="Use fixed-width continuous bins instead of integer-score bins.",
     )
-    parser.add_argument("--score-min", type=float, help="Lower histogram boundary. Default: observed minimum.")
-    parser.add_argument("--score-max", type=float, help="Upper histogram boundary. Default: observed maximum.")
+    parser.add_argument("--score-min", type=float, help="Lower histogram boundary after --score-scale. Default: observed scaled minimum.")
+    parser.add_argument("--score-max", type=float, help="Upper histogram boundary after --score-scale. Default: observed scaled maximum.")
     parser.add_argument(
         "--normalization",
         choices=("count", "fraction", "percent", "density"),
@@ -409,6 +423,8 @@ def build_parser() -> argparse.ArgumentParser:
 def _run_serial(args: argparse.Namespace) -> int:
     if args.score_column < 1:
         raise ValueError("--score-column must be at least 1")
+    if not math.isfinite(args.score_scale) or args.score_scale <= 0:
+        raise ValueError("--score-scale must be a finite value greater than zero")
     labelled = [_parse_labelled_path(value) for value in args.peaks]
     labels = [label for label, _ in labelled]
     if len(set(labels)) != len(labels):
@@ -431,6 +447,7 @@ def _run_serial(args: argparse.Namespace) -> int:
         score_min=args.score_min,
         score_max=args.score_max,
         integer_bins=integer_bins,
+        score_scale=args.score_scale,
     )
     from nucleosuite.output_naming import parameterized_prefix
 
@@ -445,6 +462,7 @@ def _run_serial(args: argparse.Namespace) -> int:
         args.output_prefix,
         (
             bin_parameter,
+            ("scorescale", args.score_scale),
             ("scoremin", args.score_min),
             ("scoremax", args.score_max),
             ("norm", args.normalization),
@@ -458,7 +476,8 @@ def _run_serial(args: argparse.Namespace) -> int:
     if args.write_detail_tables:
         _write_values(datasets, values_path)
     histograms = _write_frequency(
-        datasets, edges, frequency_path, integer_labels=integer_labels
+        datasets, edges, frequency_path, integer_labels=integer_labels,
+        score_scale=args.score_scale,
     )
     _write_summary(datasets, summary_path)
     plot_path = _plot_frequency(
@@ -472,11 +491,20 @@ def _run_serial(args: argparse.Namespace) -> int:
         plot_x_min=args.plot_x_min,
         plot_x_max=args.plot_x_max,
         integer_labels=integer_labels,
+        score_scale=args.score_scale,
     )
     from nucleosuite.plotting import write_plot_metadata
     write_plot_metadata(
         plot_path,
-        extra={"source_table": str(frequency_path), "detected_plot_type": "peak-score-frequency"},
+        extra={
+            "source_table": str(frequency_path),
+            "detected_plot_type": "peak-score-frequency",
+            "score_scale": args.score_scale,
+            "x_label": (
+                "Peak score" if math.isclose(args.score_scale, 1.0)
+                else f"Peak score (×{args.score_scale:g})"
+            ),
+        },
     )
     if args.write_detail_tables:
         print(f"Wrote: {values_path}")
@@ -500,6 +528,7 @@ def run(args: argparse.Namespace) -> int:
             args.output_prefix,
             (
                 bin_parameter,
+                ("scorescale", args.score_scale),
                 ("scoremin", args.score_min),
                 ("scoremax", args.score_max),
                 ("norm", args.normalization),

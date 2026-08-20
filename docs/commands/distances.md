@@ -138,15 +138,23 @@ Sweep outputs include count and percentage overlays plus a table of the retained
 
 ## Higher-order distances and NRL regression
 
-Set `--max-order` above 1 when you want first-, second-, third-, or higher-neighbour distances in the same run.
+Set `--max-order` above 1 when you want first-, second-, third-, or higher-neighbour distances in the same run. The default maximum reported/regression distance is **1500 bp**; use `--max-distance` to change it.
 
-For each populated order, NucleoSuite identifies the peak of that order's distance distribution and fits those peak distances against neighbour order. The fitted slope is reported as the NRL estimate.
+Distances are always calculated **within contigs**. When the input contains several contigs, their within-contig distance counts are pooled for one combined NRL regression by default:
 
-By default, the regression uses the mode of the Savitzky-Golay-smoothed count distribution (`--nrl-mode smoothed`). The smoothing is controlled by `--count-smooth-window` and `--count-smooth-polyorder`, which default to 21 and 2. Use `--nrl-mode raw` to regress the raw count modes instead.
+```text
+--regression-scope combined
+```
 
-For a well-ordered array, order 1 might peak near 185 bp, order 2 near 370 bp, and order 3 near 555 bp. A straight-line fit through those modes therefore has a slope near 185 bp.
+Use `--regression-scope contig` for separate regressions per contig, or `--regression-scope both` to write both forms.
 
-When multiple neighbour orders are plotted together in smoothed mode, the smoothed distribution for each order is drawn in a different colour and the corresponding raw distribution is retained in grey behind it. Peak labels can be enabled with `--plot-label-points peaks`.
+For each populated order, NucleoSuite smooths and searches the **full available distance profile** for genuine interior local maxima. The requested `--min-distance` and `--max-distance` are applied only after peak detection: maxima outside that regression range are ignored. This prevents the requested plotting/regression boundary from becoming an artificial peak.
+
+In smoothed mode (`--nrl-mode smoothed`), the Savitzky-Golay window is controlled by `--count-smooth-window` and `--count-smooth-polyorder`, which default to 21 and 2. Smoothed values are retained only where the complete centred window is supported at the true profile edges; unsupported edge positions are not used for peak calling. Use `--nrl-mode raw` to use raw count modes instead.
+
+The retained peak distance for each order is fitted against neighbour order. The slope of that fit is reported as the NRL estimate. For a well-ordered array, order 1 might peak near 185 bp, order 2 near 370 bp, and order 3 near 555 bp.
+
+When multiple neighbour orders are plotted together in smoothed mode, each smoothed order is a different colour and the corresponding raw distribution is retained in grey behind it. Peak markers represent the same validated maxima used by the regression.
 
 See [Nucleosome repeat length](../ALGORITHMS.md#nucleosome-repeat-length) for the related peak-period fitting used by the standalone `nrl` command.
 
