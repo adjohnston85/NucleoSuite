@@ -188,6 +188,49 @@ def test_distance_replot_uses_solid_coloured_order_lines_and_legend(tmp_path: Pa
     assert not figure.axes[0].texts
 
 
+def test_distance_replot_metadata_controls_window_and_peak_labels(tmp_path: Path) -> None:
+    from nucleosuite.plotting import plot_source_metadata_path
+    from nucleosuite.replot import parse_cli_args, _plot_distances, _read_table
+
+    path = tmp_path / "sample_distances.tsv"
+    _write(
+        path,
+        ["order", "scope", "state", "distance_bp", "count", "smoothed_count", "full_raw_mode_bp", "full_smoothed_mode_bp"],
+        [
+            [1, "combined_chromosomes", "All", 185, 10, 12.0, 185, 185],
+            [1, "combined_chromosomes", "All", 1600, 1, 1.0, 185, 185],
+            [2, "combined_chromosomes", "All", 370, 8, 9.0, 370, 370],
+            [2, "combined_chromosomes", "All", 1700, 1, 1.0, 370, 370],
+        ],
+    )
+    metadata = plot_source_metadata_path(path)
+    metadata.write_text(
+        "field\tvalue\n"
+        "detected_plot_type\tdistances\n"
+        "x_min\t1\n"
+        "x_max\t1500\n"
+        "nrl_mode\tsmoothed\n"
+        "label_peaks\tTrue\n"
+        "peak_label_value\tx\n"
+        "peak_label_offset\t5\n"
+    )
+    args = parse_cli_args([str(path), "--output", str(tmp_path / "distances.png")])
+    assert args.x_max == 1500
+    assert args.label_peaks is True
+    headers, rows = _read_table(path)
+    (_, figure) = _plot_distances(path, headers, rows, args, tmp_path / "distances.png", {})
+    axis = figure.axes[0]
+    assert axis.get_xlim()[1] == 1500
+    assert {text.get_text() for text in axis.texts} == {"185", "370"}
+
+    overridden = parse_cli_args([
+        str(path), "--output", str(tmp_path / "distances2.png"),
+        "--x-max", "2000", "--no-label-peaks",
+    ])
+    assert overridden.x_max == 2000
+    assert overridden.label_peaks is False
+
+
 def test_distance_replot_artist_options_override_default_style(tmp_path: Path) -> None:
     from nucleosuite.replot import _plot_distances, _read_table
 

@@ -138,9 +138,9 @@ Sweep outputs include count and percentage overlays plus a table of the retained
 
 ## Higher-order distances and NRL regression
 
-Set `--max-order` above 1 when you want first-, second-, third-, or higher-neighbour distances in the same run. The default maximum reported/regression distance is **1500 bp**; use `--max-distance` to change it.
+Set `--max-order` above 1 when you want first-, second-, third-, or higher-neighbour distances in the same run. The default plotted/regression x-maximum is **1500 bp**; use `--max-distance` to change the visible range. `--max-distance` does **not** truncate distance calculation or the underlying per-order distribution.
 
-Distances are always calculated **within contigs**. When the input contains several contigs, their within-contig distance counts are pooled for one combined NRL regression by default:
+Distances are always calculated **within contigs**. By default `--scope combined_chromosomes` pools the within-contig distance counts across all supplied contigs for the output distributions. The combined NRL regression is also the default:
 
 ```text
 --regression-scope combined
@@ -148,13 +148,13 @@ Distances are always calculated **within contigs**. When the input contains seve
 
 Use `--regression-scope contig` for separate regressions per contig, or `--regression-scope both` to write both forms.
 
-For each populated order, NucleoSuite smooths and searches the **full available distance profile** for genuine interior local maxima. The requested `--min-distance` and `--max-distance` are applied only after peak detection: maxima outside that regression range are ignored. This prevents the requested plotting/regression boundary from becoming an artificial peak.
+For each populated order, NucleoSuite first constructs the **complete positive-distance distribution**, regardless of the requested plot limits. The raw or smoothed mode is then determined from that complete distribution. Only after the mode is known are `--min-distance` and `--max-distance` applied to decide whether that order's mode is displayed and is eligible for the regression. If the true +8 mode is 1560 bp and `--max-distance 1500` is used, the +8 curve is simply clipped at 1500 bp; there is no marker at 1500 and +8 is omitted from the regression. Changing `--max-distance` therefore cannot change the underlying mode call.
 
-In smoothed mode (`--nrl-mode smoothed`), the Savitzky-Golay window is controlled by `--count-smooth-window` and `--count-smooth-polyorder`, which default to 21 and 2. Smoothed values are retained only where the complete centred window is supported at the true profile edges; unsupported edge positions are not used for peak calling. Use `--nrl-mode raw` to use raw count modes instead.
+In smoothed mode (`--nrl-mode smoothed`), the Savitzky-Golay window is controlled by `--count-smooth-window` and `--count-smooth-polyorder`, which default to 21 and 2. Smoothing is evaluated on the full distribution rather than on the plotted x-window, so the plot boundary cannot create a terminal smoothing peak. Use `--nrl-mode raw` to use the full raw-count mode instead.
 
-The retained peak distance for each order is fitted against neighbour order. The slope of that fit is reported as the NRL estimate. For a well-ordered array, order 1 might peak near 185 bp, order 2 near 370 bp, and order 3 near 555 bp.
+The retained in-range mode distance for each order is fitted against neighbour order. The slope of that fit is reported as the NRL estimate. For a well-ordered array, order 1 might peak near 185 bp, order 2 near 370 bp, and order 3 near 555 bp.
 
-When multiple neighbour orders are plotted together in smoothed mode, each smoothed order is a different colour and the corresponding raw distribution is retained in grey behind it. Peak markers represent the same validated maxima used by the regression.
+When multiple neighbour orders are plotted together in smoothed mode, each smoothed order is a different colour and the corresponding raw distribution is retained in grey behind it. Peak markers represent the same full-distribution modes used for regression eligibility. Add `--label-peaks` to label displayed modes; `--peak-label-value x|y|both` controls whether the label shows the modal distance, count, or both.
 
 See [Nucleosome repeat length](../ALGORITHMS.md#nucleosome-repeat-length) for the related peak-period fitting used by the standalone `nrl` command.
 
@@ -162,7 +162,7 @@ See [Nucleosome repeat length](../ALGORITHMS.md#nucleosome-repeat-length) for th
 
 The requested options determine which outputs are written:
 
-- raw and percentage distance tables;
+- full raw and percentage distance tables (not truncated by `--max-distance`);
 - per-state distance tables when `--state-bed` is used;
 - score-threshold or score-bin outputs;
 - percentile-sweep figures plus per-figure curve and retained-peak tables suitable for faithful replotting;

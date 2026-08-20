@@ -483,7 +483,8 @@ def _detect_peaks(x: np.ndarray, y: np.ndarray, min_distance_bp: float) -> np.nd
 def _label_peaks(
     ax, x: np.ndarray, y: np.ndarray, indices: Iterable[int], args, *, default: bool
 ) -> None:
-    if args.label_peaks == "none" or (args.label_peaks == "auto" and not default):
+    mode = getattr(args, "label_peaks", "auto")
+    if mode is False or mode == "none" or (mode == "auto" and not default):
         return
     for idx in indices:
         value = x[idx] if args.peak_label_value == "x" else y[idx]
@@ -1143,7 +1144,7 @@ def _grouped_line(
 
 
 def _plot_distances(path, headers, rows, args, output, artist_kw):
-    """Recreate the standard solid-line neighbour-order distribution plot."""
+    """Recreate the neighbour-order distribution plot from complete profiles."""
     import matplotlib.pyplot as plt
 
     hm = _header_map(headers)
@@ -1176,6 +1177,7 @@ def _plot_distances(path, headers, rows, args, output, artist_kw):
             return (1, _natural_key(value))
 
     fig, ax = plt.subplots()
+    nrl_mode = str(getattr(args, "nrl_mode", "smoothed") or "smoothed")
     for group in sorted(groups, key=group_sort):
         group_rows = groups[group]
         x = _numeric(group_rows, x_key)
@@ -1187,35 +1189,58 @@ def _plot_distances(path, headers, rows, args, output, artist_kw):
             raise ValueError("Distance replots require a count or percentage column")
         raw = _numeric(group_rows, raw_key)
         smooth = _numeric(group_rows, smooth_key) if smooth_key is not None else raw
-        mask = np.isfinite(x) & np.isfinite(raw) & np.isfinite(smooth)
-        x, raw, smooth = x[mask], raw[mask], smooth[mask]
+        finite_x = np.isfinite(x)
+        x, raw, smooth = x[finite_x], raw[finite_x], smooth[finite_x]
         order = np.argsort(x)
         x, raw, smooth = x[order], raw[order], smooth[order]
         if not x.size:
             continue
 
-        if smooth_key is not None:
+        use_smooth = smooth_key is not None and nrl_mode == "smoothed"
+        if use_smooth:
+            raw_mask = np.isfinite(raw)
             raw_kw = {"color": "0.78", "linewidth": 0.8, "alpha": 0.65, "zorder": 1}
             raw_kw.update(artist_kw.get("raw", {}))
-            ax.plot(x, raw, **raw_kw)
+            ax.plot(x[raw_mask], raw[raw_mask], **raw_kw)
 
-        line_kw = {"linewidth": 1.5 if smooth_key is not None else 1.35, "linestyle": "-", "zorder": 2}
+        selected = smooth if use_smooth else raw
+        selected_mask = np.isfinite(selected)
+        line_kw = {"linewidth": 1.5 if use_smooth else 1.35, "linestyle": "-", "zorder": 2}
         line_kw.update(artist_kw.get("line", {}))
         if group:
             line_kw["label"] = f"+{group}" if re.fullmatch(r"\d+(?:\.0+)?", group) else group
-        line, = ax.plot(x, smooth, **line_kw)
+        line, = ax.plot(x[selected_mask], selected[selected_mask], **line_kw)
 
-        peak_index = int(np.argmax(smooth))
-        point_kw = {
-            "s": 22,
-            "facecolors": "white",
-            "edgecolors": line.get_color(),
-            "linewidths": 0.8,
-            "zorder": 4,
-        }
-        point_kw.update(artist_kw.get("points", {}))
-        ax.scatter([x[peak_index]], [smooth[peak_index]], **point_kw)
-        _label_peaks(ax, x, smooth, [peak_index], args, default=False)
+        mode_key = hm.get("full_smoothed_mode_bp") if use_smooth else hm.get("full_raw_mode_bp")
+        peak_x = None
+        if mode_key is not None:
+            for row in group_rows:
+                try:
+                    candidate = float(row.get(mode_key, "nan"))
+                except (TypeError, ValueError):
+                    continue
+                if math.isfinite(candidate):
+                    peak_x = candidate
+                    break
+        elif np.any(selected_mask):
+            finite_indices = np.flatnonzero(selected_mask)
+            peak_index = finite_indices[int(np.argmax(selected[selected_mask]))]
+            peak_x = float(x[peak_index])
+
+        lower = -math.inf if args.x_min is None else float(args.x_min)
+        upper = math.inf if args.x_max is None else float(args.x_max)
+        if peak_x is not None and lower <= peak_x <= upper:
+            matches = np.flatnonzero(x == peak_x)
+            if matches.size:
+                idx = int(matches[0])
+                if np.isfinite(selected[idx]):
+                    point_kw = {
+                        "s": 22, "facecolors": "white", "edgecolors": line.get_color(),
+                        "linewidths": 0.8, "zorder": 4,
+                    }
+                    point_kw.update(artist_kw.get("points", {}))
+                    ax.scatter([x[idx]], [selected[idx]], **point_kw)
+                    _label_peaks(ax, x, selected, [idx], args, default=False)
 
     ax.set_xlabel("Distance (bp)")
     if args.y_column:
@@ -1223,19 +1248,8 @@ def _plot_distances(path, headers, rows, args, output, artist_kw):
     else:
         ax.set_ylabel("Count" if (hm.get("count") or hm.get("raw_count")) else "Percentage")
     return _finish(
-        ax,
-        fig,
-        args,
-        output,
-        bp_x=True,
-        legend=len(groups) > 1,
-        artist_kw={
-            **artist_kw,
-            "legend": {
-                "title": "Neighbour order",
-                **artist_kw.get("legend", {}),
-            },
-        },
+        ax, fig, args, output, bp_x=True, legend=len(groups) > 1,
+        artist_kw={**artist_kw, "legend": {"title": "Neighbour order", **artist_kw.get("legend", {})}},
         default_size=(10.0, 5.5),
     ), fig
 
@@ -1914,7 +1928,21 @@ def _plot_compare_positions_correlation(path, headers, rows, args, output, artis
             kw = {"marker": marker, "linestyle": linestyle, "label": legend_label}; kw.update(artist_kw.get("line", {}))
             ax.plot(x, values, **kw); plotted += 1
     ax.axhline(0, color="black", linewidth=0.8)
-    ax.set_xticks(np.arange(len(base_labels), dtype=float), base_labels, rotation=35, ha="right"); ax.set_ylim(-1.05, 1.05)
+    ax.set_xticks(np.arange(len(base_labels), dtype=float), base_labels, rotation=35, ha="right")
+    displayed_values: list[float] = []
+    for group in groups:
+        subset = rows if comparison_key is None else [row for row in rows if str(row.get(comparison_key, "")) == group]
+        for key, corr_label in (("spearman_score_correlation", "spearman"), ("pearson_score_correlation", "pearson")):
+            if key not in hm or (method != "both" and corr_label != method):
+                continue
+            values = _numeric(subset, hm[key])
+            displayed_values.extend(float(value) for value in values[np.isfinite(values)])
+    if displayed_values and min(displayed_values) < 0:
+        minimum = min(displayed_values)
+        default_y_min = max(-1.05, minimum - max(0.02, 0.05 * abs(minimum)))
+    else:
+        default_y_min = 0.0
+    ax.set_ylim(default_y_min, 1.05)
     main_label = "Main"
     if "main_label" in hm and rows:
         candidate = str(rows[0].get(hm["main_label"], "")).strip()
@@ -1933,9 +1961,9 @@ def _plot_compare_positions_percentile_trend(path, headers, rows, args, output, 
     from nucleosuite.plotting import category_colors
 
     hm = _header_map(headers)
-    required = {"comparison", "percentile", "median_absolute_distance", "q25_absolute_distance", "q75_absolute_distance"}
-    if not required.issubset(hm):
-        raise ValueError("Percentile trend replots require comparison, percentile, median, q25, and q75 columns")
+    required = {"comparison", "median_absolute_distance", "q25_absolute_distance", "q75_absolute_distance"}
+    if not required.issubset(hm) or not ({"percentile", "percentile_midpoint"} & set(hm)):
+        raise ValueError("Percentile trend replots require comparison, percentile/bin midpoint, median, q25, and q75 columns")
     comparisons: list[str] = []
     for row in rows:
         label = str(row.get(hm["comparison"], ""))
@@ -1946,7 +1974,8 @@ def _plot_compare_positions_percentile_trend(path, headers, rows, args, output, 
     prepared = []
     for comparison, color in zip(comparisons, colors):
         subset = [row for row in rows if str(row.get(hm["comparison"], "")) == comparison]
-        x = _numeric(subset, hm["percentile"])
+        x_key = hm.get("percentile_midpoint") or hm["percentile"]
+        x = _numeric(subset, x_key)
         med = _numeric(subset, hm["median_absolute_distance"])
         q25 = _numeric(subset, hm["q25_absolute_distance"])
         q75 = _numeric(subset, hm["q75_absolute_distance"])
@@ -1972,9 +2001,9 @@ def _plot_compare_positions_percentile_trend(path, headers, rows, args, output, 
     metadata_label = getattr(args, "main_label", None)
     if metadata_label:
         main_label = str(metadata_label)
-    ax.set_xlim(1, 100)
+    ax.set_xlim(0, 100)
     ax.set_ylim(bottom=0)
-    ax.set_xlabel(f"{main_label} peak score percentile")
+    ax.set_xlabel(f"{main_label} peak score percentile bin (1% bins)")
     ax.set_ylabel("Median absolute matched distance (bp)")
     ax.set_title(f"Matched distance across {main_label} score percentiles")
     return _finish(ax, fig, args, output, legend=True, artist_kw=artist_kw, default_size=(9.0, 5.8)), fig
@@ -3045,6 +3074,12 @@ def _add_dynamic_parameter(
 
 
 _PLOT_PARAMETER_SPECS: dict[str, tuple[tuple[str, Any, Sequence[str] | None, str | None, str], ...]] = {
+    "distances": (
+        ("nrl_mode", "smoothed", ("raw", "smoothed"), None, "Distance-distribution mode used for the selected order modes."),
+        ("label_peaks", False, None, None, "Label displayed neighbour-order mode peaks."),
+        ("peak_label_value", "x", ("x", "y", "both"), None, "Value written above labelled mode peaks."),
+        ("peak_label_offset", 5.0, None, None, "Peak-label offset in points."),
+    ),
     "compare-positions-percentile-boxplot": (
         ("show_boxplot_outliers", False, None, "--hide-boxplot-outliers", "Show boxplot outlier points beyond the 1.5×IQR whiskers."),
         ("stats", False, None, None, "Show statistical annotations stored in the compact plot source."),
@@ -3247,6 +3282,34 @@ def _detect_plot_request(input_path: Path, requested: str, from_command: str | N
     ):
         plot_type = detected
     return headers, rows, plot_type
+
+
+
+def build_help_parser(argv: Sequence[str] | None = None) -> argparse.ArgumentParser:
+    """Build source-aware help without requiring the help flag to reach argparse."""
+
+    values = [
+        token for token in list(argv or [])
+        if token not in {"-h", "--help", "--help-all", "--help-extended"}
+    ]
+    if not values:
+        return build_parser()
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("input", type=Path)
+    pre.add_argument("--plot-type", choices=PLOT_TYPES, default="auto")
+    pre.add_argument("--from-command", choices=tuple(sorted(COMMAND_TYPES)))
+    try:
+        preliminary, _unknown = pre.parse_known_args(values)
+        metadata = _read_replot_metadata(preliminary.input)
+        _headers, _rows, plot_type = _detect_plot_request(
+            preliminary.input,
+            preliminary.plot_type,
+            preliminary.from_command,
+            metadata,
+        )
+        return build_parser(plot_type, metadata)
+    except (SystemExit, FileNotFoundError, OSError, ValueError):
+        return build_parser()
 
 
 def parse_cli_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

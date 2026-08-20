@@ -78,9 +78,9 @@ produces `0-25`, `25-50`, `50-75`, and `75-100` groups. Percentiles are assigned
 The default figures are:
 
 - a combined **signed matched-position distance distribution** for all comparisons, displayed from **-250 to 250 bp** by default;
-- a combined **score-correlation-by-distance-bin** plot using absolute summit distance bins;
+- a combined **score-correlation-by-distance-bin** plot using absolute summit distance bins; its y-axis starts at 0 when all displayed correlations are non-negative and extends below 0 only when a negative correlation is actually present;
 - a grouped **main-score percentile distance boxplot**, with comparison callsets side-by-side within each percentile group and a default display range of **0-200 bp**;
-- a combined **1%-percentile distance trend**, showing median absolute matched distance for each comparison with an interquartile-range ribbon;
+- a combined **1%-percentile distance trend**, showing median absolute matched distance for each comparison with an interquartile-range ribbon. Bins are explicit intervals (`0-1`, `1-2`, ..., `99-100`) and are plotted at their midpoints (`0.5`, `1.5`, ..., `99.5`);
 - a separate **main-versus-comparison score-agreement** plot for each comparison BED, coloured by absolute summit distance with a default colour scale of **0-100 bp**; and
 - a separate **main-score-versus-BigWig-value agreement** plot for each `--score-bigwig`, with no distance colouring because no positional matching is involved.
 
@@ -122,7 +122,7 @@ Corresponding figures include:
 
 With `--stats` and at least two comparison BEDs, `<prefix>_percentile_statistics.tsv` is also written.
 
-The compact boxplot source stores box/whisker statistics and the values needed to reproduce optional outliers/statistical annotations. The 1%-trend source stores comparison, percentile, observation count, median absolute distance, and the 25th/75th percentiles. These sources can be passed directly to [`nucleosuite plot`](plot.md).
+The compact boxplot source stores box/whisker statistics and the values needed to reproduce optional outliers/statistical annotations. The 1%-trend source stores the lower and upper percentile bounds, bin midpoint and label, comparison, observation count, median absolute distance, and the 25th/75th percentiles. These sources can be passed directly to [`nucleosuite plot`](plot.md).
 
 Large one-row-per-match tables are opt-in. Add:
 

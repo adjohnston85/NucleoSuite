@@ -22,7 +22,7 @@ def subparser_choices(parser: argparse.ArgumentParser) -> set[str]:
 
 
 def test_version_is_current_release():
-    assert __version__ == "0.8.16"
+    assert __version__ == "0.8.17"
 
 
 def test_all_primary_commands_are_registered():
@@ -72,23 +72,57 @@ def test_every_command_help_shows_each_default_at_most_once(capsys):
 
 
 
-def test_analysis_help_hides_shared_plot_options_and_points_to_expanded_help(capsys):
+def test_help_all_is_available_for_every_primary_command(capfd):
+    from nucleosuite.cli import main as cli_main
+
+    for command in sorted(subparser_choices(build_parser())):
+        assert cli_main.main([command, "--help-all"]) == 0
+        capfd.readouterr()
+
+
+def test_core_help_hides_curated_advanced_options(capsys):
+    from nucleosuite.cli import main as cli_main
+
+    examples = (
+        ("distances", "--pct-bin-seed"),
+        ("pns", "--chunk-bp"),
+        ("compare-positions", "--stats-test"),
+        ("plot", "--mpl-rc"),
+    )
+    for command, advanced_option in examples:
+        assert cli_main.main([command, "--help"]) == 0
+        core = capsys.readouterr().out
+        assert "--help-all" in core
+        assert advanced_option not in core
+
+        assert cli_main.main([command, "--help-all"]) == 0
+        extended = capsys.readouterr().out
+        assert advanced_option in extended
+        assert len(extended) > len(core)
+
+
+def test_analysis_help_is_layered_and_plotting_stays_separate(capsys):
     from nucleosuite.cli import main as cli_main
 
     for command in ("tracks", "distances", "nrl", "dac", "positive-runs", "peak-states"):
-        with pytest.raises(SystemExit) as error:
-            cli_main.main([command, "--help"])
-        assert error.value.code == 0
+        assert cli_main.main([command, "--help"]) == 0
         normal = capsys.readouterr().out
+        assert "--help-all" in normal
         assert "--help-plotting" in normal
         assert "--plot-format" not in normal
+
+        assert cli_main.main([command, "--help-all"]) == 0
+        extended = capsys.readouterr().out
+        assert len(extended) > len(normal)
+        assert "Full command-specific help shown" in extended
+        assert "--plot-format" not in extended
 
         with pytest.raises(SystemExit) as error:
             cli_main.main([command, "--help-plotting"])
         assert error.value.code == 0
-        expanded = capsys.readouterr().out
-        assert "--plot-format" in expanded
-        assert "--plot-point-label-offset" in expanded
+        plotting = capsys.readouterr().out
+        assert "--plot-format" in plotting
+        assert "--plot-point-label-offset" in plotting
 
 
 def test_suite_help_hides_plot_block_and_expands_on_request(capfd):
@@ -100,21 +134,33 @@ def test_suite_help_hides_plot_block_and_expands_on_request(capfd):
         assert "--help-plotting" in normal
         assert "--plot-format" not in normal
 
+        assert "--help-all" in normal
+
+        assert cli_main.main([command, "--help-all"]) == 0
+        full = capfd.readouterr().out
+        assert len(full) > len(normal)
+        assert "--analysis-cores" in full
+
         assert cli_main.main([command, "--help-plotting"]) == 0
         expanded = capfd.readouterr().out
         assert "--plot-format" in expanded
         assert "--plot-point-label-offset" in expanded
 
 
-def test_plot_command_help_remains_expanded(capsys):
+def test_plot_command_uses_core_and_extended_help(capsys):
     from nucleosuite.cli import main as cli_main
 
-    with pytest.raises(SystemExit) as error:
-        cli_main.main(["plot", "--help"])
-    assert error.value.code == 0
-    help_text = capsys.readouterr().out
-    assert "--x-major-tick" in help_text
-    assert "--mpl-rc" in help_text
+    assert cli_main.main(["plot", "--help"]) == 0
+    core = capsys.readouterr().out
+    assert "--help-all" in core
+    assert "--x-min" in core
+    assert "--mpl-rc" not in core
+
+    assert cli_main.main(["plot", "--help-all"]) == 0
+    extended = capsys.readouterr().out
+    assert "--x-major-tick" in extended
+    assert "--mpl-rc" in extended
+    assert len(extended) > len(core)
 
 def test_region_extractor_aliases_are_delegated():
     assert DELEGATED_COMMANDS["region-extract"][0] is DELEGATED_COMMANDS["region-peak-extractor"][0]
@@ -362,9 +408,7 @@ def test_module_entrypoint_help_and_version_include_logo():
 def test_delegated_help_does_not_print_job_messages(capsys):
     from nucleosuite.cli import main as cli_main
 
-    with pytest.raises(SystemExit) as error:
-        cli_main.main(["combine", "-h"])
-    assert error.value.code == 0
+    assert cli_main.main(["combine", "-h"]) == 0
     output = capsys.readouterr().out
     assert "usage: nucleosuite combine" in output
     for message in (

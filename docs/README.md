@@ -44,8 +44,10 @@ See [`nucleosuite resources`](commands/resources.md) for the complete bundled re
 
 ## CLI help
 
-Command-line help lists all accepted options and current defaults:
+Command-line help is layered so routine options stay readable:
 
 ```bash
-nucleosuite COMMAND --help
+nucleosuite COMMAND --help       # core inputs and analysis controls
+nucleosuite COMMAND --help-all   # all command-specific options and defaults
+nucleosuite COMMAND --help-plotting  # shared plot controls, when available
 ```

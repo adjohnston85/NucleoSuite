@@ -249,7 +249,7 @@ def _is_informational_invocation(args: Sequence[str]) -> bool:
         return True
     if args[0] == "resources":
         return True
-    return any(token in {"-h", "--help", "--help-plotting", "--version"} for token in args[1:])
+    return any(token in {"-h", "--help", "--help-all", "--help-extended", "--help-plotting", "--version"} for token in args[1:])
 
 
 def _preparse_delegated(
@@ -272,6 +272,96 @@ def _preparse_delegated(
     return None
 
 
+
+def _delegated_help_parser(command: str, tokens: Sequence[str]) -> tuple[argparse.ArgumentParser, str | None]:
+    """Build the parser used only to format layered command help."""
+
+    from nucleosuite.cli.helping import resolve_nested_parser
+
+    module_name = DELEGATED_MODULES.get(command)
+    if module_name is None:
+        raise KeyError(command)
+    module = importlib.import_module(module_name)
+
+    if command == "aggregate":
+        root = argparse.ArgumentParser(prog="nucleosuite")
+        subparsers = root.add_subparsers(dest="command")
+        parser = module.add_aggregate_parser(subparsers)
+    elif command == "plot" and hasattr(module, "build_help_parser"):
+        parser = module.build_help_parser(tokens)
+    else:
+        builder = getattr(module, "build_parser", None)
+        if builder is None:
+            raise KeyError(command)
+        parser = builder()
+
+    return resolve_nested_parser(parser, tokens)
+
+
+def _native_help_parser(command: str, tokens: Sequence[str]) -> tuple[argparse.ArgumentParser, str | None]:
+    from nucleosuite.cli.helping import resolve_nested_parser
+
+    root = build_parser()
+    subparser_action = next(
+        action for action in root._actions
+        if isinstance(action, argparse._SubParsersAction)
+    )
+    parser = subparser_action.choices[command]
+    return resolve_nested_parser(parser, tokens)
+
+
+def _maybe_handle_layered_help(args_list: Sequence[str]) -> int | None:
+    """Print compact/full command help before normal argparse dispatch."""
+
+    if not args_list or args_list[0].startswith("-"):
+        return None
+    command = str(args_list[0])
+    tail = list(args_list[1:])
+    has_core = any(token in {"-h", "--help"} for token in tail)
+    has_all = any(token in {"--help-all", "--help-extended"} for token in tail)
+    if not (has_core or has_all):
+        return None
+
+    # Shared plotting help remains its own established help surface.
+    if "--help-plotting" in tail and not has_all:
+        return None
+
+    from nucleosuite.cli.helping import SUITE_CORE_HELP, format_layered_help
+
+    extended = bool(has_all)
+    clean_tail = [
+        token for token in tail
+        if token not in {"-h", "--help", "--help-all", "--help-extended"}
+    ]
+
+    if command in SUITE_CORE_HELP:
+        if not extended:
+            print(SUITE_CORE_HELP[command], end="")
+            return 0
+        runner, _description = DELEGATED_COMMANDS[command]
+        # The suite shell scripts already contain the exhaustive command help.
+        return int(runner(["--help"]) or 0)
+
+    try:
+        if command in DELEGATED_MODULES:
+            parser, nested = _delegated_help_parser(command, clean_tail)
+        else:
+            parser, nested = _native_help_parser(command, clean_tail)
+    except (KeyError, FileNotFoundError, OSError, ValueError):
+        return None
+
+    print(
+        format_layered_help(
+            parser,
+            command,
+            nested=nested,
+            extended=extended,
+        ),
+        end="",
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the central parser for native commands and top-level help."""
     parser = TopLevelHelpParser(
@@ -283,7 +373,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Documentation: README.md and docs/QUICKSTART.md.\n"
-            "Run 'nucleosuite COMMAND --help' for command-specific options and defaults."
+            "Run 'nucleosuite COMMAND --help' for core options, or '--help-all' for all command-specific options."
         ),
     )
     parser.add_argument(
@@ -351,6 +441,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args_list = list(sys.argv[1:] if argv is None else argv)
+    layered_help = _maybe_handle_layered_help(args_list)
+    if layered_help is not None:
+        return int(layered_help)
     informational = _is_informational_invocation(args_list)
     try:
         if args_list and args_list[0] in DELEGATED_COMMANDS:

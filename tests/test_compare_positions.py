@@ -11,6 +11,7 @@ from nucleosuite.compare_positions import (
     CompactPeakSet,
     ComparisonArrays,
     PeakChrom,
+    _correlation_plot_y_min,
     _histogram_rows,
     _pairwise_statistics,
     _resolve_inputs,
@@ -135,6 +136,12 @@ def test_multi_comparison_outputs_use_main_score_percentiles_and_combined_tables
     assert all(row["show_boxplot_outliers"] == "0" for row in box_rows)
     assert outputs["percentile_distance_trend"].exists()
     assert outputs["percentile_distance_trend_plot"].exists()
+    with outputs["percentile_distance_trend"].open() as handle:
+        trend_rows = list(csv.DictReader(handle, delimiter="\t"))
+    first_bin = next(row for row in trend_rows if row["comparison"] == "B" and row["percentile"] == "1")
+    last_bin = next(row for row in trend_rows if row["comparison"] == "B" and row["percentile"] == "100")
+    assert (first_bin["percentile_lower"], first_bin["percentile_upper"], first_bin["percentile_midpoint"], first_bin["percentile_bin"]) == ("0", "1", "0.5", "0-1")
+    assert (last_bin["percentile_lower"], last_bin["percentile_upper"], last_bin["percentile_midpoint"], last_bin["percentile_bin"]) == ("99", "100", "99.5", "99-100")
     for plot_key in ("distance_histogram_plot", "correlation_by_distance_plot", "percentile_boxplot", "percentile_distance_trend_plot", "score_agreement_plot_B", "score_agreement_plot_C"):
         plot = outputs[plot_key]
         assert plot.exists() and plot.stat().st_size > 0
@@ -197,6 +204,18 @@ def test_main_bed_accepts_label_equals_path_and_normalizes_for_processing(tmp_pa
     assert args.main_bed == str(main)
     assert args._main_label == "PNS"
     assert specs[0].label == "DANPOS"
+
+
+def test_correlation_plot_y_min_is_zero_until_a_negative_value_exists():
+    positive = [
+        {"spearman_score_correlation": 0.42, "pearson_score_correlation": 0.31},
+        {"spearman_score_correlation": 0.60, "pearson_score_correlation": 0.50},
+    ]
+    assert _correlation_plot_y_min(positive, "spearman") == 0.0
+    negative = positive + [{"spearman_score_correlation": -0.20, "pearson_score_correlation": 0.10}]
+    lower = _correlation_plot_y_min(negative, "spearman")
+    assert lower < -0.20
+    assert lower > -1.05
 
 
 def test_distance_histogram_uses_signed_distance():

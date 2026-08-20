@@ -139,6 +139,8 @@ nucleosuite distances sample_nucleosome_regions.bed \
   --output-prefix sample_distances_by_state
 ```
 
+`nucleosuite distances` defaults to pooled `combined_chromosomes` output. Distances and each neighbour-order mode are calculated from the complete within-contig distributions; the default `--max-distance 1500` controls only the plotted x-range and which already-determined modes are eligible for the NRL regression. Use `--scope chromosome` for per-contig tables and `--label-peaks` to label displayed order modes.
+
 List the available names with:
 
 ```bash
@@ -243,7 +245,7 @@ mamba env update -n nucleosuite -f environment.yml --prune
 ### Wheel installation
 
 ```bash
-python -m pip install nucleosuite-0.8.6-py3-none-any.whl
+python -m pip install nucleosuite-0.8.17-py3-none-any.whl
 ```
 
 Complete installation instructions are available in [Installation](docs/INSTALLATION.md).
@@ -260,15 +262,20 @@ Complete installation instructions are available in [Installation](docs/INSTALLA
 - [Algorithms](docs/ALGORITHMS.md)
 - [Plot customization](docs/PLOTTING.md)
 
-The command-line help is the authoritative reference for accepted options and defaults.
-Plot customization is kept out of ordinary analysis-command help so the main options remain easy to scan:
+The command-line help is the authoritative reference for accepted options and defaults. Every command uses two levels of analysis help so routine usage stays easy to scan:
 
 ```bash
+# Required inputs and the main analysis controls
 nucleosuite COMMAND --help
+
+# Every command-specific analysis/tuning option
+nucleosuite COMMAND --help-all
+
+# Shared figure-customization controls, when the command makes plots
 nucleosuite COMMAND --help-plotting
 ```
 
-`nucleosuite plot --help` shows its plotting controls directly.
+Options remain fully accepted regardless of which help level displays them. `--help` is only a concise view; `--help-all` does not enable a different execution mode. The `plot` command follows the same core/extended help convention, while source-specific metadata controls are exposed when the plot source identifies the relevant figure family.
 
 Large supporting tables are opt-in for analyses that can otherwise emit one row per region, peak, or matched pair. Where available, use `--write-detail-tables` to retain them. Compact plot-source tables remain enabled so standard figures can be recreated with `nucleosuite plot`.
 

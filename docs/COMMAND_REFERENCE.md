@@ -1,6 +1,6 @@
 # Command reference
 
-Each command page describes the calculation, a typical invocation, analysis options, and outputs. Run `nucleosuite COMMAND --help` for all accepted options and current defaults.
+Each command page describes the calculation, a typical invocation, analysis options, and outputs. `nucleosuite COMMAND --help` shows the required inputs and core controls; `nucleosuite COMMAND --help-all` shows every command-specific option and current default. Commands that generate figures keep the shared plotting block under `nucleosuite COMMAND --help-plotting`.
 
 ## Prepare and inspect fragments
 

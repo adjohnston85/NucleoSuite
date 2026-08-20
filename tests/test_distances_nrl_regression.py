@@ -223,5 +223,59 @@ def test_peak_exactly_at_regression_max_is_allowed_when_full_profile_declines_af
 
 def test_distances_parser_defaults_to_combined_regression_and_1500_bp_max():
     args = distances.build_parser().parse_args(["peaks.bed"])
+    assert args.scope == "combined_chromosomes"
     assert args.regression_scope == "combined"
     assert args.max_distance == 1500
+    assert args.label_peaks is False
+
+
+def test_full_distribution_mode_is_not_replaced_by_an_in_range_secondary_peak():
+    counter = Counter({
+        1299: 30, 1300: 80, 1301: 30,
+        1599: 50, 1600: 160, 1601: 50,
+    })
+    full = distances.select_order_peak_full_profile(
+        counter, nrl_mode="smoothed", count_smooth_window=21, count_smooth_polyorder=2
+    )
+    assert full is not None
+    assert full.peak_distance > 1500
+    assert distances.select_order_peak_in_range(
+        counter, min_distance=1, max_distance=1500, nrl_mode="smoothed",
+        count_smooth_window=21, count_smooth_polyorder=2,
+    ) is None
+    retained = distances.select_order_peak_in_range(
+        counter, min_distance=1, max_distance=2000, nrl_mode="smoothed",
+        count_smooth_window=21, count_smooth_polyorder=2,
+    )
+    assert retained is not None
+    assert retained.peak_distance == full.peak_distance
+
+
+def test_distribution_outputs_are_not_truncated_by_plot_maximum(tmp_path):
+    results = DistanceResults(
+        chrom_state={}, chrom_all={}, genome_state={},
+        genome_all={1: Counter({185: 10, 1600: 20})},
+        duplicates={}, retained_by_chrom={}, threshold_pass_count=30, retained_count=30,
+    )
+    distance_path = tmp_path / "distances.tsv"
+    summary_path = tmp_path / "summary.tsv"
+    distances.write_distribution_outputs(
+        results, distance_path=distance_path, summary_path=summary_path, max_order=1,
+        include_chromosomes=False, include_genome=True, include_state_strata=False,
+        include_zero_distances=False, count_smooth_window=0, count_smooth_polyorder=2,
+        percent_smooth_window=0, percent_smooth_polyorder=2, min_distance=1, max_distance=1500,
+    )
+    rows = list(csv.DictReader(distance_path.open(), delimiter="\t"))
+    assert {int(row["distance_bp"]) for row in rows} == {185, 1600}
+    summary = next(csv.DictReader(summary_path.open(), delimiter="\t"))
+    assert int(summary["raw_mode_bp"]) == 1600
+    assert int(summary["smoothed_mode_bp"]) == 1600
+
+
+def test_distance_peak_label_option_is_explicit():
+    args = distances.build_parser().parse_args([
+        "peaks.bed", "--label-peaks", "--peak-label-value", "both", "--peak-label-offset", "7"
+    ])
+    assert args.label_peaks is True
+    assert args.peak_label_value == "both"
+    assert args.peak_label_offset == pytest.approx(7.0)

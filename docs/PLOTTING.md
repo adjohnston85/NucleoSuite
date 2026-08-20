@@ -4,19 +4,25 @@ NucleoSuite uses shared plot options across commands that generate figures. Each
 
 ## Command-line help
 
-Analysis commands keep the shared plot-customization block out of ordinary help. Use:
+Analysis commands use layered help. Use:
 
 ```bash
 nucleosuite COMMAND --help
 ```
 
-for the analysis options, and:
+for the core inputs and analysis controls, and:
+
+```bash
+nucleosuite COMMAND --help-all
+```
+
+for all command-specific analysis/tuning options. Shared plot customization remains separate:
 
 ```bash
 nucleosuite COMMAND --help-plotting
 ```
 
-to expand the plotting controls for that command. The dedicated `nucleosuite plot --help` command shows its plotting options directly.
+The dedicated `nucleosuite plot` command follows the same core/extended convention; source-specific plot-family controls are added from the input table and its metadata recipe.
 
 
 ## Replot an existing NucleoSuite result

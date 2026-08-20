@@ -70,7 +70,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.signal import find_peaks, savgol_filter
+from scipy.signal import find_peaks, savgol_coeffs, savgol_filter
 
 from nucleosuite.core.regions import canonical_contig_key, resolve_contig_name
 from nucleosuite.core.blacklist import BlacklistIndex, load_blacklist_unbounded
@@ -1017,6 +1017,134 @@ def adaptive_savgol(
     return smoothed
 
 
+def _sparse_smoothed_support(
+    counter: Mapping[int, int],
+    *,
+    window_length: int,
+    polyorder: int,
+) -> tuple[list[tuple[int, np.ndarray]], dict[int, float], int | None]:
+    """Return full-profile Savitzky-Golay support without densifying huge gaps.
+
+    The underlying histogram is the complete positive-distance distribution,
+    with zero counts outside its observed support.  The centred window is
+    therefore evaluated independently of any plotting limit. Non-zero
+    observations are split into independent support clusters so a rare
+    multi-megabase gap does not require allocating an equally large dense array.
+    """
+
+    positive = {int(d): float(c) for d, c in counter.items() if int(d) > 0 and float(c) > 0}
+    if not positive:
+        return [], {}, None
+    if window_length <= 0:
+        values = {d: float(c) for d, c in positive.items()}
+        mode = min(values, key=lambda d: (-values[d], d))
+        return [], values, int(mode)
+    if window_length % 2 == 0:
+        raise ValueError("Savitzky-Golay window lengths must be odd")
+    if polyorder < 0:
+        raise ValueError("Savitzky-Golay polynomial orders must be non-negative")
+    if window_length <= polyorder or window_length < 3:
+        raise ValueError("Savitzky-Golay window must exceed the polynomial order and be at least 3")
+
+    half = window_length // 2
+    maximum = max(positive)
+    # The full histogram is defined as zero outside its observed support.
+    # Padding by the half-window therefore allows a centred window to be
+    # evaluated through the largest observed distance without treating a
+    # plotting cutoff as the end of the signal.
+    valid_low = 1
+    valid_high = maximum
+
+    keys = np.asarray(sorted(positive), dtype=np.int64)
+    # Savitzky-Golay smoothing with deriv=0 is a symmetric FIR filter.  A gap
+    # larger than twice the half-window means the two groups cannot contribute
+    # to the same smoothed coordinate and can be processed independently.
+    split_points = np.flatnonzero(np.diff(keys) > (2 * half)) + 1
+    clusters = np.split(keys, split_points)
+    coefficients = np.asarray(
+        savgol_coeffs(window_length, polyorder, deriv=0, use="conv"), dtype=float
+    )
+
+    segments: list[tuple[int, np.ndarray]] = []
+    observed_values: dict[int, float] = {}
+    best_distance: int | None = None
+    best_value = -math.inf
+
+    for cluster in clusters:
+        if not cluster.size:
+            continue
+        segment_start = max(0, int(cluster[0]) - half)
+        segment_end = min(maximum + half, int(cluster[-1]) + half)
+        raw = np.zeros(segment_end - segment_start + 1, dtype=float)
+        for distance in cluster:
+            raw[int(distance) - segment_start] = positive[int(distance)]
+        full = np.convolve(raw, coefficients, mode="full")
+        smoothed = full[half : half + raw.size]
+        xs = np.arange(segment_start, segment_end + 1, dtype=np.int64)
+        valid = (xs >= valid_low) & (xs <= valid_high)
+        xs = xs[valid]
+        smoothed = smoothed[valid]
+        if not xs.size:
+            continue
+        smoothed = np.clip(smoothed, 0.0, None)
+        segments.append((int(xs[0]), smoothed))
+
+        local_index = int(np.argmax(smoothed))
+        local_value = float(smoothed[local_index])
+        local_distance = int(xs[local_index])
+        if local_value > best_value or (math.isclose(local_value, best_value) and (best_distance is None or local_distance < best_distance)):
+            best_value = local_value
+            best_distance = local_distance
+
+        for distance in cluster:
+            d = int(distance)
+            if valid_low <= d <= valid_high:
+                observed_values[d] = float(smoothed[d - int(xs[0])]) if int(xs[0]) <= d <= int(xs[-1]) else math.nan
+            else:
+                observed_values[d] = math.nan
+
+    if best_distance is not None and (not math.isfinite(best_value) or best_value <= 0):
+        best_distance = None
+    return segments, observed_values, best_distance
+
+
+def _smoothed_value_at(segments: Sequence[tuple[int, np.ndarray]], distance: int) -> float:
+    """Return one smoothed support value, or zero when the valid profile is zero there."""
+
+    target = int(distance)
+    for start, values in segments:
+        index = target - int(start)
+        if 0 <= index < values.size:
+            return float(values[index])
+    return 0.0
+
+
+def _smoothed_weight_summary(segments: Sequence[tuple[int, np.ndarray]]) -> tuple[float, float, float]:
+    """Return total, weighted mean, and weighted median for sparse smoothed support."""
+
+    total = float(sum(float(np.sum(values)) for _start, values in segments))
+    if total <= 0:
+        return 0.0, math.nan, math.nan
+    weighted_sum = 0.0
+    for start, values in segments:
+        x = np.arange(start, start + values.size, dtype=float)
+        weighted_sum += float(np.dot(x, values))
+    mean = weighted_sum / total
+    target = total / 2.0
+    cumulative = 0.0
+    median = math.nan
+    for start, values in sorted(segments, key=lambda item: item[0]):
+        segment_total = float(np.sum(values))
+        if cumulative + segment_total < target:
+            cumulative += segment_total
+            continue
+        local = np.cumsum(values)
+        index = int(np.searchsorted(local, target - cumulative, side="left"))
+        median = float(start + min(index, values.size - 1))
+        break
+    return total, float(mean), float(median)
+
+
 def summarize_distribution(
     counter: Mapping[int, int],
     *,
@@ -1026,107 +1154,101 @@ def summarize_distribution(
     percent_smooth_polyorder: int,
     min_distance: int | None = None,
     max_distance: int | None = None,
+    include_zero_distances: bool = False,
 ) -> DistributionStatistics:
-    """Calculate statistics in the requested range while smoothing from padded data.
+    """Summarize the complete positive-distance distribution.
 
-    The sparse counter may contain the full per-order distance profile.  The
-    requested range controls reported/plotted values only.  Smoothing is
-    calculated with enough data beyond those limits for a centred window, so
-    the requested x range is never treated as a signal boundary.
+    ``min_distance`` and ``max_distance`` are accepted for API compatibility
+    but deliberately do not truncate the distribution.  The CLI uses those
+    values only as the display/regression window after the full distribution
+    and its mode have been determined.
     """
-    positive = {int(distance): int(count) for distance, count in counter.items() if int(count) > 0}
+
+    del min_distance, max_distance
+    positive = {int(distance): int(count) for distance, count in counter.items() if int(distance) > 0 and int(count) > 0}
     if not positive:
         raise ValueError("Cannot summarize an empty distance distribution")
 
-    requested_min = min(positive) if min_distance is None else int(min_distance)
-    requested_max = max(positive) if max_distance is None else int(max_distance)
-    in_range = {d: c for d, c in positive.items() if requested_min <= d <= requested_max}
-    if not in_range:
-        raise ValueError("No distance observations fall inside the requested range")
-
-    observed_min = min(in_range)
-    observed_max = max(in_range)
-    output_distances = np.arange(observed_min, observed_max + 1, dtype=int)
-
-    max_half = max(
-        count_smooth_window // 2 if count_smooth_window > 0 else 0,
-        percent_smooth_window // 2 if percent_smooth_window > 0 else 0,
-    )
-    dense_start = max(0, observed_min - max_half)
-    # Distances beyond the largest observed pair are zero-count bins, so they
-    # can safely provide right-hand support for the centred smoothing window.
-    dense_end = observed_max + max_half
-    dense_distances = np.arange(dense_start, dense_end + 1, dtype=int)
-    dense_counts = np.asarray([positive.get(int(distance), 0) for distance in dense_distances], dtype=float)
-
-    total_pairs = int(sum(in_range.values()))
-    raw_counts = np.asarray([in_range.get(int(distance), 0) for distance in output_distances], dtype=float)
-    raw_percent = raw_counts * (100.0 / total_pairs)
-
-    smooth_dense_counts = adaptive_savgol(
-        dense_counts, window_length=count_smooth_window, polyorder=count_smooth_polyorder
-    )
-    if count_smooth_window <= 0:
-        smooth_dense_counts = np.clip(smooth_dense_counts, 0.0, None)
+    observed_min = min(positive)
+    observed_max = max(positive)
+    if include_zero_distances:
+        output_distances = np.arange(1, observed_max + 1, dtype=int)
     else:
-        finite = np.isfinite(smooth_dense_counts)
-        smooth_dense_counts[finite] = np.clip(smooth_dense_counts[finite], 0.0, None)
+        output_distances = np.asarray(sorted(positive), dtype=int)
 
-    # Percentage smoothing is performed over the same padded coordinates. The
-    # normalization constant is immaterial to Savitzky-Golay shape, then the
-    # returned in-range curve is renormalized to 100%.
-    dense_percent = dense_counts * (100.0 / total_pairs)
-    smooth_dense_percent = adaptive_savgol(
-        dense_percent, window_length=percent_smooth_window, polyorder=percent_smooth_polyorder
+    raw_counts = np.asarray([positive.get(int(distance), 0) for distance in output_distances], dtype=float)
+    total_pairs = int(sum(positive.values()))
+    raw_percent = raw_counts * (100.0 / total_pairs)
+    raw_mode = min(positive, key=lambda d: (-positive[d], d))
+
+    count_segments, count_lookup, count_mode = _sparse_smoothed_support(
+        positive, window_length=count_smooth_window, polyorder=count_smooth_polyorder
+    )
+    if (
+        not include_zero_distances
+        and count_mode is not None
+        and int(count_mode) not in positive
+    ):
+        output_distances = np.asarray(sorted({*positive.keys(), int(count_mode)}), dtype=int)
+        raw_counts = np.asarray([positive.get(int(distance), 0) for distance in output_distances], dtype=float)
+        raw_percent = raw_counts * (100.0 / total_pairs)
+    if count_smooth_window <= 0:
+        smoothed_counts = raw_counts.astype(float, copy=True)
+        count_mode = int(raw_mode)
+        count_total = float(total_pairs)
+        smoothed_mean = weighted_mean(positive)
+        smoothed_median = weighted_median(positive)
+    else:
+        half = count_smooth_window // 2
+        smoothed_counts = np.asarray(
+            [
+                (
+                    count_lookup.get(int(distance), _smoothed_value_at(count_segments, int(distance)))
+                    if 0 <= int(distance) <= observed_max
+                    else math.nan
+                )
+                for distance in output_distances
+            ],
+            dtype=float,
+        )
+        count_total, smoothed_mean, smoothed_median = _smoothed_weight_summary(count_segments)
+
+    percent_segments, percent_lookup, _percent_mode = _sparse_smoothed_support(
+        positive, window_length=percent_smooth_window, polyorder=percent_smooth_polyorder
     )
     if percent_smooth_window <= 0:
-        smooth_dense_percent = np.clip(smooth_dense_percent, 0.0, None)
+        smoothed_percent = raw_percent.astype(float, copy=True)
     else:
-        finite = np.isfinite(smooth_dense_percent)
-        smooth_dense_percent[finite] = np.clip(smooth_dense_percent[finite], 0.0, None)
+        percent_total, _percent_mean, _percent_median = _smoothed_weight_summary(percent_segments)
+        half = percent_smooth_window // 2
+        smoothed_percent = np.asarray(
+            [
+                (
+                    percent_lookup.get(int(distance), _smoothed_value_at(percent_segments, int(distance)))
+                    if 0 <= int(distance) <= observed_max
+                    else math.nan
+                )
+                for distance in output_distances
+            ],
+            dtype=float,
+        )
+        finite = np.isfinite(smoothed_percent)
+        if percent_total > 0:
+            smoothed_percent[finite] *= 100.0 / percent_total
 
-    offset = observed_min - dense_start
-    stop = offset + output_distances.size
-    smoothed_counts = smooth_dense_counts[offset:stop].copy()
-    smoothed_percent = smooth_dense_percent[offset:stop].copy()
-
-    raw_mode = int(output_distances[int(np.argmax(raw_counts))])
-    finite_counts = np.isfinite(smoothed_counts)
-    if finite_counts.any():
-        valid_indices = np.flatnonzero(finite_counts)
-        best = valid_indices[int(np.argmax(smoothed_counts[finite_counts]))]
-        smoothed_mode = int(output_distances[best])
-        weights = np.where(finite_counts, smoothed_counts, 0.0)
-        smoothed_total = float(weights.sum())
-        if smoothed_total > 0:
-            smoothed_mean = float(np.dot(output_distances, weights) / smoothed_total)
-            cumulative = np.cumsum(weights)
-            smoothed_median = float(output_distances[int(np.searchsorted(cumulative, smoothed_total / 2.0, side="left"))])
-        else:
-            smoothed_mean = float("nan")
-            smoothed_median = float("nan")
-    else:
-        # No centred smoothing window fits anywhere in the requested range.
-        # Keep summary fields usable, but regression peak calling handles this
-        # case separately and will not invent a smoothed peak.
-        smoothed_mode = raw_mode
-        smoothed_mean = float("nan")
-        smoothed_median = float("nan")
-
-    finite_percent = np.isfinite(smoothed_percent)
-    percent_total = float(np.nansum(smoothed_percent))
-    if percent_total > 0:
-        smoothed_percent[finite_percent] *= 100.0 / percent_total
+    smoothed_mode = int(count_mode) if count_mode is not None else int(raw_mode)
+    if count_smooth_window > 0 and count_total <= 0:
+        smoothed_mean = math.nan
+        smoothed_median = math.nan
 
     return DistributionStatistics(
-        total_pairs=total_pairs, raw_mode=raw_mode, smoothed_mode=smoothed_mode,
-        median=weighted_median(in_range), mean=weighted_mean(in_range),
-        smoothed_median=smoothed_median, smoothed_mean=smoothed_mean,
+        total_pairs=total_pairs, raw_mode=int(raw_mode), smoothed_mode=smoothed_mode,
+        median=weighted_median(positive), mean=weighted_mean(positive),
+        smoothed_median=float(smoothed_median), smoothed_mean=float(smoothed_mean),
         observed_min=observed_min, observed_max=observed_max,
         distances=output_distances, raw_counts=raw_counts, smoothed_counts=smoothed_counts,
         raw_percent=raw_percent, smoothed_percent=smoothed_percent,
     )
-
 
 
 def highest_count_distance(counter: Mapping[int, int]) -> OrderPeak:
@@ -1175,6 +1297,37 @@ def regress_order_peaks(
     )
 
 
+def select_order_peak_full_profile(
+    counter: Mapping[int, int],
+    *,
+    nrl_mode: str,
+    count_smooth_window: int,
+    count_smooth_polyorder: int,
+) -> OrderPeak | None:
+    """Select the order mode from the complete positive-distance distribution."""
+
+    positive = {int(d): int(c) for d, c in counter.items() if int(d) > 0 and int(c) > 0}
+    if not positive:
+        return None
+    if nrl_mode == "raw":
+        peak_distance = min(positive, key=lambda d: (-positive[d], d))
+    elif nrl_mode == "smoothed":
+        _segments, _lookup, smoothed_mode = _sparse_smoothed_support(
+            positive, window_length=count_smooth_window, polyorder=count_smooth_polyorder
+        )
+        if smoothed_mode is None:
+            return None
+        peak_distance = int(smoothed_mode)
+    else:
+        raise ValueError("--nrl-mode must be raw or smoothed")
+    return OrderPeak(
+        order=0,
+        peak_distance=int(peak_distance),
+        peak_count=int(positive.get(int(peak_distance), 0)),
+        total_pairs=int(sum(positive.values())),
+    )
+
+
 def select_order_peak_in_range(
     counter: Mapping[int, int],
     *,
@@ -1184,48 +1337,17 @@ def select_order_peak_in_range(
     count_smooth_window: int,
     count_smooth_polyorder: int,
 ) -> OrderPeak | None:
-    """Select the strongest genuine local maximum inside the regression range.
+    """Return the full-distribution mode only when it falls in the display range."""
 
-    Peak detection is evaluated from the full sparse per-order profile with
-    data padded beyond the requested x limits. Only after local maxima are
-    identified are candidates filtered to ``min_distance..max_distance``.
-    """
-    positive = {int(d): int(c) for d, c in counter.items() if int(c) > 0}
-    if not positive:
-        return None
-    pad = count_smooth_window // 2 if nrl_mode == "smoothed" else 1
-    dense_start = max(0, int(min_distance) - pad)
-    dense_end = int(max_distance) + pad
-    if dense_end < dense_start:
-        return None
-    distances = np.arange(dense_start, dense_end + 1, dtype=int)
-    raw = np.asarray([positive.get(int(d), 0) for d in distances], dtype=float)
-    if nrl_mode == "smoothed":
-        values = adaptive_savgol(
-            raw, window_length=count_smooth_window, polyorder=count_smooth_polyorder
-        )
-    else:
-        values = raw
-    finite = np.isfinite(values)
-    if finite.sum() < 3:
-        return None
-    # find_peaks cannot consume NaNs reliably; unsupported true-edge positions
-    # are forced below the finite data and can never become candidates.
-    working = np.where(finite, values, -np.inf)
-    peak_indices, _ = find_peaks(working)
-    candidates = [
-        int(i) for i in peak_indices
-        if finite[int(i)] and int(min_distance) <= int(distances[int(i)]) <= int(max_distance)
-    ]
-    if not candidates:
-        return None
-    best = min(candidates, key=lambda i: (-float(values[i]), int(distances[i])))
-    peak_distance = int(distances[best])
-    return OrderPeak(
-        order=0, peak_distance=peak_distance,
-        peak_count=int(positive.get(peak_distance, 0)),
-        total_pairs=int(sum(c for d, c in positive.items() if min_distance <= d <= max_distance)),
+    selected = select_order_peak_full_profile(
+        counter, nrl_mode=nrl_mode, count_smooth_window=count_smooth_window,
+        count_smooth_polyorder=count_smooth_polyorder,
     )
+    if selected is None:
+        return None
+    if not (int(min_distance) <= selected.peak_distance <= int(max_distance)):
+        return None
+    return selected
 
 
 def collect_nrl_regressions(
@@ -1743,6 +1865,9 @@ def write_threshold_metadata(
         ("duplicate_policy", duplicate_policy),
         ("min_distance", min_distance),
         ("max_distance", max_distance),
+        ("distance_limit_role", "plot_and_regression_inclusion_only"),
+        ("distance_counting_upper_limit", "none"),
+        ("order_mode_detection_scope", "full_positive_distance_distribution"),
         ("max_order", max_order),
         ("nrl_regression", f"{nrl_mode}_count_mode_by_order" if max_order > 1 else "disabled"),
     ]
@@ -1784,7 +1909,8 @@ def write_distribution_outputs(
     with distance_path.open("wt") as distance_handle, summary_path.open("wt") as summary_handle:
         distance_handle.write(
             "order\tscope\tchromosome\tstate\tdistance_bp\tcount\t"
-            "smoothed_count\tpercent\tsmoothed_percent\n"
+            "smoothed_count\tpercent\tsmoothed_percent\tfull_raw_mode_bp\t"
+            "full_smoothed_mode_bp\n"
         )
 
         summary_handle.write(
@@ -1808,6 +1934,7 @@ def write_distribution_outputs(
                 percent_smooth_polyorder=percent_smooth_polyorder,
                 min_distance=min_distance,
                 max_distance=max_distance,
+                include_zero_distances=include_zero_distances,
             )
             distributions_written += 1
 
@@ -1825,7 +1952,8 @@ def write_distribution_outputs(
                 distance_handle.write(
                     f"{order}\t{scope}\t{chrom}\t{state}\t{int(distance)}\t"
                     f"{raw_count}\t{stats.smoothed_counts[index]:.6f}\t"
-                    f"{stats.raw_percent[index]:.9f}\t{stats.smoothed_percent[index]:.9f}\n"
+                    f"{stats.raw_percent[index]:.9f}\t{stats.smoothed_percent[index]:.9f}\t"
+                    f"{stats.raw_mode}\t{stats.smoothed_mode}\n"
                 )
                 rows_written += 1
 
@@ -1837,10 +1965,14 @@ def plot_distance_distributions(
     output_path: str | Path,
     *,
     nrl_mode: str = "smoothed",
-    label_peaks: bool = True,
+    min_distance: int = 1,
+    max_distance: int = 1500,
+    label_peaks: bool = False,
+    peak_label_value: str = "x",
+    peak_label_offset: float = 5.0,
     peak_distances: Mapping[int, int] | None = None,
 ) -> Path | None:
-    """Plot pooled neighbour-order distance distributions and their selected modes."""
+    """Plot the requested x-window from full neighbour-order distributions."""
     import csv
     import matplotlib
     matplotlib.use("Agg")
@@ -1858,12 +1990,20 @@ def plot_distance_distributions(
 
     fig, ax = plt.subplots(figsize=(10, 5.5))
     options = get_plot_options()
-    do_labels = label_peaks and options.label_points != "none"
+    effective_min = float(options.x_min) if options.x_min is not None else float(min_distance)
+    effective_max = float(options.x_max) if options.x_max is not None else float(max_distance)
+    do_labels = bool(label_peaks)
     for order in sorted(grouped):
         rows = sorted(grouped[order], key=lambda row: int(row["distance_bp"]))
-        x = np.asarray([int(row["distance_bp"]) for row in rows], dtype=float)
-        raw = np.asarray([float(row["count"]) for row in rows], dtype=float)
-        smooth = np.asarray([float(row["smoothed_count"]) for row in rows], dtype=float)
+        full_x = np.asarray([int(row["distance_bp"]) for row in rows], dtype=float)
+        full_raw = np.asarray([float(row["count"]) for row in rows], dtype=float)
+        full_smooth = np.asarray([float(row["smoothed_count"]) for row in rows], dtype=float)
+        visible = (full_x >= effective_min) & (full_x <= effective_max)
+        x = full_x[visible]
+        raw = full_raw[visible]
+        smooth = full_smooth[visible]
+        if not x.size:
+            continue
         if nrl_mode == "smoothed":
             ax.plot(x, raw, color="0.78", linewidth=0.8, alpha=0.65, zorder=1)
             line, = ax.plot(x, smooth, linewidth=1.5, label=f"+{order}", zorder=2)
@@ -1871,26 +2011,29 @@ def plot_distance_distributions(
         else:
             line, = ax.plot(x, raw, linewidth=1.35, label=f"+{order}", zorder=2)
             selected = raw
-        if selected.size:
-            peak_x = None if peak_distances is None else peak_distances.get(order)
-            if peak_x is not None:
-                matches = np.flatnonzero(x == float(peak_x))
-                idx = int(matches[0]) if matches.size else None
-            else:
-                finite = np.isfinite(selected)
-                working = np.where(finite, selected, -np.inf)
-                candidates, _ = find_peaks(working)
-                idx = (
-                    min((int(i) for i in candidates), key=lambda i: (-float(selected[i]), float(x[i])))
-                    if len(candidates) else None
-                )
-            if idx is not None and np.isfinite(selected[idx]):
-                ax.scatter([x[idx]], [selected[idx]], s=22, facecolors="white", edgecolors=line.get_color(), zorder=4)
-                if do_labels:
-                    ax.annotate(f"{x[idx]:g}", (x[idx], selected[idx]), xytext=(0, 5), textcoords="offset points", ha="center", va="bottom", fontsize=8)
+
+        peak_x = None if peak_distances is None else peak_distances.get(order)
+        if peak_x is not None and effective_min <= float(peak_x) <= effective_max:
+            matches = np.flatnonzero(x == float(peak_x))
+            if matches.size:
+                idx = int(matches[0])
+                if np.isfinite(selected[idx]):
+                    ax.scatter([x[idx]], [selected[idx]], s=22, facecolors="white", edgecolors=line.get_color(), zorder=4)
+                    if do_labels:
+                        if peak_label_value == "y":
+                            label = f"{selected[idx]:g}"
+                        elif peak_label_value == "both":
+                            label = f"{x[idx]:g}, {selected[idx]:g}"
+                        else:
+                            label = f"{x[idx]:g}"
+                        ax.annotate(
+                            label, (x[idx], selected[idx]), xytext=(0, float(peak_label_offset)),
+                            textcoords="offset points", ha="center", va="bottom", fontsize=8,
+                            annotation_clip=False,
+                        )
     from nucleosuite.plotting import apply_base_pair_x_axis, save_figure
-    all_x = [float(row["distance_bp"]) for rows in grouped.values() for row in rows]
-    apply_base_pair_x_axis(ax, all_x)
+    apply_base_pair_x_axis(ax, [effective_min, effective_max])
+    ax.set_xlim(effective_min, effective_max)
     ax.set_xlabel("Distance (bp)")
     ax.set_ylabel("Count")
     ax.legend(frameon=False, title="Neighbour order")
@@ -2677,14 +2820,16 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "--min-distance",
         type=int,
         default=1,
-        help="Minimum non-zero peak distance to count in bp (default: 1).",
+        help=("Minimum distance shown and eligible for neighbour-order regression in bp; "
+              "the full positive-distance distribution is still calculated (default: 1)."),
     )
     parser.add_argument(
         "--max-distance",
         type=int,
         default=1500,
-        help=("Maximum distance shown/reported and eligible for regression in bp; "
-              "peak detection uses the full per-order profile (default: 1500)."),
+        help=("Maximum distance shown and eligible for neighbour-order regression in bp; "
+              "distance counting, full distributions, smoothing, and mode detection are not "
+              "truncated by this limit (default: 1500)."),
     )
     parser.add_argument(
         "--max-order",
@@ -2714,8 +2859,9 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--scope",
         choices=("all", "combined_chromosomes", "genome", "chromosome"),
-        default="all",
-        help="Write pooled combined-chromosome, per-chromosome, or both scopes (default: all).",
+        default="combined_chromosomes",
+        help=("Write pooled combined-chromosome, per-chromosome, or both scopes "
+              "(default: combined_chromosomes)."),
     )
     parser.add_argument(
         "--regression-scope",
@@ -2723,6 +2869,23 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         default="combined",
         help=("Fit neighbour-order regression to pooled within-contig distances by default; "
               "use 'contig' for separate per-contig regressions or 'both' for both (default: combined)."),
+    )
+    parser.add_argument(
+        "--label-peaks",
+        action="store_true",
+        help="Label displayed neighbour-order mode peaks with their selected value.",
+    )
+    parser.add_argument(
+        "--peak-label-value",
+        choices=("x", "y", "both"),
+        default="x",
+        help="Value shown by --label-peaks: mode distance, count, or both (default: x).",
+    )
+    parser.add_argument(
+        "--peak-label-offset",
+        type=float,
+        default=5.0,
+        help="Vertical peak-label offset in typographic points (default: 5).",
     )
     parser.add_argument(
         "--include-zero-distances",
@@ -3082,20 +3245,45 @@ def _run_serial(args: argparse.Namespace) -> int:
 
             from nucleosuite.plotting import plot_path
             distribution_plot = plot_path(Path(f"{threshold_prefix}_distance_distribution.png"))
-            combined_peak_distances = {
-                peak.order: peak.peak_distance
-                for regression in regressions
-                if regression.scope == "combined_chromosomes"
-                for peak in regression.peaks
-            }
+            combined_peak_distances: dict[int, int] = {}
+            for order in range(1, args.max_order + 1):
+                selected_mode = select_order_peak_full_profile(
+                    results.genome_all.get(order, Counter()),
+                    nrl_mode=args.nrl_mode,
+                    count_smooth_window=args.count_smooth_window,
+                    count_smooth_polyorder=args.count_smooth_polyorder,
+                )
+                if (
+                    selected_mode is not None
+                    and args.min_distance <= selected_mode.peak_distance <= args.max_distance
+                ):
+                    combined_peak_distances[order] = selected_mode.peak_distance
             plotted_distribution = plot_distance_distributions(
                 distance_path, distribution_plot,
                 nrl_mode=args.nrl_mode,
-                label_peaks=True,
-                peak_distances=combined_peak_distances or None,
+                min_distance=args.min_distance,
+                max_distance=args.max_distance,
+                label_peaks=args.label_peaks,
+                peak_label_value=args.peak_label_value,
+                peak_label_offset=args.peak_label_offset,
+                peak_distances=combined_peak_distances,
             )
             if plotted_distribution is not None:
                 distribution_plot = plotted_distribution
+                from nucleosuite.plotting import write_plot_metadata
+                write_plot_metadata(
+                    distribution_plot,
+                    extra={
+                        "source_table": str(distance_path),
+                        "detected_plot_type": "distances",
+                        "x_min": args.min_distance,
+                        "x_max": args.max_distance,
+                        "nrl_mode": args.nrl_mode,
+                        "label_peaks": bool(args.label_peaks),
+                        "peak_label_value": args.peak_label_value,
+                        "peak_label_offset": args.peak_label_offset,
+                    },
+                )
             output_count = 3 + len(regression_outputs)
             if distribution_plot.exists():
                 output_count += 1

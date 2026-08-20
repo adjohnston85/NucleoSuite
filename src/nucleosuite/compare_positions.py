@@ -1291,10 +1291,16 @@ def _percentile_trend_rows(
                 q25, median, q75 = np.percentile(finite, [25, 50, 75])
             else:
                 q25 = median = q75 = math.nan
+            lower = percentile - 1
+            upper = percentile
             rows.append({
                 "main_label": main_label,
                 "comparison": result.label,
                 "percentile": percentile,
+                "percentile_lower": lower,
+                "percentile_upper": upper,
+                "percentile_midpoint": lower + 0.5,
+                "percentile_bin": f"{lower}-{upper}",
                 "matched_pair_count": int(finite.size),
                 "q25_absolute_distance": float(q25),
                 "median_absolute_distance": float(median),
@@ -1325,7 +1331,7 @@ def _plot_percentile_trend(
     prepared: list[tuple[ComparisonArrays, object, np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = []
     for result, color in zip(results, colors):
         subset = [row for row in rows if row["comparison"] == result.label]
-        x = np.asarray([float(row["percentile"]) for row in subset], dtype=float)
+        x = np.asarray([float(row.get("percentile_midpoint", row["percentile"])) for row in subset], dtype=float)
         median = np.asarray([float(row["median_absolute_distance"]) for row in subset], dtype=float)
         q25 = np.asarray([float(row["q25_absolute_distance"]) for row in subset], dtype=float)
         q75 = np.asarray([float(row["q75_absolute_distance"]) for row in subset], dtype=float)
@@ -1339,9 +1345,9 @@ def _plot_percentile_trend(
         if np.any(mask):
             axis.plot(x[mask], median[mask], color=color, linewidth=1.8, label=result.label, zorder=3)
 
-    axis.set_xlim(1, 100)
+    axis.set_xlim(0, 100)
     axis.set_ylim(bottom=0)
-    axis.set_xlabel(f"{main_label} peak score percentile")
+    axis.set_xlabel(f"{main_label} peak score percentile bin (1% bins)")
     axis.set_ylabel("Median absolute matched distance (bp)")
     axis.set_title(f"Matched distance across {main_label} score percentiles")
     axis.legend(frameon=False)
@@ -1892,6 +1898,30 @@ def _plot_distance_histograms(prefix: Path, results: Sequence[ComparisonArrays],
     return output
 
 
+def _correlation_plot_y_min(rows: Sequence[dict[str, object]], method: str) -> float:
+    """Return zero unless a displayed score-correlation value is genuinely negative."""
+
+    fields: list[str] = []
+    if method in {"spearman", "both"}:
+        fields.append("spearman_score_correlation")
+    if method in {"pearson", "both"}:
+        fields.append("pearson_score_correlation")
+    values: list[float] = []
+    for row in rows:
+        for field in fields:
+            try:
+                value = float(row.get(field, math.nan))
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(value):
+                values.append(value)
+    if not values or min(values) >= 0:
+        return 0.0
+    minimum = min(values)
+    margin = max(0.02, 0.05 * abs(minimum))
+    return max(-1.05, minimum - margin)
+
+
 def _plot_correlation_by_distance(prefix: Path, rows: Sequence[dict[str, object]], results: Sequence[ComparisonArrays], main_label: str, args: argparse.Namespace) -> Path:
     import matplotlib
     matplotlib.use("Agg")
@@ -1925,7 +1955,7 @@ def _plot_correlation_by_distance(prefix: Path, rows: Sequence[dict[str, object]
     if rows:
         labels = [str(row["distance_bin"]) for row in rows if row["comparison"] == results[0].label]
         axis.set_xticks(np.arange(len(labels)), labels, rotation=35, ha="right")
-    axis.set_ylim(-1.05, 1.05)
+    axis.set_ylim(_correlation_plot_y_min(rows, args.score_correlation), 1.05)
     axis.set_xlabel("Absolute summit-distance bin (bp)")
     axis.set_ylabel(f"{main_label}/comparison score correlation")
     axis.set_title("Score correlation by summit-distance bin")
@@ -2174,7 +2204,12 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Path]:
         prefix, percentile_trend_rows, results, main_label, args
     )
     _attach_plot_source(distance_histogram_plot, histogram_path, "compare-positions-histogram", main_label=main_label)
-    _attach_plot_source(correlation_by_distance_plot, correlation_path, "compare-positions-correlation", main_label=main_label)
+    _attach_plot_source(
+        correlation_by_distance_plot, correlation_path, "compare-positions-correlation",
+        main_label=main_label,
+        y_min=_correlation_plot_y_min(correlation_rows, args.score_correlation),
+        y_max=1.05,
+    )
     _attach_plot_source(percentile_boxplot, percentile_boxplot_source, "compare-positions-percentile-boxplot", main_label=main_label)
     _attach_plot_source(percentile_trend_plot, percentile_trend_path, "compare-positions-percentile-trend", main_label=main_label)
     outputs["distance_histogram_plot"] = distance_histogram_plot
