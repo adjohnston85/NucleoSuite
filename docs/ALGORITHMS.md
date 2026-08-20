@@ -730,7 +730,7 @@ The comparison is performed only once; there is no reciprocal second search. Reg
 d = x_C - x_M.
 ```
 
-Absolute matched distance is $|d|$.
+Absolute matched distance is $|d|$. The matched-position distribution plot retains the signed value $d$, while percentile-distance summaries and score-correlation distance bins use $|d|$.
 
 After matching, accepted pairs are sorted by the **main call score**. Equal-frequency percentile groups are then assigned from this sorted matched set. With the default 25-percent interval, the groups are 0-25, 25-50, 50-75, and 75-100. Percentile assignment is performed independently for each comparison because different comparison callsets can match different subsets of the main BED.
 

@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import argparse
 import csv
+import heapq
 import itertools
 import math
 import re
 import sys
+from array import array
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -17,18 +19,80 @@ import numpy as np
 from scipy import stats
 
 from nucleosuite.cli.formatting import NucleoSuiteHelpFormatter
+from nucleosuite.core.regions import canonical_contig_key
+from nucleosuite.io import open_text as open_interval_text
 from nucleosuite.progress import ProgressReporter
-from nucleosuite.compare_positions_legacy import (
-    PositionRecord,
-    MatchedPair,
-    MatchResult,
-    _CandidateCursor,
-    _records_by_chrom,
-    match_many_to_one,
-    match_positions,
-    match_unique,
-    read_positions,
-)
+
+
+@dataclass(frozen=True)
+class PeakChrom:
+    """Compact summit/score storage for one chromosome.
+
+    Arrays are sorted by summit and then source line number.  Chromosome names
+    are stored once at the dictionary level rather than repeated per peak.
+    """
+
+    name: str
+    summits: np.ndarray
+    scores: np.ndarray
+    indices: np.ndarray
+
+    @property
+    def count(self) -> int:
+        return int(self.summits.size)
+
+
+@dataclass(frozen=True)
+class CompactPeakSet:
+    """One BED represented as chromosome-keyed numeric arrays."""
+
+    path: Path
+    source: str
+    by_chrom: dict[str, PeakChrom]
+    count: int
+    excluded_blacklist: int = 0
+
+
+@dataclass
+class _CompactNode:
+    """One unmatched coordinate group in the one-to-one matching frontier."""
+
+    kind: str
+    coordinate: int
+    low: int
+    high: int  # exclusive
+    previous: int | None = None
+    following: int | None = None
+    version: int = 0
+    alive: bool = True
+
+    @property
+    def empty(self) -> bool:
+        return self.low >= self.high
+
+
+@dataclass(frozen=True)
+class CompactMatch:
+    """Compact matched-pair arrays and one-to-one matching diagnostics."""
+
+    query_source: str
+    query_count: int
+    target_count: int
+    unmatched_no_target_chrom: int
+    unmatched_distance: int
+    unmatched_unique: int
+    chrom_names: tuple[str, ...]
+    chrom_code: np.ndarray
+    main_index: np.ndarray
+    compare_index: np.ndarray
+    main_summit: np.ndarray
+    main_scores: np.ndarray
+    compare_scores: np.ndarray
+    signed_distance: np.ndarray
+
+    @property
+    def pair_count(self) -> int:
+        return int(self.main_scores.size)
 
 
 @dataclass(frozen=True)
@@ -49,17 +113,33 @@ class ComparisonArrays:
     unmatched_no_target_chrom: int
     unmatched_distance: int
     unmatched_unique: int
+    chrom_names: tuple[str, ...]
+    chrom_code: np.ndarray
     main_line: np.ndarray
+    compare_line: np.ndarray
+    main_summit: np.ndarray
     main_scores: np.ndarray
     compare_scores: np.ndarray
     signed_distance: np.ndarray
     absolute_distance: np.ndarray
     percentile: np.ndarray
-    group_labels: np.ndarray
+    group_index: np.ndarray
+    group_names: tuple[str, ...]
 
     @property
     def pair_count(self) -> int:
         return int(self.main_scores.size)
+
+    def group_mask(self, label: str) -> np.ndarray:
+        try:
+            index = self.group_names.index(label)
+        except ValueError:
+            return np.zeros(self.pair_count, dtype=bool)
+        return self.group_index == index
+
+    def group_label(self, pair_index: int) -> str:
+        return self.group_names[int(self.group_index[pair_index])]
+
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -75,7 +155,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--main-bed",
-        help="Main nucleosome BED, BED.gz, or bigBed file.",
+        help="Main nucleosome BED, BED.gz, or bigBed file. Use LABEL=BED to set the main callset label.",
     )
     parser.add_argument(
         "--compare-bed",
@@ -92,7 +172,7 @@ def build_parser() -> argparse.ArgumentParser:
     # the documentation; the redesigned interface is --main-bed/--compare-bed.
     parser.add_argument("--bed-a", dest="legacy_bed_a", help=argparse.SUPPRESS)
     parser.add_argument("--bed-b", dest="legacy_bed_b", help=argparse.SUPPRESS)
-    parser.add_argument("--main-label", default=None, help="Display label for the main BED.")
+    parser.add_argument("--main-label", default=None, help="Deprecated compatibility option for the main BED label; prefer --main-bed LABEL=BED.")
     parser.add_argument(
         "--main-summit-column", type=int, default=None,
         help="One-based absolute summit column for the main BED; default uses the BED midpoint.",
@@ -133,12 +213,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Distance-distribution bin width in bp (default: 1).",
     )
     parser.add_argument(
-        "--histogram-x-min", type=float, default=0.0,
-        help="Displayed lower x-axis limit for distance distributions (default: 0).",
+        "--histogram-x-min", type=float, default=-250.0,
+        help="Displayed lower x-axis limit for signed distance distributions (default: -250).",
     )
     parser.add_argument(
-        "--histogram-x-max", type=float, default=300.0,
-        help="Displayed upper x-axis limit for distance distributions (default: 300).",
+        "--histogram-x-max", type=float, default=250.0,
+        help="Displayed upper x-axis limit for signed distance distributions (default: 250).",
     )
     parser.add_argument(
         "--distance-x-major-tick", type=float, default=None,
@@ -178,8 +258,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--plot-seed", type=int, default=1, help="Plot subsampling seed (default: 1).")
     parser.add_argument(
-        "--percentile-boxplot-y-max", type=float, default=500.0,
-        help="Displayed upper y-axis limit for percentile distance boxplots; 0 disables (default: 500).",
+        "--percentile-boxplot-y-max", type=float, default=200.0,
+        help="Displayed upper y-axis limit for percentile distance boxplots; 0 disables (default: 200).",
+    )
+    parser.add_argument(
+        "--score-agreement-distance-max", type=float, default=50.0,
+        help="Upper colour-scale limit for absolute summit distance in score-agreement plots; 0 uses the data maximum (default: 50).",
+    )
+    parser.add_argument(
+        "--score-distance-y-max", type=float, default=100.0,
+        help="Displayed upper y-axis limit for absolute main-score-versus-distance plots; 0 disables (default: 100).",
     )
     parser.add_argument(
         "--stats", action="store_true",
@@ -264,12 +352,21 @@ def _resolve_inputs(args: argparse.Namespace) -> tuple[Path, list[ComparisonSpec
         raise ValueError("--main-bed is required.")
     if not compare_values:
         raise ValueError("At least one --compare-bed is required.")
+
+    main_spec = _parse_compare_spec(str(main_value))
+    # LABEL=BED is now the preferred main-label syntax. Keep --main-label as a
+    # backwards-compatible override for commands written before 0.8.11.
+    embedded_label = main_spec.label if "=" in str(main_value) else None
+    if getattr(args, "main_label", None) is None:
+        args.main_label = embedded_label or _default_label(main_spec.path)
+    args.main_bed = str(main_spec.path)
+
     specs = [_parse_compare_spec(str(value)) for value in compare_values]
     labels = [spec.label for spec in specs]
     if len(labels) != len(set(labels)):
         duplicates = sorted({label for label in labels if labels.count(label) > 1})
         raise ValueError("Comparison labels must be unique: " + ", ".join(duplicates))
-    return Path(main_value), specs
+    return main_spec.path, specs
 
 
 def _validate_args(args: argparse.Namespace) -> None:
@@ -279,8 +376,8 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--max-distance must be finite and zero or greater.")
     if not math.isfinite(float(args.histogram_bin_width)) or float(args.histogram_bin_width) <= 0:
         raise ValueError("--histogram-bin-width must be greater than zero.")
-    if float(args.histogram_x_min) < 0 or float(args.histogram_x_max) <= float(args.histogram_x_min):
-        raise ValueError("Histogram limits require 0 <= x-min < x-max.")
+    if not math.isfinite(float(args.histogram_x_min)) or not math.isfinite(float(args.histogram_x_max)) or float(args.histogram_x_max) <= float(args.histogram_x_min):
+        raise ValueError("Histogram limits require finite x-min < x-max.")
     if int(args.plot_max_points) < 0:
         raise ValueError("--plot-max-points must be zero or greater.")
     if int(args.dpi) < 1:
@@ -289,6 +386,10 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--score-z-limit must be finite and zero or greater.")
     if not math.isfinite(float(args.percentile_boxplot_y_max)) or float(args.percentile_boxplot_y_max) < 0:
         raise ValueError("--percentile-boxplot-y-max must be finite and zero or greater.")
+    if not math.isfinite(float(args.score_agreement_distance_max)) or float(args.score_agreement_distance_max) < 0:
+        raise ValueError("--score-agreement-distance-max must be finite and zero or greater.")
+    if not math.isfinite(float(args.score_distance_y_max)) or float(args.score_distance_y_max) < 0:
+        raise ValueError("--score-distance-y-max must be finite and zero or greater.")
     for value, option in (
         (args.main_score_column, "--main-score-column"),
         (args.compare_score_column, "--compare-score-column"),
@@ -309,59 +410,444 @@ def _percentile_group_bounds(interval: int) -> list[tuple[int, int, str]]:
     return groups
 
 
-def _assign_matched_percentiles(main_scores: np.ndarray, interval: int) -> tuple[np.ndarray, np.ndarray]:
-    """Rank matched pairs by main score and return percentile + group label arrays."""
+def _assign_matched_percentiles(main_scores: np.ndarray, interval: int) -> tuple[np.ndarray, np.ndarray, tuple[str, ...]]:
+    """Rank matched pairs by main score and return compact percentile groups."""
+
     n = int(main_scores.size)
+    group_names = tuple(label for _low, _high, label in _percentile_group_bounds(interval))
     if n == 0:
-        return np.asarray([], dtype=np.uint8), np.asarray([], dtype=object)
-    # Stable sorting keeps ties deterministic without changing the user's explicit
-    # requirement that matched pairs are sorted by main BED score.
+        return (
+            np.asarray([], dtype=np.uint8),
+            np.asarray([], dtype=np.uint8),
+            group_names,
+        )
     order = np.argsort(main_scores, kind="stable")
     percentile = np.empty(n, dtype=np.uint8)
     ranks = np.arange(1, n + 1, dtype=float)
     percentile[order] = np.ceil(ranks * 100.0 / n).astype(np.uint8)
-    labels = np.empty(n, dtype=object)
-    for lower, upper, label in _percentile_group_bounds(interval):
+    group_index = np.empty(n, dtype=np.uint8)
+    for index, (lower, upper, _label) in enumerate(_percentile_group_bounds(interval)):
         mask = (percentile > lower) & (percentile <= upper)
-        labels[mask] = label
-    return percentile, labels
+        group_index[mask] = index
+    return percentile, group_index, group_names
+
+
+def _parse_integer_coordinate(value: str, context: str) -> int:
+    try:
+        numeric = float(value)
+    except ValueError as exc:
+        raise ValueError(f"{context}: expected a numeric summit coordinate, found {value!r}.") from exc
+    if not math.isfinite(numeric) or not numeric.is_integer():
+        raise ValueError(f"{context}: summit coordinates must be finite integers, found {value!r}.")
+    return int(numeric)
+
+
+def read_compact_positions(
+    path: str | Path,
+    source: str,
+    summit_column: int | None,
+    score_column: int,
+    *,
+    blacklist=None,
+    progress: ProgressReporter | None = None,
+) -> CompactPeakSet:
+    """Read a BED-like position file into compact chromosome-keyed arrays.
+
+    Only the resolved summit, numeric score, and source line number are retained
+    for each usable peak. BED start/end coordinates are used transiently for
+    validation, midpoint calculation, and blacklist filtering and are then
+    discarded.
+    """
+
+    input_path = Path(path)
+    if not input_path.exists():
+        raise FileNotFoundError(f"Input interval file not found: {input_path}")
+    if summit_column is not None and int(summit_column) < 1:
+        raise ValueError("Summit columns must be one-based and at least 1.")
+    if int(score_column) < 1:
+        raise ValueError("Score columns must be one-based and at least 1.")
+    required_column = max(3, int(score_column), int(summit_column or 0))
+
+    # array.array keeps the construction phase compact too; converting a BED
+    # with millions of rows therefore does not first create millions of Python
+    # record objects.
+    builders: dict[str, tuple[str, array, array, array]] = {}
+    excluded = 0
+    count = 0
+    if progress is not None:
+        progress.file_start(source, input_path)
+    seen_contigs: set[str] = set()
+    with open_interval_text(input_path) as handle:
+        for line_number, raw in enumerate(handle, start=1):
+            text = raw.strip()
+            if not text or text.startswith(("#", "track", "browser")):
+                continue
+            fields = text.split("\t") if "\t" in text else text.split()
+            if len(fields) < required_column:
+                raise ValueError(
+                    f"{input_path}:{line_number}: requires at least {required_column} "
+                    f"columns for the selected summit and score fields; found {len(fields)}."
+                )
+            chrom = fields[0]
+            key = canonical_contig_key(chrom)
+            if progress is not None and key not in seen_contigs:
+                seen_contigs.add(key)
+                progress.reading_contig(source, chrom)
+            try:
+                start = int(fields[1])
+                end = int(fields[2])
+            except ValueError as exc:
+                raise ValueError(f"{input_path}:{line_number}: BED start and end must be integers.") from exc
+            if start < 0 or end <= start:
+                raise ValueError(f"{input_path}:{line_number}: require 0 <= start < end.")
+            if blacklist is not None and blacklist.overlaps(chrom, start, end):
+                excluded += 1
+                continue
+            summit = (
+                (start + end) // 2
+                if summit_column is None
+                else _parse_integer_coordinate(fields[int(summit_column) - 1], f"{input_path}:{line_number}")
+            )
+            try:
+                score = float(fields[int(score_column) - 1])
+            except ValueError as exc:
+                raise ValueError(
+                    f"{input_path}:{line_number}: score column {score_column} must be numeric."
+                ) from exc
+            if not math.isfinite(score):
+                raise ValueError(f"{input_path}:{line_number}: score column {score_column} must be finite.")
+            if key not in builders:
+                builders[key] = (chrom, array("q"), array("d"), array("q"))
+            _name, summits, scores, indices = builders[key]
+            summits.append(int(summit))
+            scores.append(float(score))
+            indices.append(int(line_number))
+            count += 1
+
+    if count == 0:
+        raise ValueError(f"No interval records were read from {input_path}.")
+
+    by_chrom: dict[str, PeakChrom] = {}
+    for key, (name, summits_buffer, scores_buffer, indices_buffer) in builders.items():
+        summits = np.asarray(summits_buffer, dtype=np.int64)
+        scores = np.asarray(scores_buffer, dtype=np.float64)
+        indices = np.asarray(indices_buffer, dtype=np.int64)
+        order = np.lexsort((indices, summits))
+        by_chrom[key] = PeakChrom(
+            name=name,
+            summits=np.ascontiguousarray(summits[order]),
+            scores=np.ascontiguousarray(scores[order]),
+            indices=np.ascontiguousarray(indices[order]),
+        )
+    if progress is not None:
+        progress.file_complete(source, input_path, count)
+    return CompactPeakSet(input_path, source, by_chrom, count, excluded)
+
+
+def _coordinate_groups(values: np.ndarray) -> list[tuple[int, int, int]]:
+    """Return ``(coordinate, start, end)`` groups for one sorted summit array."""
+
+    if values.size == 0:
+        return []
+    boundaries = np.flatnonzero(np.diff(values) != 0) + 1
+    starts = np.concatenate((np.asarray([0], dtype=np.int64), boundaries))
+    ends = np.concatenate((boundaries, np.asarray([values.size], dtype=np.int64)))
+    return [(int(values[start]), int(start), int(end)) for start, end in zip(starts, ends)]
+
+
+def _match_chrom_one_to_one(
+    query: PeakChrom,
+    target: PeakChrom,
+    max_distance: float | None,
+) -> tuple[np.ndarray, np.ndarray, int, int]:
+    """Distance-prioritized one-to-one matching for a single chromosome.
+
+    Only compact numeric arrays persist between chromosomes. Temporary frontier
+    nodes and the heap are released after each chromosome has been matched.
+    """
+
+    q_groups = _coordinate_groups(query.summits)
+    t_groups = _coordinate_groups(target.summits)
+    exact_q: list[np.ndarray] = []
+    exact_t: list[np.ndarray] = []
+    nodes: list[_CompactNode] = []
+    qi = ti = 0
+    while qi < len(q_groups) or ti < len(t_groups):
+        if ti >= len(t_groups) or (qi < len(q_groups) and q_groups[qi][0] < t_groups[ti][0]):
+            coord, low, high = q_groups[qi]
+            nodes.append(_CompactNode("Q", coord, low, high))
+            qi += 1
+            continue
+        if qi >= len(q_groups) or t_groups[ti][0] < q_groups[qi][0]:
+            coord, low, high = t_groups[ti]
+            nodes.append(_CompactNode("T", coord, low, high))
+            ti += 1
+            continue
+        coord, q_low, q_high = q_groups[qi]
+        _coord_t, t_low, t_high = t_groups[ti]
+        match_count = min(q_high - q_low, t_high - t_low)
+        if match_count:
+            exact_q.append(np.arange(q_low, q_low + match_count, dtype=np.int64))
+            exact_t.append(np.arange(t_low, t_low + match_count, dtype=np.int64))
+        q_low += match_count
+        t_low += match_count
+        if q_low < q_high:
+            nodes.append(_CompactNode("Q", coord, q_low, q_high))
+        elif t_low < t_high:
+            nodes.append(_CompactNode("T", coord, t_low, t_high))
+        qi += 1
+        ti += 1
+
+    for index, node in enumerate(nodes):
+        node.previous = index - 1 if index else None
+        node.following = index + 1 if index + 1 < len(nodes) else None
+
+    heap: list[tuple[int, int, int, int, int, int, int]] = []
+
+    def candidate_indices(left: _CompactNode, right: _CompactNode) -> tuple[int, int]:
+        if left.kind == "Q":
+            return left.low, right.low
+        return right.low, left.high - 1
+
+    def push_boundary(left_index: int | None) -> None:
+        if left_index is None:
+            return
+        left = nodes[left_index]
+        right_index = left.following
+        if not left.alive or right_index is None:
+            return
+        right = nodes[right_index]
+        if not right.alive or left.kind == right.kind:
+            return
+        query_index, target_index = candidate_indices(left, right)
+        heapq.heappush(
+            heap,
+            (
+                abs(right.coordinate - left.coordinate),
+                query_index,
+                target_index,
+                left_index,
+                right_index,
+                left.version,
+                right.version,
+            ),
+        )
+
+    for index in range(max(0, len(nodes) - 1)):
+        push_boundary(index)
+
+    def unlink(index: int) -> None:
+        node = nodes[index]
+        previous = node.previous
+        following = node.following
+        if previous is not None:
+            nodes[previous].following = following
+        if following is not None:
+            nodes[following].previous = previous
+        node.alive = False
+        node.previous = node.following = None
+        node.version += 1
+
+    matched_q: list[int] = []
+    matched_t: list[int] = []
+    while heap:
+        distance, q_index, t_index, left_index, right_index, left_version, right_version = heapq.heappop(heap)
+        left = nodes[left_index]
+        right = nodes[right_index]
+        if (
+            not left.alive
+            or not right.alive
+            or left.following != right_index
+            or right.previous != left_index
+            or left.version != left_version
+            or right.version != right_version
+        ):
+            continue
+        if max_distance is not None and distance > max_distance:
+            break
+        current_q, current_t = candidate_indices(left, right)
+        if current_q != q_index or current_t != t_index:
+            continue
+        matched_q.append(q_index)
+        matched_t.append(t_index)
+        affected = {left.previous, left_index, right_index, right.following}
+        if left.kind == "Q":
+            left.low += 1
+            right.low += 1
+        else:
+            left.high -= 1
+            right.low += 1
+        left.version += 1
+        right.version += 1
+        if left.empty:
+            unlink(left_index)
+        if right.empty:
+            unlink(right_index)
+        for candidate in list(affected):
+            if candidate is None or not nodes[candidate].alive:
+                continue
+            push_boundary(nodes[candidate].previous)
+            push_boundary(candidate)
+
+    remaining_query: list[int] = []
+    for node in nodes:
+        if node.alive and node.kind == "Q" and not node.empty:
+            remaining_query.extend(range(node.low, node.high))
+    unmatched_distance = 0
+    unmatched_unique = 0
+    if max_distance is None:
+        unmatched_unique = len(remaining_query)
+    elif remaining_query:
+        first_target = int(target.summits[0])
+        last_target = int(target.summits[-1])
+        for q_index in remaining_query:
+            summit = int(query.summits[q_index])
+            farthest = max(abs(first_target - summit), abs(last_target - summit))
+            if farthest > max_distance:
+                unmatched_distance += 1
+            else:
+                unmatched_unique += 1
+
+    q_parts = list(exact_q)
+    t_parts = list(exact_t)
+    if matched_q:
+        q_parts.append(np.asarray(matched_q, dtype=np.int64))
+        t_parts.append(np.asarray(matched_t, dtype=np.int64))
+    q_out = np.concatenate(q_parts) if q_parts else np.asarray([], dtype=np.int64)
+    t_out = np.concatenate(t_parts) if t_parts else np.asarray([], dtype=np.int64)
+    return q_out, t_out, unmatched_distance, unmatched_unique
+
+
+def match_compact_positions(
+    main: CompactPeakSet,
+    comparison: CompactPeakSet,
+    max_distance: float | None,
+    *,
+    progress: ProgressReporter | None = None,
+    progress_stage: str = "Matching one-to-one",
+) -> CompactMatch:
+    """Match the smaller callset against the larger callset one-to-one."""
+
+    if main.count <= comparison.count:
+        query_set, target_set, query_source = main, comparison, "main"
+    else:
+        query_set, target_set, query_source = comparison, main, "comparison"
+
+    main_chrom_keys = list(main.by_chrom)
+    chrom_to_code = {key: index for index, key in enumerate(main_chrom_keys)}
+    chrom_names = tuple(main.by_chrom[key].name for key in main_chrom_keys)
+    chrom_parts: list[np.ndarray] = []
+    main_index_parts: list[np.ndarray] = []
+    compare_index_parts: list[np.ndarray] = []
+    main_summit_parts: list[np.ndarray] = []
+    main_score_parts: list[np.ndarray] = []
+    compare_score_parts: list[np.ndarray] = []
+    signed_parts: list[np.ndarray] = []
+    unmatched_no_target_chrom = 0
+    unmatched_distance = 0
+    unmatched_unique = 0
+
+    query_items = list(query_set.by_chrom.items())
+    for chrom_number, (key, qchrom) in enumerate(query_items, start=1):
+        if progress is not None:
+            progress.contig(progress_stage, qchrom.name, chrom_number, len(query_items), qchrom.count)
+        tchrom = target_set.by_chrom.get(key)
+        if tchrom is None:
+            unmatched_no_target_chrom += qchrom.count
+            continue
+        q_idx, t_idx, rejected_distance, rejected_unique = _match_chrom_one_to_one(qchrom, tchrom, max_distance)
+        unmatched_distance += rejected_distance
+        unmatched_unique += rejected_unique
+        if q_idx.size == 0:
+            continue
+        if query_source == "main":
+            mch, cch = qchrom, tchrom
+            mi, ci = q_idx, t_idx
+        else:
+            mch, cch = tchrom, qchrom
+            mi, ci = t_idx, q_idx
+        code = chrom_to_code[key]
+        chrom_parts.append(np.full(mi.size, code, dtype=np.uint16 if len(chrom_names) <= 65535 else np.uint32))
+        main_index_parts.append(mch.indices[mi])
+        compare_index_parts.append(cch.indices[ci])
+        main_summit_parts.append(mch.summits[mi])
+        main_score_parts.append(mch.scores[mi])
+        compare_score_parts.append(cch.scores[ci])
+        signed_parts.append(cch.summits[ci] - mch.summits[mi])
+
+    def concat(parts: list[np.ndarray], dtype) -> np.ndarray:
+        return np.concatenate(parts).astype(dtype, copy=False) if parts else np.asarray([], dtype=dtype)
+
+    chrom_code = concat(chrom_parts, np.uint16 if len(chrom_names) <= 65535 else np.uint32)
+    main_index = concat(main_index_parts, np.int64)
+    compare_index = concat(compare_index_parts, np.int64)
+    main_summit = concat(main_summit_parts, np.int64)
+    main_scores = concat(main_score_parts, np.float64)
+    compare_scores = concat(compare_score_parts, np.float64)
+    signed_distance = concat(signed_parts, np.int64)
+    if main_scores.size:
+        order = np.lexsort((main_index, main_summit, chrom_code))
+        chrom_code = chrom_code[order]
+        main_index = main_index[order]
+        compare_index = compare_index[order]
+        main_summit = main_summit[order]
+        main_scores = main_scores[order]
+        compare_scores = compare_scores[order]
+        signed_distance = signed_distance[order]
+
+    return CompactMatch(
+        query_source=query_source,
+        query_count=query_set.count,
+        target_count=target_set.count,
+        unmatched_no_target_chrom=unmatched_no_target_chrom,
+        unmatched_distance=unmatched_distance,
+        unmatched_unique=unmatched_unique,
+        chrom_names=chrom_names,
+        chrom_code=chrom_code,
+        main_index=main_index,
+        compare_index=compare_index,
+        main_summit=main_summit,
+        main_scores=main_scores,
+        compare_scores=compare_scores,
+        signed_distance=signed_distance,
+    )
 
 
 def _arrays_from_match(
     label: str,
     path: Path,
-    result: MatchResult,
+    result: CompactMatch,
     main_count: int,
     compare_count: int,
     interval: int,
 ) -> ComparisonArrays:
-    pairs = result.pairs
-    n = len(pairs)
-    main_line = np.fromiter((pair.a.line_number for pair in pairs), dtype=np.int64, count=n)
-    main_scores = np.fromiter((pair.a.score for pair in pairs), dtype=np.float64, count=n)
-    compare_scores = np.fromiter((pair.b.score for pair in pairs), dtype=np.float64, count=n)
-    signed = np.fromiter((pair.signed_distance for pair in pairs), dtype=np.int64, count=n)
-    absolute = np.abs(signed).astype(np.float64)
-    percentile, group_labels = _assign_matched_percentiles(main_scores, interval)
+    absolute = np.abs(result.signed_distance).astype(np.float64)
+    percentile, group_index, group_names = _assign_matched_percentiles(result.main_scores, interval)
     return ComparisonArrays(
         label=label,
         path=path,
         main_count=main_count,
         compare_count=compare_count,
-        query_source="main" if result.query_source == "A" else "comparison",
+        query_source=result.query_source,
         query_count=result.query_count,
         target_count=result.target_count,
         unmatched_no_target_chrom=result.unmatched_no_target_chrom,
         unmatched_distance=result.unmatched_distance,
         unmatched_unique=result.unmatched_unique,
-        main_line=main_line,
-        main_scores=main_scores,
-        compare_scores=compare_scores,
-        signed_distance=signed,
+        chrom_names=result.chrom_names,
+        chrom_code=result.chrom_code,
+        main_line=result.main_index,
+        compare_line=result.compare_index,
+        main_summit=result.main_summit,
+        main_scores=result.main_scores,
+        compare_scores=result.compare_scores,
+        signed_distance=result.signed_distance,
         absolute_distance=absolute,
         percentile=percentile,
-        group_labels=group_labels,
+        group_index=group_index,
+        group_names=group_names,
     )
+
 
 
 def _zscores(values: np.ndarray) -> np.ndarray:
@@ -481,7 +967,7 @@ def _histogram_rows(result: ComparisonArrays, x_min: float, x_max: float, width:
     edges = np.arange(float(x_min), float(x_max) + float(width), float(width), dtype=float)
     if edges[-1] < float(x_max):
         edges = np.append(edges, float(x_max))
-    counts, edges = np.histogram(result.absolute_distance, bins=edges)
+    counts, edges = np.histogram(result.signed_distance.astype(float), bins=edges)
     rows: list[dict[str, object]] = []
     total = max(1, int(result.pair_count))
     for index, count in enumerate(counts):
@@ -507,74 +993,87 @@ def _write_tsv(path: Path, rows: Sequence[dict[str, object]], fields: Sequence[s
     return path
 
 
-def _write_pairs(path: Path, result: ComparisonArrays, pairs: Sequence[MatchedPair], main_label: str, args: argparse.Namespace) -> Path:
+def _write_pairs(path: Path, result: ComparisonArrays, main_label: str, args: argparse.Namespace) -> Path:
+    """Write matched pairs from compact arrays without recreating peak objects."""
+
     selected_main, selected_compare, _ = _selected_scores(result, args.score_normalization)
-    indices = set(_plot_indices(result.pair_count, args.plot_max_points, args.plot_seed).tolist())
+    selected_indices = _plot_indices(result.pair_count, args.plot_max_points, args.plot_seed)
+    plot_selected = np.zeros(result.pair_count, dtype=np.uint8)
+    plot_selected[selected_indices] = 1
     fields = [
         "comparison", "pair_id", "query_source", "chrom",
-        "main_start", "main_end", "main_name", "main_summit", "main_score", "main_score_normalized", "main_line_number",
-        "compare_start", "compare_end", "compare_name", "compare_summit", "compare_score", "compare_score_normalized", "compare_line_number",
+        "main_summit", "main_score", "main_score_normalized", "main_line_number",
+        "compare_summit", "compare_score", "compare_score_normalized", "compare_line_number",
         "signed_distance_compare_minus_main", "absolute_distance", "main_score_percentile", "percentile_group",
-        "plot_selected", "plot_score_normalization", "plot_score_z_limit", "plot_correlation_method", "plot_label_a", "plot_label_b",
+        "plot_selected", "plot_score_normalization", "plot_score_z_limit", "plot_correlation_method",
+        "plot_score_agreement_distance_max", "plot_score_distance_y_max", "plot_label_a", "plot_label_b",
     ]
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields, delimiter="\t")
         writer.writeheader()
-        for index, pair in enumerate(pairs):
+        for index in range(result.pair_count):
+            signed = int(result.signed_distance[index])
+            main_summit = int(result.main_summit[index])
             writer.writerow({
                 "comparison": result.label,
                 "pair_id": f"pair_{index + 1:09d}",
                 "query_source": result.query_source,
-                "chrom": pair.a.chrom,
-                "main_start": pair.a.start,
-                "main_end": pair.a.end,
-                "main_name": pair.a.name,
-                "main_summit": pair.a.summit,
-                "main_score": pair.a.score,
-                "main_score_normalized": selected_main[index],
-                "main_line_number": pair.a.line_number,
-                "compare_start": pair.b.start,
-                "compare_end": pair.b.end,
-                "compare_name": pair.b.name,
-                "compare_summit": pair.b.summit,
-                "compare_score": pair.b.score,
-                "compare_score_normalized": selected_compare[index],
-                "compare_line_number": pair.b.line_number,
-                "signed_distance_compare_minus_main": pair.signed_distance,
-                "absolute_distance": pair.absolute_distance,
+                "chrom": result.chrom_names[int(result.chrom_code[index])],
+                "main_summit": main_summit,
+                "main_score": float(result.main_scores[index]),
+                "main_score_normalized": float(selected_main[index]),
+                "main_line_number": int(result.main_line[index]),
+                "compare_summit": main_summit + signed,
+                "compare_score": float(result.compare_scores[index]),
+                "compare_score_normalized": float(selected_compare[index]),
+                "compare_line_number": int(result.compare_line[index]),
+                "signed_distance_compare_minus_main": signed,
+                "absolute_distance": float(result.absolute_distance[index]),
                 "main_score_percentile": int(result.percentile[index]),
-                "percentile_group": str(result.group_labels[index]),
-                "plot_selected": 1 if index in indices else 0,
+                "percentile_group": result.group_label(index),
+                "plot_selected": int(plot_selected[index]),
                 "plot_score_normalization": args.score_normalization,
                 "plot_score_z_limit": args.score_z_limit,
                 "plot_correlation_method": args.score_correlation,
+                "plot_score_agreement_distance_max": args.score_agreement_distance_max,
+                "plot_score_distance_y_max": args.score_distance_y_max,
                 "plot_label_a": main_label,
                 "plot_label_b": result.label,
             })
     return path
 
 
-def _percentile_rows(result: ComparisonArrays) -> list[dict[str, object]]:
-    return [
-        {
-            "comparison": result.label,
-            "main_line_number": int(result.main_line[index]),
-            "main_score": float(result.main_scores[index]),
-            "main_score_percentile": int(result.percentile[index]),
-            "percentile_group": str(result.group_labels[index]),
-            "signed_distance_compare_minus_main": int(result.signed_distance[index]),
-            "absolute_distance": float(result.absolute_distance[index]),
-        }
-        for index in range(result.pair_count)
-    ]
 
+def _append_percentile_rows(path: Path, result: ComparisonArrays, *, write_header: bool) -> None:
+    """Stream matched percentile rows to disk instead of retaining Python dicts."""
+
+    fields = [
+        "comparison", "main_line_number", "main_score", "main_score_percentile",
+        "percentile_group", "signed_distance_compare_minus_main", "absolute_distance",
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    mode = "w" if write_header else "a"
+    with path.open(mode, encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields, delimiter="\t")
+        if write_header:
+            writer.writeheader()
+        for index in range(result.pair_count):
+            writer.writerow({
+                "comparison": result.label,
+                "main_line_number": int(result.main_line[index]),
+                "main_score": float(result.main_scores[index]),
+                "main_score_percentile": int(result.percentile[index]),
+                "percentile_group": result.group_label(index),
+                "signed_distance_compare_minus_main": int(result.signed_distance[index]),
+                "absolute_distance": float(result.absolute_distance[index]),
+            })
 
 def _percentile_summary_rows(results: Sequence[ComparisonArrays], interval: int) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for result in results:
         for lower, upper, label in _percentile_group_bounds(interval):
-            mask = result.group_labels == label
+            mask = result.group_mask(label)
             values = result.absolute_distance[mask]
             if values.size:
                 q1, median, q3 = np.percentile(values, [25, 50, 75])
@@ -630,15 +1129,20 @@ def _significance(p: float) -> str:
 
 
 def _paired_group_values(a: ComparisonArrays, b: ComparisonArrays, group: str) -> tuple[np.ndarray, np.ndarray]:
-    mask_a = a.group_labels == group
-    mask_b = b.group_labels == group
-    map_a = {int(line): float(value) for line, value in zip(a.main_line[mask_a], a.absolute_distance[mask_a])}
-    map_b = {int(line): float(value) for line, value in zip(b.main_line[mask_b], b.absolute_distance[mask_b])}
-    shared = sorted(set(map_a).intersection(map_b))
-    return (
-        np.asarray([map_a[line] for line in shared], dtype=float),
-        np.asarray([map_b[line] for line in shared], dtype=float),
+    """Return paired distances without constructing per-peak Python dictionaries."""
+
+    mask_a = a.group_mask(group)
+    mask_b = b.group_mask(group)
+    lines_a = a.main_line[mask_a]
+    lines_b = b.main_line[mask_b]
+    if lines_a.size == 0 or lines_b.size == 0:
+        return np.asarray([], dtype=float), np.asarray([], dtype=float)
+    _shared, index_a, index_b = np.intersect1d(
+        lines_a, lines_b, assume_unique=True, return_indices=True
     )
+    values_a = a.absolute_distance[mask_a]
+    values_b = b.absolute_distance[mask_b]
+    return values_a[index_a].astype(float, copy=False), values_b[index_b].astype(float, copy=False)
 
 
 def _pairwise_statistics(results: Sequence[ComparisonArrays], interval: int, family: str, adjustment: str) -> list[dict[str, object]]:
@@ -646,8 +1150,8 @@ def _pairwise_statistics(results: Sequence[ComparisonArrays], interval: int, fam
     for _lower, _upper, group in _percentile_group_bounds(interval):
         group_rows: list[dict[str, object]] = []
         for first, second in itertools.combinations(results, 2):
-            values_first = first.absolute_distance[first.group_labels == group]
-            values_second = second.absolute_distance[second.group_labels == group]
+            values_first = first.absolute_distance[first.group_mask(group)]
+            values_second = second.absolute_distance[second.group_mask(group)]
             paired_first, paired_second = _paired_group_values(first, second, group)
             paired = (
                 paired_first.size >= 2
@@ -763,9 +1267,15 @@ def _plot_score_agreement(prefix: Path, result: ComparisonArrays, main_label: st
     x, y, axis_label = _selected_scores(result, args.score_normalization)
     indices = _plot_indices(result.pair_count, args.plot_max_points, args.plot_seed)
     figure, axis = plt.subplots(figsize=(7.5, 6.5))
+    color_kwargs: dict[str, object] = {}
+    if float(args.score_agreement_distance_max) > 0:
+        from matplotlib.colors import Normalize
+        color_kwargs["norm"] = Normalize(
+            vmin=0.0, vmax=float(args.score_agreement_distance_max), clip=True
+        )
     scatter = axis.scatter(
         x[indices], y[indices], c=result.absolute_distance[indices], s=9,
-        alpha=0.55, linewidths=0, cmap="viridis", rasterized=True,
+        alpha=0.55, linewidths=0, cmap="viridis", rasterized=True, **color_kwargs,
     )
     colorbar = figure.colorbar(scatter, ax=axis)
     colorbar.set_label("Absolute summit distance (bp)")
@@ -818,6 +1328,8 @@ def _plot_score_distance(prefix: Path, result: ComparisonArrays, args: argparse.
         axis.plot(endpoints, intercept + slope * endpoints, linestyle=":", linewidth=1.2, label="Linear fit")
     axis.set_xlabel("Main peak score")
     axis.set_ylabel("Absolute matched distance (bp)" if args.score_distance_type == "absolute" else "Signed compare − main distance (bp)")
+    if args.score_distance_type == "absolute" and float(args.score_distance_y_max) > 0:
+        axis.set_ylim(0.0, float(args.score_distance_y_max))
     axis.set_title(f"Main peak score versus distance: {result.label}")
     annotation: list[str] = []
     if args.score_distance_correlation in {"spearman", "both"}:
@@ -840,18 +1352,26 @@ def _plot_distance_histograms(prefix: Path, results: Sequence[ComparisonArrays],
     import matplotlib.pyplot as plt
     from nucleosuite.plotting import apply_distance_x_axis, apply_integer_y_axis, plot_path, save_figure
 
-    edges = np.arange(float(args.histogram_x_min), float(args.histogram_x_max) + float(args.histogram_bin_width), float(args.histogram_bin_width))
+    edges = np.arange(
+        float(args.histogram_x_min),
+        float(args.histogram_x_max) + float(args.histogram_bin_width),
+        float(args.histogram_bin_width),
+    )
     colors = _comparison_colors(len(results))
     figure, axis = plt.subplots(figsize=(9.0, 5.8))
     for color, result in zip(colors, results):
-        counts, resolved_edges = np.histogram(result.absolute_distance, bins=edges)
+        counts, resolved_edges = np.histogram(result.signed_distance.astype(float), bins=edges)
         centres = (resolved_edges[:-1] + resolved_edges[1:]) / 2.0
         axis.plot(centres, counts, label=result.label, color=color, linewidth=1.5)
     axis.set_xlim(float(args.histogram_x_min), float(args.histogram_x_max))
-    axis.set_xlabel("Absolute summit distance (bp)")
+    axis.set_xlabel("Signed summit distance, comparison − main (bp)")
     axis.set_ylabel("Matched pairs")
     axis.set_title("Matched-position distance distributions")
-    apply_distance_x_axis(axis, major_interval=args.distance_x_major_tick, minor_interval=args.distance_x_minor_tick)
+    apply_distance_x_axis(
+        axis,
+        major_interval=args.distance_x_major_tick,
+        minor_interval=args.distance_x_minor_tick,
+    )
     apply_integer_y_axis(axis)
     axis.legend(frameon=False)
     figure.tight_layout()
@@ -874,9 +1394,22 @@ def _plot_correlation_by_distance(prefix: Path, rows: Sequence[dict[str, object]
         labels = [str(row["distance_bin"]) for row in subset]
         x = np.arange(len(labels), dtype=float)
         if args.score_correlation in {"spearman", "both"}:
-            axis.plot(x, [float(row["spearman_score_correlation"]) for row in subset], marker="o", color=color, label=(result.label if args.score_correlation == "spearman" else f"{result.label} Spearman"))
+            axis.plot(
+                x,
+                [float(row["spearman_score_correlation"]) for row in subset],
+                marker="o",
+                color=color,
+                label=(result.label if args.score_correlation == "spearman" else f"{result.label} Spearman"),
+            )
         if args.score_correlation in {"pearson", "both"}:
-            axis.plot(x, [float(row["pearson_score_correlation"]) for row in subset], marker="s", linestyle="--", color=color, label=(result.label if args.score_correlation == "pearson" else f"{result.label} Pearson"))
+            axis.plot(
+                x,
+                [float(row["pearson_score_correlation"]) for row in subset],
+                marker="s",
+                linestyle="--",
+                color=color,
+                label=(result.label if args.score_correlation == "pearson" else f"{result.label} Pearson"),
+            )
     axis.axhline(0, linewidth=0.8, color="black")
     if rows:
         labels = [str(row["distance_bin"]) for row in rows if row["comparison"] == results[0].label]
@@ -891,7 +1424,6 @@ def _plot_correlation_by_distance(prefix: Path, rows: Sequence[dict[str, object]
     output = save_figure(figure, output, default_dpi=args.dpi)
     plt.close(figure)
     return output
-
 
 def _format_p(p: float, adjusted: bool) -> str:
     if not math.isfinite(p):
@@ -930,7 +1462,7 @@ def _plot_percentile_boxplot(
     positions: dict[tuple[str, str], float] = {}
     for comp_index, (result, color) in enumerate(zip(results, colors)):
         for group_index, group in enumerate(groups):
-            values = result.absolute_distance[result.group_labels == group]
+            values = result.absolute_distance[result.group_mask(group)]
             pos = float(group_centres[group_index] + offsets[comp_index])
             positions[(group, result.label)] = pos
             if not values.size:
@@ -991,73 +1523,73 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Path]:
     if getattr(args, "blacklist_bed", None):
         from nucleosuite.core.blacklist import load_blacklist_unbounded
         blacklist = load_blacklist_unbounded(args.blacklist_bed)
-    excluded_main = [0]
-    main_records = read_positions(
-        main_path, "A", args.main_summit_column, args.main_score_column,
-        blacklist=blacklist, excluded_counter=excluded_main, progress=reporter,
+    main_records = read_compact_positions(
+        main_path, "main", args.main_summit_column, args.main_score_column,
+        blacklist=blacklist, progress=reporter,
     )
-    if not main_records:
-        raise ValueError("The main BED contains no usable positions after filtering.")
     main_label = args.main_label or _default_label(main_path)
     prefix = Path(args.output_prefix or f"{_default_label(main_path)}_compare_positions")
     prefix.parent.mkdir(parents=True, exist_ok=True)
 
     results: list[ComparisonArrays] = []
-    all_pairs_for_writing: list[tuple[ComparisonArrays, list[MatchedPair]]] = []
     summary_rows: list[dict[str, object]] = []
     histogram_rows: list[dict[str, object]] = []
     correlation_rows: list[dict[str, object]] = []
-    percentile_rows: list[dict[str, object]] = []
     score_distance_rows: list[dict[str, object]] = []
+    percentile_path = Path(f"{prefix}_percentile_distances.tsv")
     outputs: dict[str, Path] = {}
     bounds = _parse_distance_bins(args.distance_bins)
 
     for index, spec in enumerate(specs, start=1):
         reporter.stage(f"Comparison {index}/{len(specs)}: {spec.label}")
-        excluded_compare = [0]
-        compare_records = read_positions(
-            spec.path, "B", args.compare_summit_column, args.compare_score_column,
-            blacklist=blacklist, excluded_counter=excluded_compare, progress=reporter,
+        compare_records = read_compact_positions(
+            spec.path, "comparison", args.compare_summit_column, args.compare_score_column,
+            blacklist=blacklist, progress=reporter,
         )
-        if not compare_records:
-            raise ValueError(f"Comparison BED {spec.path} contains no usable positions after filtering.")
         reporter.stage(
-            f"One-to-one matching {spec.label}: main={len(main_records):,}; comparison={len(compare_records):,}"
+            f"One-to-one matching {spec.label}: main={main_records.count:,}; comparison={compare_records.count:,}"
         )
-        match = match_positions(main_records, compare_records, "one-to-one", args.max_distance, progress=reporter)
-        if not match.pairs:
+        match = match_compact_positions(
+            main_records, compare_records, args.max_distance, progress=reporter,
+            progress_stage=f"Matching {spec.label}",
+        )
+        if not match.pair_count:
             raise ValueError(f"No matched pairs were found for comparison {spec.label!r}.")
-        arrays = _arrays_from_match(spec.label, spec.path, match, len(main_records), len(compare_records), args.percentile_interval)
+        arrays = _arrays_from_match(
+            spec.label, spec.path, match, main_records.count, compare_records.count, args.percentile_interval
+        )
         results.append(arrays)
         summary = _summary_row(arrays, main_path, main_label)
-        summary["blacklist_overlapping_main_records_excluded"] = excluded_main[0]
-        summary["blacklist_overlapping_compare_records_excluded"] = excluded_compare[0]
+        summary["blacklist_overlapping_main_records_excluded"] = main_records.excluded_blacklist
+        summary["blacklist_overlapping_compare_records_excluded"] = compare_records.excluded_blacklist
         summary_rows.append(summary)
-        histogram_rows.extend(_histogram_rows(arrays, args.histogram_x_min, args.histogram_x_max, args.histogram_bin_width))
+        histogram_rows.extend(
+            _histogram_rows(arrays, args.histogram_x_min, args.histogram_x_max, args.histogram_bin_width)
+        )
         correlation_rows.extend(_distance_bin_rows(arrays, args.score_normalization, bounds))
-        percentile_rows.extend(_percentile_rows(arrays))
+        _append_percentile_rows(percentile_path, arrays, write_header=(index == 1))
         sd_stats = _score_distance_stats(arrays, args.score_distance_type)
         score_distance_rows.append(sd_stats)
 
         if not args.skip_pairs_tsv:
             pair_path = Path(f"{prefix}_{_safe_token(spec.label)}_pairs.tsv")
-            _write_pairs(pair_path, arrays, match.pairs, main_label, args)
+            _write_pairs(pair_path, arrays, main_label, args)
             outputs[f"pairs_{_safe_token(spec.label)}"] = pair_path
-        # Comparison-specific plots remain separate where overlaying millions of
-        # points would obscure rather than clarify the relationship.
-        outputs[f"score_agreement_plot_{_safe_token(spec.label)}"] = _plot_score_agreement(prefix, arrays, main_label, args)
-        outputs[f"score_distance_plot_{_safe_token(spec.label)}"] = _plot_score_distance(prefix, arrays, args, sd_stats)
+        outputs[f"score_agreement_plot_{_safe_token(spec.label)}"] = _plot_score_agreement(
+            prefix, arrays, main_label, args
+        )
+        outputs[f"score_distance_plot_{_safe_token(spec.label)}"] = _plot_score_distance(
+            prefix, arrays, args, sd_stats
+        )
 
     summary_path = Path(f"{prefix}_summary.tsv")
     histogram_path = Path(f"{prefix}_distance_histogram.tsv")
     correlation_path = Path(f"{prefix}_correlation_by_distance.tsv")
-    percentile_path = Path(f"{prefix}_percentile_distances.tsv")
     percentile_summary_path = Path(f"{prefix}_percentile_summary.tsv")
     score_distance_path = Path(f"{prefix}_main_score_vs_distance_statistics.tsv")
     _write_tsv(summary_path, summary_rows)
     _write_tsv(histogram_path, histogram_rows)
     _write_tsv(correlation_path, correlation_rows)
-    _write_tsv(percentile_path, percentile_rows)
     _write_tsv(percentile_summary_path, _percentile_summary_rows(results, args.percentile_interval))
     _write_tsv(score_distance_path, score_distance_rows)
     outputs.update({
@@ -1071,24 +1603,31 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Path]:
 
     statistics_rows: list[dict[str, object]] = []
     if args.stats and len(results) >= 2:
-        statistics_rows = _pairwise_statistics(results, args.percentile_interval, args.stats_test, args.p_adjust)
+        statistics_rows = _pairwise_statistics(
+            results, args.percentile_interval, args.stats_test, args.p_adjust
+        )
         statistics_path = Path(f"{prefix}_percentile_statistics.tsv")
         _write_tsv(statistics_path, statistics_rows)
         outputs["percentile_statistics"] = statistics_path
 
     outputs["distance_histogram_plot"] = _plot_distance_histograms(prefix, results, args)
-    outputs["correlation_by_distance_plot"] = _plot_correlation_by_distance(prefix, correlation_rows, results, args)
-    outputs["percentile_boxplot"] = _plot_percentile_boxplot(prefix, results, args.percentile_interval, statistics_rows, args)
+    outputs["correlation_by_distance_plot"] = _plot_correlation_by_distance(
+        prefix, correlation_rows, results, args
+    )
+    outputs["percentile_boxplot"] = _plot_percentile_boxplot(
+        prefix, results, args.percentile_interval, statistics_rows, args
+    )
 
     if not args.quiet:
-        reporter.emit(f"Main positions: {len(main_records):,}")
+        reporter.emit(f"Main positions: {main_records.count:,}")
         for result in results:
-            reporter.emit(f"{result.label}: {result.compare_count:,} positions; {result.pair_count:,} one-to-one pairs")
+            reporter.emit(
+                f"{result.label}: {result.compare_count:,} positions; {result.pair_count:,} one-to-one pairs"
+            )
         for name, path in outputs.items():
             reporter.emit(f"{name}: {path}")
     reporter.complete()
     return outputs
-
 
 def _run_serial(args: argparse.Namespace) -> int:
     try:

@@ -29,7 +29,7 @@ nucleosuite plot sample_dac.tsv
 
 The replot command auto-detects NucleoSuite output tables and reproduces each source command's default figure style and layout before applying user overrides. Distance distributions retain their solid, order-coloured lines and legend; distance and standalone NRL regressions use open circles, a dotted fit, and a square figure. It also provides independent major/minor tick and grid controls, heatmap saturation limits, optional DAC peak detection and NRL regression insets, generic line/scatter/bar/heatmap modes, and Matplotlib `rcParams`/artist keyword pass-through. See the [plot command page](commands/plot.md) for the complete interface.
 
-For [`compare-positions`](commands/compare-positions.md), multi-callset outputs retain comparison labels in the plot tables. Replotting the combined distance histogram, correlation-by-distance table, or percentile-distance table therefore preserves the multiple comparison series/grouped boxes. Per-comparison matched-pair tables can be replotted as score-agreement figures, or explicitly as main-score-versus-distance figures with `--plot-type compare-positions-score-distance`.
+For [`compare-positions`](commands/compare-positions.md), multi-callset outputs retain comparison labels in the plot tables. The combined distance distribution uses signed summit distance; correlation-by-distance bins and percentile-distance summaries use absolute distance. Replotting preserves the multiple comparison series/grouped boxes. Per-comparison matched-pair tables can be replotted as score-agreement figures, or explicitly as main-score-versus-distance figures with `--plot-type compare-positions-score-distance`.
 
 ## Choose PNG or SVG
 

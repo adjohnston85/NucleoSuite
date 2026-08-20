@@ -259,19 +259,15 @@ NRL outputs are headered TSV files containing the selected profile, called peaks
 
 ## Position-comparison TSVs
 
-`compare-positions` accepts one main BED, BED.gz, or bigBed plus one or more comparison interval files. The main summit/score columns and shared comparison summit/score columns are selected independently. When no summit column is supplied, the summit is the integer midpoint between BED start and end. Repeated comparison inputs can be written as `--compare-bed LABEL=path.bed` to set the plot and table label.
+`compare-positions` accepts one main BED, BED.gz, or bigBed plus one or more comparison interval files. Inputs can be labelled as `LABEL=path.bed` for both `--main-bed` and `--compare-bed`. When no summit column is supplied, the position is the integer midpoint between BED start and end. Score columns are selected independently for the main BED and comparison BEDs.
 
-The `_pairs.tsv` output contains the original start, end, name, summit and score from methods A and B, together with signed and absolute summit distances and raw, z-score and percentile-rank score differences.
+Each `<comparison>_pairs.tsv` contains the main and comparison summits and scores, signed and absolute summit distances, main-score percentile assignment, and plotting fields. The combined `_percentile_distances.tsv` contains the main score and matched distance for every comparison/pair and is the source table for the grouped percentile boxplot.
 
-The `_summary.tsv` output uses two columns:
+`_summary.tsv` reports callset sizes, query direction, one-to-one matched-pair counts, unmatched counts, distance summaries, and main-versus-comparison score correlations for each comparison.
 
-```text
-metric    value
-```
+`_distance_histogram.tsv` stores the combined **signed** summit-distance distribution used by the distance plot. `_correlation_by_distance.tsv` reports score correlation in **absolute** summit-distance bins. `_percentile_summary.tsv` reports distance summaries for each main-score percentile group and comparison.
 
-The `_distance_bins.tsv` output reports pair counts, summit-distance summaries, and score correlations for the selected score normalization. Distance-bin labels use discrete integer ranges such as `0-5`, `6-10`, and `11-20`.
-
-The directional `_A_percentiles_vs_all_B_distances.tsv` and `_B_percentiles_vs_all_A_distances.tsv` outputs contain one row per matched query position. Each records the analysis direction, source percentile group, both scores and independently assigned percentiles, summits, signed distances, and absolute distance. Default group labels are `0-25`, `25-50`, `50-75`, and `75-100`; these represent lower-exclusive, upper-inclusive boundaries except at zero. The corresponding `_summary.tsv` files report source-group size, complete target-callset size, matched and unmatched counts, quartiles, mean, range, and standard deviation. Each directional distances TSV is the source data for its matching boxplot.
+When statistics are enabled, `_percentile_statistics.tsv` reports pairwise tests separately within each percentile group. `_main_score_vs_distance_statistics.tsv` reports the relationship between main peak score and matched distance for each comparison.
 
 ## Reference FASTA
 

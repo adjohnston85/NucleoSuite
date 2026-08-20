@@ -3,22 +3,21 @@
 from __future__ import annotations
 
 import csv
-import heapq
-import random
 from pathlib import Path
 
 import numpy as np
 
 from nucleosuite.compare_positions import (
-    PositionRecord,
-    _CandidateCursor,
+    CompactPeakSet,
+    ComparisonArrays,
+    PeakChrom,
+    _histogram_rows,
     _pairwise_statistics,
+    _resolve_inputs,
     _percentile_group_bounds,
-    _records_by_chrom,
     build_parser,
-    match_positions,
-    match_unique,
-    read_positions,
+    match_compact_positions,
+    read_compact_positions,
     run_comparison,
 )
 
@@ -27,79 +26,57 @@ def write_bed(path: Path, rows: list[tuple[object, ...]]) -> None:
     path.write_text("".join("\t".join(map(str, row)) + "\n" for row in rows))
 
 
-def test_default_midpoint_and_score_column(tmp_path: Path):
+def test_default_midpoint_and_score_column_uses_compact_chromosome_arrays(tmp_path: Path):
     bed = tmp_path / "positions.bed"
     write_bed(bed, [("chr1", 10, 20, "p1", 3.5), ("chr1", 30, 41, "p2", 7)])
-    records = read_positions(bed, "A", summit_column=None, score_column=5)
-    assert [record.summit for record in records] == [15, 35]
-    assert [record.score for record in records] == [3.5, 7.0]
+    records = read_compact_positions(bed, "main", summit_column=None, score_column=5)
+    chrom = records.by_chrom["1"]
+    assert chrom.summits.tolist() == [15, 35]
+    assert chrom.scores.tolist() == [3.5, 7.0]
+    assert chrom.indices.tolist() == [1, 2]
+    assert records.count == 2
+    # Peak storage deliberately contains no per-record BED start/end/name objects.
+    assert set(vars(chrom)) == {"name", "summits", "scores", "indices"}
+    assert chrom.summits.dtype == np.int64
+    assert chrom.scores.dtype == np.float64
 
 
-def test_smaller_comparison_is_query_but_pairs_keep_main_as_a(tmp_path: Path):
+def test_smaller_comparison_is_query_but_pairs_keep_main_fields(tmp_path: Path):
     main = tmp_path / "main.bed"
     compare = tmp_path / "compare.bed"
     write_bed(main, [("chr1", 95, 106, "m1", 10, ".", 100), ("chr1", 195, 206, "m2", 20, ".", 200), ("chr1", 295, 306, "m3", 30, ".", 300)])
     write_bed(compare, [("chr1", 201, 212, "c1", 22, ".", 207), ("chr1", 306, 317, "c2", 31, ".", 312)])
-    records_main = read_positions(main, "A", summit_column=7, score_column=5)
-    records_compare = read_positions(compare, "B", summit_column=7, score_column=5)
-    result = match_positions(records_main, records_compare, "one-to-one", None)
-    assert result.query_source == "B"
-    assert [(pair.a.summit, pair.b.summit) for pair in result.pairs] == [(200, 207), (300, 312)]
+    records_main = read_compact_positions(main, "main", summit_column=7, score_column=5)
+    records_compare = read_compact_positions(compare, "comparison", summit_column=7, score_column=5)
+    result = match_compact_positions(records_main, records_compare, None)
+    assert result.query_source == "comparison"
+    assert result.main_summit.tolist() == [200, 300]
+    assert (result.main_summit + result.signed_distance).tolist() == [207, 312]
+    assert result.main_scores.tolist() == [20.0, 30.0]
 
 
-def _reference_one_to_one(queries, targets, max_distance):
-    pairs = []
-    no_target = beyond_distance = unique_conflict = 0
-    target_by_chrom = _records_by_chrom(targets)
-    for chrom, chrom_queries in _records_by_chrom(queries).items():
-        chrom_targets = target_by_chrom.get(chrom)
-        if not chrom_targets:
-            no_target += len(chrom_queries)
-            continue
-        positions = [record.summit for record in chrom_targets]
-        cursors = [_CandidateCursor.create(query, chrom_targets, positions) for query in chrom_queries]
-        candidates = []
-        for qi, cursor in enumerate(cursors):
-            candidate = cursor.next()
-            if candidate is not None:
-                distance, ti = candidate
-                heapq.heappush(candidates, (distance, qi, ti))
-        assigned_q = set(); assigned_t = set(); rejected = set()
-        while candidates:
-            distance, qi, ti = heapq.heappop(candidates)
-            if qi in assigned_q:
-                continue
-            if max_distance is not None and distance > max_distance:
-                rejected.add(qi); continue
-            if ti not in assigned_t:
-                assigned_q.add(qi); assigned_t.add(ti)
-                pairs.append((chrom_queries[qi].line_number, chrom_targets[ti].line_number))
-                continue
-            candidate = cursors[qi].next()
-            if candidate is not None:
-                next_distance, next_target = candidate
-                heapq.heappush(candidates, (next_distance, qi, next_target))
-        beyond_distance += len(rejected)
-        unique_conflict += len(chrom_queries) - len(assigned_q) - len(rejected)
-    return sorted(pairs), (no_target, beyond_distance, unique_conflict)
+def _compact_from_summits(summits: list[int], source: str) -> CompactPeakSet:
+    values = np.asarray(summits, dtype=np.int64)
+    indices = np.arange(1, len(values) + 1, dtype=np.int64)
+    scores = indices.astype(np.float64)
+    order = np.lexsort((indices, values))
+    chrom = PeakChrom("chr1", values[order], scores[order], indices[order])
+    return CompactPeakSet(Path(f"{source}.bed"), source, {"1": chrom}, len(values), 0)
 
 
-def _records(summits: list[int], source: str) -> list[PositionRecord]:
-    return [PositionRecord(source, "chr1", summit, summit + 1, summit, float(index), f"{source}{index}", index) for index, summit in enumerate(summits, start=1)]
-
-
-def test_one_to_one_matching_preserves_dense_conflict_semantics():
-    generator = random.Random(20260819)
-    cases = [([0, 4, 4, 8, 12, 12, 16], [2, 2, 6, 10, 14, 14, 18, 100])]
-    for _ in range(80):
-        cases.append((sorted(generator.randrange(0, 30) for _ in range(generator.randrange(1, 10))), sorted(generator.randrange(0, 30) for _ in range(generator.randrange(1, 10)))))
-    for query_summits, target_summits in cases:
-        queries = _records(query_summits, "A"); targets = _records(target_summits, "B")
-        for max_distance in (None, 0, 3, 10):
-            expected_pairs, expected_unmatched = _reference_one_to_one(queries, targets, max_distance)
-            observed = match_unique(queries, targets, "A", max_distance)
-            assert sorted((pair.a.line_number, pair.b.line_number) for pair in observed.pairs) == expected_pairs
-            assert (observed.unmatched_no_target_chrom, observed.unmatched_distance, observed.unmatched_unique) == expected_unmatched
+def test_one_to_one_matching_is_unique_and_distance_prioritized():
+    main = _compact_from_summits([0, 4, 4, 8, 12, 12, 16], "main")
+    comparison = _compact_from_summits([2, 2, 6, 10, 14, 14, 18, 100], "comparison")
+    result = match_compact_positions(main, comparison, None)
+    assert result.query_source == "main"
+    assert result.pair_count == main.count
+    # No comparison source line can be reused by one-to-one matching.
+    assert len(set(result.compare_index.tolist())) == result.pair_count
+    # Exact-coordinate duplicates are paired before more distant neighbours.
+    exact_main = _compact_from_summits([10, 10, 20], "main")
+    exact_compare = _compact_from_summits([10, 10, 11, 20], "comparison")
+    exact = match_compact_positions(exact_main, exact_compare, None)
+    assert exact.signed_distance.tolist() == [0, 0, 0]
 
 
 def test_new_parser_defaults_to_main_plus_repeated_compare_and_quartiles():
@@ -111,6 +88,11 @@ def test_new_parser_defaults_to_main_plus_repeated_compare_and_quartiles():
     assert args.p_adjust == "holm"
     assert args.score_distance_type == "absolute"
     assert args.score_distance_correlation == "spearman"
+    assert args.percentile_boxplot_y_max == 200.0
+    assert args.score_agreement_distance_max == 50.0
+    assert args.score_distance_y_max == 100.0
+    assert args.histogram_x_min == -250.0
+    assert args.histogram_x_max == 250.0
     assert _percentile_group_bounds(25) == [(0, 25, "0-25"), (25, 50, "25-50"), (50, 75, "50-75"), (75, 100, "75-100")]
 
 
@@ -206,6 +188,46 @@ def test_score_distance_statistics_report_spearman_pearson_and_linear_fit(tmp_pa
     assert np.isclose(float(row["pearson_r"]), 1.0)
     assert np.isclose(float(row["linear_r_squared"]), 1.0)
     assert np.isclose(float(row["linear_slope_bp_per_score_unit"]), 1.0)
+
+
+
+def test_main_bed_accepts_label_equals_path_and_normalizes_for_processing(tmp_path: Path):
+    main = tmp_path / "main.bed"
+    compare = tmp_path / "compare.bed"
+    write_bed(main, [("chr1", 0, 10, "m", 1)])
+    write_bed(compare, [("chr1", 1, 11, "c", 1)])
+    args = build_parser().parse_args([
+        "--main-bed", f"PNS={main}", "--compare-bed", f"DANPOS={compare}"
+    ])
+    main_path, specs = _resolve_inputs(args)
+    assert main_path == main
+    assert args.main_bed == str(main)
+    assert args.main_label == "PNS"
+    assert specs[0].label == "DANPOS"
+
+
+def test_distance_histogram_uses_signed_distance():
+    result = ComparisonArrays(
+        label="B", path=Path("b.bed"), main_count=3, compare_count=3,
+        query_source="main", query_count=3, target_count=3,
+        unmatched_no_target_chrom=0, unmatched_distance=0, unmatched_unique=0,
+        chrom_names=("chr1",), chrom_code=np.zeros(3, dtype=np.uint16),
+        main_line=np.arange(1, 4, dtype=np.int64),
+        compare_line=np.arange(1, 4, dtype=np.int64),
+        main_summit=np.asarray([100, 200, 300], dtype=np.int64),
+        main_scores=np.asarray([1.0, 2.0, 3.0]),
+        compare_scores=np.asarray([1.0, 2.0, 3.0]),
+        signed_distance=np.asarray([-10, 0, 10], dtype=np.int64),
+        absolute_distance=np.asarray([10.0, 0.0, 10.0]),
+        percentile=np.asarray([25, 50, 100], dtype=np.uint8),
+        group_index=np.asarray([0, 1, 3], dtype=np.uint8),
+        group_names=("0-25", "25-50", "50-75", "75-100"),
+    )
+    rows = _histogram_rows(result, -20, 20, 10)
+    counts = {(float(row["bin_start_inclusive"]), float(row["bin_end_exclusive"])): int(row["pair_count"]) for row in rows}
+    assert counts[(-10.0, 0.0)] == 1
+    assert counts[(0.0, 10.0)] == 1
+    assert counts[(10.0, 20.0)] == 1
 
 
 def test_legacy_two_file_alias_is_accepted(tmp_path: Path):

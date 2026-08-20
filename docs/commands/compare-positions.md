@@ -2,204 +2,109 @@
 
 ## What this command does
 
-`compare-positions` compares one main nucleosome callset with one or more comparison callsets. Each comparison is analysed independently against the same main BED. The command matches positions one-to-one, measures the positional distance between matched calls, ranks matched pairs by the main BED score, and divides them into main-score percentile groups.
-
-Quartiles are used by default. When multiple comparison BEDs are supplied, plots are combined where this makes the comparisons easier to interpret, including grouped percentile-distance boxplots and overlaid distance/correlation profiles.
+`compare-positions` compares one main nucleosome callset with one or more comparison callsets using one-to-one positional matching. For each comparison, matched pairs are ranked by the **main BED score** and divided into percentile groups; quartiles are used by default.
 
 ## Why use it
 
-Use it when you want to compare several nucleosome callers, datasets, or parameter settings against one common reference callset while keeping the main callset as the basis for score stratification.
+Use this command when several nucleosome callsets should be compared against one common reference while retaining the main callset score for stratification and statistical analysis.
 
 ## Typical use
 
 ```bash
 nucleosuite compare-positions \
-  --main-bed PNS_nucleosomes.bed \
+  --main-bed PNS=PNS_nucleosomes.bed \
   --compare-bed iNPS=iNPS_nucleosomes.bed \
   --compare-bed DANPOS=DANPOS_nucleosomes.bed \
-  --main-score-column 5 \
-  --compare-score-column 5 \
+  --compare-bed WPS=WPS_nucleosomes.bed \
+  --stats \
   --output-prefix Gaffney32_position_compare
 ```
 
-The label before `=` is optional. Without it, the comparison BED basename is used.
+Both the main BED and comparison BEDs accept `LABEL=path.bed`. The label is used in plot legends and output tables. If no label is supplied, the BED filename is used.
 
-## One search per comparison
+`--main-label` remains available for compatibility with older commands, but `--main-bed LABEL=BED` is preferred.
 
-For each comparison BED, the command performs one nearest-position search:
+## Matching
 
-1. the main BED and that comparison BED are counted after filtering;
-2. the BED with fewer positions is used as the query set;
-3. the BED with more positions is used as the target set;
-4. one-to-one unique matching is applied, so a position can participate in at most one matched pair;
-5. matched pairs always retain the main BED call and main BED score regardless of which input was the query set.
+Each main-versus-comparison pair is searched once. The callset with fewer positions is used as the query and the larger callset as the target. Matching is one-to-one, so a position can occur in at most one accepted pair.
 
-This means a comparison with fewer positions than the main BED searches comparison → main, while a larger comparison callset searches main → comparison. There is no reciprocal second search.
-
-## Summit and score columns
-
-By default, BED interval midpoints are used as positions and column 5 is used as the score.
-
-Use:
+Regardless of search direction, every accepted pair is represented as a main call and a comparison call. Signed distance is:
 
 ```text
---main-summit-column
---compare-summit-column
---main-score-column
---compare-score-column
+comparison summit - main summit
 ```
 
-when explicit summit or score columns are required. The comparison summit and score column settings are applied to all `--compare-bed` inputs.
+Use `--max-distance` to reject pairs beyond a specified absolute summit distance.
+
+By default, the position is the integer midpoint of BED start and end. Explicit summit columns can be supplied with `--main-summit-column` and `--compare-summit-column`. Scores default to BED column 5 and can be changed with `--main-score-column` and `--compare-score-column`.
 
 ## Main-score percentile groups
 
-After one-to-one matching is complete for a comparison, the matched pairs are sorted by the **main BED score**. They are then divided into equal-frequency percentile groups.
-
-The default:
+Matched pairs are sorted by the main BED score and divided into equal-frequency percentile groups. The default:
 
 ```text
 --percentile-interval 25
 ```
 
-produces:
+produces `0-25`, `25-50`, `50-75`, and `75-100` groups. Percentiles are assigned independently for each comparison because different callsets can match different subsets of the main BED.
+
+## Plots
+
+The command produces:
+
+- a combined **signed matched-position distance distribution** for all comparisons. The default display range is **-250 to 250 bp**;
+- a combined **score-correlation-by-distance-bin** plot. These bins use absolute summit distance;
+- a grouped **main-score percentile distance boxplot**, with comparison callsets side-by-side within each percentile group. The default displayed y-axis range is **0-200 bp**;
+- a separate **main-versus-comparison score agreement** plot for each comparison, coloured by absolute summit distance. The default colour scale is capped at **50 bp**;
+- a separate **main score versus matched distance** plot for each comparison. Absolute distance and Spearman correlation are the defaults, and the default displayed absolute-distance range is **0-100 bp**.
+
+Display limits do not remove matched pairs from the underlying tables or statistical calculations. Use `--max-distance` when an actual matching cutoff is required.
+
+## Statistical tests within percentile groups
+
+Add `--stats` to compare the comparison callsets **within each percentile group**. With three comparison callsets, all three pairwise comparisons are tested separately within every group.
+
+The default non-parametric analysis uses a paired Wilcoxon signed-rank test when both comparison distributions contain the same main nucleosome calls. Otherwise it uses a Mann-Whitney U test. `--stats-test parametric` uses a paired t-test or Welch's t-test instead.
+
+Holm multiple-testing correction is applied separately within each percentile group by default. Use:
 
 ```text
-0-25
-25-50
-50-75
-75-100
+--p-adjust none
 ```
 
-The percentile assignment is calculated independently for each main-versus-comparison match set because different comparison BEDs can match different subsets of the main callset.
+for unadjusted p-values.
 
-The grouped percentile-distance boxplot places all comparison callsets side-by-side within each main-score percentile group.
-
-## Statistical comparisons within percentile groups
-
-Statistics are optional:
-
-```bash
-nucleosuite compare-positions \
-  --main-bed PNS.bed \
-  --compare-bed iNPS=iNPS.bed \
-  --compare-bed DANPOS=DANPOS.bed \
-  --compare-bed NucPos=NucPos.bed \
-  --stats \
-  --p-display value
-```
-
-Pairwise tests are performed **separately within each percentile group**. For three comparison callsets, each percentile group therefore tests:
-
-```text
-iNPS vs DANPOS
-iNPS vs NucPos
-DANPOS vs NucPos
-```
-
-The default statistical family is non-parametric:
-
-```text
---stats-test nonparametric
-```
-
-When all observations in two comparison distributions within a percentile group can be aligned to the same main nucleosome calls, the observations are paired and a two-sided Wilcoxon signed-rank test is used. If complete main-call pairing is not available, a two-sided Mann-Whitney U test uses the full two distributions.
-
-With:
-
-```text
---stats-test parametric
-```
-
-paired observations use a paired t-test and unpaired observations use Welch's t-test.
-
-Multiple-testing correction is applied independently within each percentile group using Holm correction by default:
-
-```text
---p-adjust holm
-```
-
-Use `--p-adjust none` for raw p-values.
-
-Plot annotations can show p-values:
+Plot annotations can show adjusted/raw p-values with:
 
 ```text
 --p-display value
 ```
 
-or significance stars:
+or significance stars with:
 
 ```text
 --p-display stars
 ```
 
-using:
+The statistics TSV records the test, pairing status, sample sizes, test statistic, raw p-value, adjusted p-value, and significance class.
 
-```text
-ns      p >= 0.05
-*       p < 0.05
-**      p < 0.01
-***     p < 0.001
-****    p < 0.0001
-```
+## Main score versus matched distance
 
-When Holm correction is enabled, the adjusted p-value is used for the displayed value or significance class.
-
-The statistics TSV reports the percentile group, comparison pair, test used, whether pairing was possible, sample counts, test statistic, raw p-value, adjusted p-value, and significance class.
-
-## Main peak score versus matched distance
-
-Each comparison also receives a separate plot of main BED peak score against the distance to the matched comparison call.
-
-The default uses absolute distance:
+The default relationship is main peak score versus absolute matched distance:
 
 ```text
 --score-distance-type absolute
-```
-
-Use signed distance to retain upstream/downstream direction:
-
-```text
---score-distance-type signed
-```
-
-The default correlation is Spearman:
-
-```text
 --score-distance-correlation spearman
-```
-
-Pearson or both can be displayed with `pearson` or `both`.
-
-The statistics table for these plots reports, for each comparison:
-
-- matched-pair count;
-- Spearman rho and p-value;
-- Pearson r and p-value;
-- linear-regression slope and intercept;
-- linear R-squared and slope p-value;
-- median and mean absolute matched distance.
-
-The default plot rendering is a hexbin density representation so large callsets remain readable:
-
-```text
 --score-distance-plot hexbin
 ```
 
-Use `--score-distance-plot scatter` for individual points. `--plot-max-points` limits only the number of points drawn; correlation and summary statistics are calculated from all matched pairs.
+Use `--score-distance-type signed` to retain upstream/downstream direction, or select Pearson/both correlations with `--score-distance-correlation`.
 
-## Other comparison plots
-
-The command retains the existing position/score comparison concepts while combining multiple comparisons where practical:
-
-- **distance distribution** — all comparison callsets are overlaid in one plot;
-- **score correlation by distance bin** — comparison trajectories are overlaid;
-- **main-score percentile distance boxplot** — comparison boxes are side-by-side within each percentile group;
-- **main-versus-comparison score agreement** — written separately for each comparison because overlaid scatter plots would obscure the relationships;
-- **main score versus matched distance** — written separately for each comparison.
+The corresponding statistics table reports Spearman and Pearson correlations, linear-regression slope/intercept/R-squared, and mean/median absolute distance. `--plot-max-points` limits only the points rendered in scatter/hexbin figures; statistics use all matched pairs.
 
 ## Outputs
 
-The combined outputs include:
+Combined outputs include:
 
 ```text
 <prefix>_summary.tsv
@@ -227,16 +132,14 @@ Each comparison also receives:
 <prefix>_<comparison>_main_score_vs_distance.png
 ```
 
-Use `--skip-pairs-tsv` to suppress the large detailed matched-pair tables.
-
-Plot metadata sidecars record the complete command invocation and parameters.
+Use `--skip-pairs-tsv` to suppress the detailed per-comparison matched-pair tables.
 
 ## Blacklist handling
 
-`--blacklist-bed` removes complete overlapping BED records before matching. The same blacklist is applied to the main BED and all comparison BEDs.
+`--blacklist-bed` removes complete overlapping BED records before matching. The same blacklist is applied to the main BED and every comparison BED.
 
 ## Plot customization
 
-Comparison figures use the shared plotting interface described in [Plot customization](../PLOTTING.md). The generated TSV files can also be replotted with [`nucleosuite plot`](plot.md).
+Comparison figures use the shared plotting interface described in [Plot customization](../PLOTTING.md). Generated TSV files can also be replotted with [`nucleosuite plot`](plot.md).
 
 [Back to the command reference](../COMMAND_REFERENCE.md)

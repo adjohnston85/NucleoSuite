@@ -275,7 +275,7 @@ flowchart LR
     C --> I[Main score vs matched distance per comparison]
 ```
 
-[`compare-positions`](commands/compare-positions.md) uses one main nucleosome BED and one or more repeated `--compare-bed` inputs. Each comparison is searched once, using whichever of the two callsets has fewer positions as the query while retaining one-to-one unique pairs. The matched pairs are ranked by the main BED score and divided into quartiles by default. Multiple comparisons are overlaid or grouped where practical, and `--stats` performs pairwise tests separately within each percentile group.
+[`compare-positions`](commands/compare-positions.md) compares one main nucleosome BED with one or more comparison BEDs using one-to-one matching. Matched pairs are grouped by the main BED score, with quartiles used by default. `--stats` performs pairwise tests separately within each percentile group. Main and comparison labels can be supplied as `LABEL=path.bed`.
 
 ## Analyse fragment sequence periodicity
 

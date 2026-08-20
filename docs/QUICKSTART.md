@@ -74,7 +74,7 @@ Use one main BED as the common reference and repeat `--compare-bed` for each add
 
 ```bash
 nucleosuite compare-positions \
-  --main-bed sample_pns_nucleosomes.bed \
+  --main-bed PNS=sample_pns_nucleosomes.bed \
   --compare-bed iNPS=sample_inps_nucleosomes.bed \
   --compare-bed DANPOS=sample_danpos_nucleosomes.bed \
   --stats \
