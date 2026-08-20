@@ -172,7 +172,6 @@ def build_parser() -> argparse.ArgumentParser:
     # the documentation; the redesigned interface is --main-bed/--compare-bed.
     parser.add_argument("--bed-a", dest="legacy_bed_a", help=argparse.SUPPRESS)
     parser.add_argument("--bed-b", dest="legacy_bed_b", help=argparse.SUPPRESS)
-    parser.add_argument("--main-label", default=None, help="Deprecated compatibility option for the main BED label; prefer --main-bed LABEL=BED.")
     parser.add_argument(
         "--main-summit-column", type=int, default=None,
         help="One-based absolute summit column for the main BED; default uses the BED midpoint.",
@@ -262,12 +261,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Displayed upper y-axis limit for percentile distance boxplots; 0 disables (default: 200).",
     )
     parser.add_argument(
-        "--score-agreement-distance-max", type=float, default=50.0,
-        help="Upper colour-scale limit for absolute summit distance in score-agreement plots; 0 uses the data maximum (default: 50).",
+        "--score-agreement-distance-max", type=float, default=100.0,
+        help="Upper colour-scale limit for absolute summit distance in score-agreement plots; 0 uses the data maximum (default: 100).",
     )
     parser.add_argument(
-        "--score-distance-y-max", type=float, default=100.0,
-        help="Displayed upper y-axis limit for absolute main-score-versus-distance plots; 0 disables (default: 100).",
+        "--score-distance-y-max", type=float, default=0.0,
+        help="Optional displayed upper y-axis limit for absolute main-score-versus-distance plots; 0 uses the data range (default: 0).",
     )
     parser.add_argument(
         "--stats", action="store_true",
@@ -353,12 +352,15 @@ def _resolve_inputs(args: argparse.Namespace) -> tuple[Path, list[ComparisonSpec
     if not compare_values:
         raise ValueError("At least one --compare-bed is required.")
 
-    main_spec = _parse_compare_spec(str(main_value))
-    # LABEL=BED is now the preferred main-label syntax. Keep --main-label as a
-    # backwards-compatible override for commands written before 0.8.11.
-    embedded_label = main_spec.label if "=" in str(main_value) else None
-    if getattr(args, "main_label", None) is None:
-        args.main_label = embedded_label or _default_label(main_spec.path)
+    main_text = str(main_value)
+    main_spec = _parse_compare_spec(main_text)
+    # Main and comparison callsets use the same optional LABEL=BED syntax.
+    # Preserve an explicitly resolved main label when partition/serial routing
+    # normalizes --main-bed from LABEL=BED to the underlying path.
+    if "=" in main_text:
+        args._main_label = main_spec.label
+    elif not getattr(args, "_main_label", None):
+        args._main_label = main_spec.label
     args.main_bed = str(main_spec.path)
 
     specs = [_parse_compare_spec(str(value)) for value in compare_values]
@@ -1001,7 +1003,7 @@ def _write_pairs(path: Path, result: ComparisonArrays, main_label: str, args: ar
     plot_selected = np.zeros(result.pair_count, dtype=np.uint8)
     plot_selected[selected_indices] = 1
     fields = [
-        "comparison", "pair_id", "query_source", "chrom",
+        "main_label", "comparison", "pair_id", "query_source", "chrom",
         "main_summit", "main_score", "main_score_normalized", "main_line_number",
         "compare_summit", "compare_score", "compare_score_normalized", "compare_line_number",
         "signed_distance_compare_minus_main", "absolute_distance", "main_score_percentile", "percentile_group",
@@ -1016,6 +1018,7 @@ def _write_pairs(path: Path, result: ComparisonArrays, main_label: str, args: ar
             signed = int(result.signed_distance[index])
             main_summit = int(result.main_summit[index])
             writer.writerow({
+                "main_label": main_label,
                 "comparison": result.label,
                 "pair_id": f"pair_{index + 1:09d}",
                 "query_source": result.query_source,
@@ -1045,11 +1048,11 @@ def _write_pairs(path: Path, result: ComparisonArrays, main_label: str, args: ar
 
 
 
-def _append_percentile_rows(path: Path, result: ComparisonArrays, *, write_header: bool) -> None:
+def _append_percentile_rows(path: Path, result: ComparisonArrays, main_label: str, *, write_header: bool) -> None:
     """Stream matched percentile rows to disk instead of retaining Python dicts."""
 
     fields = [
-        "comparison", "main_line_number", "main_score", "main_score_percentile",
+        "main_label", "comparison", "main_line_number", "main_score", "main_score_percentile",
         "percentile_group", "signed_distance_compare_minus_main", "absolute_distance",
     ]
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1060,6 +1063,7 @@ def _append_percentile_rows(path: Path, result: ComparisonArrays, *, write_heade
             writer.writeheader()
         for index in range(result.pair_count):
             writer.writerow({
+                "main_label": main_label,
                 "comparison": result.label,
                 "main_line_number": int(result.main_line[index]),
                 "main_score": float(result.main_scores[index]),
@@ -1303,7 +1307,7 @@ def _plot_score_agreement(prefix: Path, result: ComparisonArrays, main_label: st
     return output
 
 
-def _plot_score_distance(prefix: Path, result: ComparisonArrays, args: argparse.Namespace, stats_row: dict[str, object]) -> Path:
+def _plot_score_distance(prefix: Path, result: ComparisonArrays, main_label: str, args: argparse.Namespace, stats_row: dict[str, object]) -> Path:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -1313,6 +1317,27 @@ def _plot_score_distance(prefix: Path, result: ComparisonArrays, args: argparse.
     indices = _plot_indices(result.pair_count, args.plot_max_points, args.plot_seed)
     x = result.main_scores[indices]
     y = y_all[indices]
+
+    # If a command-specific or shared y-range is explicitly requested, restrict
+    # plotting data before hexbin construction. This prevents bins spanning a
+    # much larger hidden distance range from appearing as full-height bands.
+    from nucleosuite.plotting import get_plot_options
+    plot_options = get_plot_options()
+    lower = plot_options.y_min
+    upper = plot_options.y_max
+    if args.score_distance_type == "absolute":
+        if lower is None:
+            lower = 0.0
+        if float(args.score_distance_y_max) > 0 and upper is None:
+            upper = float(args.score_distance_y_max)
+    mask = np.isfinite(x) & np.isfinite(y)
+    if lower is not None:
+        mask &= y >= float(lower)
+    if upper is not None:
+        mask &= y <= float(upper)
+    x = x[mask]
+    y = y[mask]
+
     figure, axis = plt.subplots(figsize=(8.0, 6.0))
     if args.score_distance_plot == "hexbin":
         artist = axis.hexbin(x, y, gridsize=60, mincnt=1, bins="log", rasterized=True)
@@ -1326,11 +1351,12 @@ def _plot_score_distance(prefix: Path, result: ComparisonArrays, args: argparse.
     if finite_x.size and math.isfinite(slope) and math.isfinite(intercept):
         endpoints = np.asarray([float(np.min(finite_x)), float(np.max(finite_x))])
         axis.plot(endpoints, intercept + slope * endpoints, linestyle=":", linewidth=1.2, label="Linear fit")
-    axis.set_xlabel("Main peak score")
-    axis.set_ylabel("Absolute matched distance (bp)" if args.score_distance_type == "absolute" else "Signed compare − main distance (bp)")
-    if args.score_distance_type == "absolute" and float(args.score_distance_y_max) > 0:
-        axis.set_ylim(0.0, float(args.score_distance_y_max))
-    axis.set_title(f"Main peak score versus distance: {result.label}")
+    axis.set_xlabel(f"{main_label} peak score")
+    axis.set_ylabel("Absolute matched distance (bp)" if args.score_distance_type == "absolute" else f"Signed {result.label} − {main_label} distance (bp)")
+    if lower is not None or upper is not None:
+        bottom, top = axis.get_ylim()
+        axis.set_ylim(bottom if lower is None else float(lower), top if upper is None else float(upper))
+    axis.set_title(f"{main_label} peak score versus distance: {result.label}")
     annotation: list[str] = []
     if args.score_distance_correlation in {"spearman", "both"}:
         annotation.append(f"Spearman ρ = {float(stats_row['spearman_rho']):.3f} (p={float(stats_row['spearman_p_value']):.3g})")
@@ -1437,6 +1463,7 @@ def _format_p(p: float, adjusted: bool) -> str:
 def _plot_percentile_boxplot(
     prefix: Path,
     results: Sequence[ComparisonArrays],
+    main_label: str,
     interval: int,
     stats_rows: Sequence[dict[str, object]],
     args: argparse.Namespace,
@@ -1480,7 +1507,7 @@ def _plot_percentile_boxplot(
     axis.set_xlim(0.45, len(groups) + 0.55)
     if float(args.percentile_boxplot_y_max) > 0:
         axis.set_ylim(0.0, float(args.percentile_boxplot_y_max))
-    axis.set_xlabel("Main peak score percentile group")
+    axis.set_xlabel(f"{main_label} peak score percentile group")
     axis.set_ylabel("Absolute matched distance (bp)")
     axis.legend([Patch(facecolor=color, edgecolor=color) for color in colors], comparisons, frameon=False)
 
@@ -1505,7 +1532,7 @@ def _plot_percentile_boxplot(
                 text = str(row["significance"]) if args.p_display == "stars" else _format_p(p_value, args.p_adjust == "holm")
                 axis.text((x1 + x2) / 2.0, y + 0.006, text, transform=transform, ha="center", va="bottom", fontsize=7, clip_on=False)
     title_y = 1.02 if max_levels == 0 else 1.09 + max_levels * 0.065
-    axis.set_title("Matched distance by main-score percentile", y=title_y)
+    axis.set_title(f"Matched distance by {main_label} score percentile", y=title_y)
     figure.tight_layout()
     output = plot_path(Path(f"{prefix}_percentile_distance_boxplot.png"))
     output = save_figure(figure, output, default_dpi=args.dpi)
@@ -1527,7 +1554,7 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Path]:
         main_path, "main", args.main_summit_column, args.main_score_column,
         blacklist=blacklist, progress=reporter,
     )
-    main_label = args.main_label or _default_label(main_path)
+    main_label = getattr(args, "_main_label", None) or _default_label(main_path)
     prefix = Path(args.output_prefix or f"{_default_label(main_path)}_compare_positions")
     prefix.parent.mkdir(parents=True, exist_ok=True)
 
@@ -1567,8 +1594,9 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Path]:
             _histogram_rows(arrays, args.histogram_x_min, args.histogram_x_max, args.histogram_bin_width)
         )
         correlation_rows.extend(_distance_bin_rows(arrays, args.score_normalization, bounds))
-        _append_percentile_rows(percentile_path, arrays, write_header=(index == 1))
+        _append_percentile_rows(percentile_path, arrays, main_label, write_header=(index == 1))
         sd_stats = _score_distance_stats(arrays, args.score_distance_type)
+        sd_stats["main_label"] = main_label
         score_distance_rows.append(sd_stats)
 
         if not args.skip_pairs_tsv:
@@ -1579,7 +1607,7 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Path]:
             prefix, arrays, main_label, args
         )
         outputs[f"score_distance_plot_{_safe_token(spec.label)}"] = _plot_score_distance(
-            prefix, arrays, args, sd_stats
+            prefix, arrays, main_label, args, sd_stats
         )
 
     summary_path = Path(f"{prefix}_summary.tsv")
@@ -1615,7 +1643,7 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Path]:
         prefix, correlation_rows, results, args
     )
     outputs["percentile_boxplot"] = _plot_percentile_boxplot(
-        prefix, results, args.percentile_interval, statistics_rows, args
+        prefix, results, main_label, args.percentile_interval, statistics_rows, args
     )
 
     if not args.quiet:

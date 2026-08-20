@@ -89,10 +89,11 @@ def test_new_parser_defaults_to_main_plus_repeated_compare_and_quartiles():
     assert args.score_distance_type == "absolute"
     assert args.score_distance_correlation == "spearman"
     assert args.percentile_boxplot_y_max == 200.0
-    assert args.score_agreement_distance_max == 50.0
-    assert args.score_distance_y_max == 100.0
+    assert args.score_agreement_distance_max == 100.0
+    assert args.score_distance_y_max == 0.0
     assert args.histogram_x_min == -250.0
     assert args.histogram_x_max == 250.0
+    assert not any("--main-label" in action.option_strings for action in build_parser()._actions)
     assert _percentile_group_bounds(25) == [(0, 25, "0-25"), (25, 50, "25-50"), (50, 75, "50-75"), (75, 100, "75-100")]
 
 
@@ -202,7 +203,7 @@ def test_main_bed_accepts_label_equals_path_and_normalizes_for_processing(tmp_pa
     main_path, specs = _resolve_inputs(args)
     assert main_path == main
     assert args.main_bed == str(main)
-    assert args.main_label == "PNS"
+    assert args._main_label == "PNS"
     assert specs[0].label == "DANPOS"
 
 

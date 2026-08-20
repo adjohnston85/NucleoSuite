@@ -20,9 +20,8 @@ nucleosuite compare-positions \
   --output-prefix Gaffney32_position_compare
 ```
 
-Both the main BED and comparison BEDs accept `LABEL=path.bed`. The label is used in plot legends and output tables. If no label is supplied, the BED filename is used.
+Both the main BED and comparison BEDs accept `LABEL=path.bed`. The label is used consistently in plot labels, legends and output tables. If no label is supplied, the BED filename is used.
 
-`--main-label` remains available for compatibility with older commands, but `--main-bed LABEL=BED` is preferred.
 
 ## Matching
 
@@ -54,9 +53,9 @@ The command produces:
 
 - a combined **signed matched-position distance distribution** for all comparisons. The default display range is **-250 to 250 bp**;
 - a combined **score-correlation-by-distance-bin** plot. These bins use absolute summit distance;
-- a grouped **main-score percentile distance boxplot**, with comparison callsets side-by-side within each percentile group. The default displayed y-axis range is **0-200 bp**;
-- a separate **main-versus-comparison score agreement** plot for each comparison, coloured by absolute summit distance. The default colour scale is capped at **50 bp**;
-- a separate **main score versus matched distance** plot for each comparison. Absolute distance and Spearman correlation are the defaults, and the default displayed absolute-distance range is **0-100 bp**.
+- a grouped **main-callset score percentile distance boxplot**, with comparison callsets side-by-side within each percentile group. The default displayed y-axis range is **0-200 bp**;
+- a separate **main-versus-comparison score agreement** plot for each comparison, coloured by absolute summit distance. The default colour scale is capped at **100 bp**;
+- a separate **main-callset score versus matched distance** plot for each comparison. Absolute distance and Spearman correlation are the defaults. The distance axis uses the data range unless the user sets a plotting limit.
 
 Display limits do not remove matched pairs from the underlying tables or statistical calculations. Use `--max-distance` when an actual matching cutoff is required.
 
@@ -90,7 +89,7 @@ The statistics TSV records the test, pairing status, sample sizes, test statisti
 
 ## Main score versus matched distance
 
-The default relationship is main peak score versus absolute matched distance:
+The default relationship is the labelled main-callset peak score versus absolute matched distance:
 
 ```text
 --score-distance-type absolute

@@ -1581,7 +1581,7 @@ def _plot_compare_positions(path, headers, rows, args, output, artist_kw):
     minimum = float(np.nanmin(finite_start)) if finite_start.size else 0.0
     maximum = float(np.nanmax(finite_end)) if finite_end.size else 300.0
     ax.set_xlim(minimum, maximum)
-    ax.set_xlabel("Absolute summit distance (bp)"); ax.set_ylabel("Matched pairs"); ax.set_title("Matched-position distance distributions")
+    ax.set_xlabel("Signed summit distance, comparison − main (bp)"); ax.set_ylabel("Matched pairs"); ax.set_title("Matched-position distance distributions")
     from nucleosuite.plotting import apply_distance_x_axis, apply_integer_y_axis
     if all(getattr(args, name) is None for name in ("x_major_grid", "x_minor_grid")):
         apply_distance_x_axis(ax, major_interval=args.x_major_tick, minor_interval=args.x_minor_tick); bp_x = False
@@ -1625,6 +1625,14 @@ def _plot_compare_positions_score(path, headers, rows, args, output, artist_kw):
     x, y, distance = x_all[selected], y_all[selected], distance_all[selected]
     fig, ax = plt.subplots()
     kw = {"c": distance, "s": 9, "alpha": 0.55, "linewidths": 0, "cmap": "viridis", "rasterized": True}
+    if "plot_score_agreement_distance_max" in hm:
+        try:
+            distance_max = float(metadata_row.get(hm["plot_score_agreement_distance_max"], 0.0))
+        except (TypeError, ValueError):
+            distance_max = 0.0
+        if distance_max > 0:
+            from matplotlib.colors import Normalize
+            kw["norm"] = Normalize(vmin=0.0, vmax=distance_max, clip=True)
     kw.update(artist_kw.get("points", {})); scatter = ax.scatter(x, y, **kw)
     colorbar = fig.colorbar(scatter, ax=ax); colorbar.set_label("Absolute summit distance (bp)")
     if normalization == "zscore":
@@ -1676,6 +1684,16 @@ def _plot_compare_positions_score_distance(path, headers, rows, args, output, ar
         xp, yp = x[selected], y[selected]
     else:
         xp, yp = x, y
+    metadata_row = rows[0] if rows else {}
+    y_max = 0.0
+    if "plot_score_distance_y_max" in hm:
+        try:
+            y_max = float(metadata_row.get(hm["plot_score_distance_y_max"], 0.0))
+        except (TypeError, ValueError):
+            y_max = 0.0
+    if y_max > 0:
+        visible = yp <= y_max
+        xp, yp = xp[visible], yp[visible]
     fig, ax = plt.subplots()
     kw = {"gridsize": 60, "mincnt": 1, "bins": "log", "rasterized": True}
     artist = ax.hexbin(xp, yp, **kw)
@@ -1690,9 +1708,12 @@ def _plot_compare_positions_score_distance(path, headers, rows, args, output, ar
             ax.text(0.02, 0.98, f"Spearman ρ = {float(rho.statistic):.3f}\nLinear R² = {float(reg.rvalue**2):.3f}\nn = {x.size:,}", transform=ax.transAxes, va="top", ha="left")
         except Exception:
             pass
-    ax.set_xlabel("Main peak score"); ax.set_ylabel("Absolute matched distance (bp)")
-    label = str(rows[0].get(hm.get("comparison", ""), "comparison")) if rows else "comparison"
-    ax.set_title(f"Main peak score versus distance: {label}")
+    main_label = str(metadata_row.get(hm.get("main_label", ""), metadata_row.get(hm.get("plot_label_a", ""), "Main")) or "Main")
+    ax.set_xlabel(f"{main_label} peak score"); ax.set_ylabel("Absolute matched distance (bp)")
+    label = str(metadata_row.get(hm.get("comparison", ""), "comparison")) if rows else "comparison"
+    if y_max > 0:
+        ax.set_ylim(0.0, y_max)
+    ax.set_title(f"{main_label} peak score versus distance: {label}")
     return _finish(ax, fig, args, output, artist_kw=artist_kw, default_size=(8.0, 6.0)), fig
 
 
@@ -1766,9 +1787,10 @@ def _plot_compare_positions_percentile_boxplot(path, headers, rows, args, output
             for key in ("whiskers", "caps"):
                 for artist in box[key]: artist.set_color(color)
             for artist in box["medians"]: artist.set_color("black")
-    ax.set_xticks(centres, group_labels, rotation=0); ax.set_xlim(0.45, len(group_labels)+0.55); ax.set_ylim(0.0, 500.0)
-    ax.set_xlabel("Main peak score percentile group"); ax.set_ylabel("Absolute matched distance (bp)")
-    ax.set_title("Matched distance by main-score percentile")
+    ax.set_xticks(centres, group_labels, rotation=0); ax.set_xlim(0.45, len(group_labels)+0.55); ax.set_ylim(0.0, 200.0)
+    main_label = str(rows[0].get(hm.get("main_label", ""), "Main") or "Main") if rows else "Main"
+    ax.set_xlabel(f"{main_label} peak score percentile group"); ax.set_ylabel("Absolute matched distance (bp)")
+    ax.set_title(f"Matched distance by {main_label} score percentile")
     if comparison_key:
         ax.legend([Patch(facecolor=c, edgecolor=c) for c in colors], comparison_labels, frameon=False)
     return _finish(ax, fig, args, output, legend=bool(comparison_key), artist_kw=artist_kw, default_size=(max(9.0, 1.8*len(group_labels)+3.0), 6.5)), fig
