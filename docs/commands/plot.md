@@ -16,9 +16,9 @@ The simplest form is:
 nucleosuite plot sample_output.tsv
 ```
 
-For NucleoSuite-generated plot sources, the associated metadata records the plot family and the parameters used to construct the original figure. `plot` reads those values first and uses them as the replot defaults.
+For NucleoSuite-generated plot sources, the associated metadata records the plot family and the parameters used to construct the original figure. `plot` reads those values first and uses them as the replot defaults. A single source table may be associated with more than one native figure; when that happens, `plot` recreates all applicable figures by default.
 
-If the metadata file is edited, the next replot uses the edited values. Command-line arguments supplied to `nucleosuite plot` override matching metadata values for that run without modifying the metadata file.
+If the original metadata file is edited, the next replot uses the edited values. Command-line arguments supplied to `nucleosuite plot` override matching metadata values for that run. Replotting never rewrites the original analysis metadata. Each recreated figure instead receives its own `_replot_metadata.tsv` sidecar, which can be replaced by later replots.
 
 The parser is two-stage: universal figure controls are always available, while plot-specific controls are added only after the source table and metadata identify the plot family. This keeps analysis-specific options out of unrelated replots.
 
@@ -44,6 +44,32 @@ For example, a percentile-boxplot source may expose an outlier control, while a 
 - gene-set candidate-overlap plots;
 - multi-profile overlays; and
 - fragment-relocation/count profiles.
+
+### Multiple plots from one source table
+
+Some compact outputs contain the data for multiple figures. For example, a dinucleotide-profile TSV contains both the 16 individual dinucleotides and the derived WW/SS profile. Therefore:
+
+```bash
+nucleosuite plot sample_dinuc_profile.tsv
+```
+
+recreates both the dinucleotide figure and the WW/SS figure.
+
+List the figures available from an input without rendering them:
+
+```bash
+nucleosuite plot sample_dinuc_profile.tsv --list-plots
+```
+
+Render only a subset with `--plots`. The option accepts a comma-separated list and can also be repeated:
+
+```bash
+nucleosuite plot sample_dinuc_profile.tsv --plots dinuc
+nucleosuite plot sample_dinuc_profile.tsv --plots ww-ss
+nucleosuite plot sample_dinuc_profile.tsv --plots dinuc,ww-ss
+```
+
+When several plots are recreated, each receives a distinct automatic output name. If `--output` is supplied, it applies to the primary plot and additional plots retain their automatic names. Use `--plots` to select a single figure when one explicit output name is required.
 
 When a table is unusual or has been renamed, specify the source command or exact plot family:
 
@@ -197,7 +223,7 @@ nucleosuite plot sample_aggregate_nrl_negative_regression.tsv
 --no-legend
 ```
 
-The default output is `<input_stem>_replot.png`. Use `--output` to choose another name or location.
+For a source with one applicable figure, the default output is `<input_stem>_replot.png`. Multi-plot sources receive distinct names derived from the corresponding original figure or plot family. Use `--output` to choose the primary output name or `--plots` to select one figure explicitly.
 
 ## Direct Matplotlib customization
 

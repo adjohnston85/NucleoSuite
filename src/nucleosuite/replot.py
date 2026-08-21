@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import copy
 import csv
 import gzip
 import math
@@ -87,6 +88,17 @@ COMMAND_TYPES = {
     "ww-types": "ww-type-summary",
     "gene-sets": "gene-sets-venn",
     "randomize-fragments": "count-profile",
+}
+
+
+PLOT_TYPE_ALIASES = {
+    "dinuc": "dinucleotide-profile",
+    "dinucleotide": "dinucleotide-profile",
+    "dinucleotide-profile": "dinucleotide-profile",
+    "ww-ss": "ww-ss-profile",
+    "wwss": "ww-ss-profile",
+    "ww/ss": "ww-ss-profile",
+    "ww-ss-profile": "ww-ss-profile",
 }
 
 
@@ -252,6 +264,47 @@ def detect_plot_type(path: Path, headers: Sequence[str]) -> str:
     return "generic-line"
 
 
+def detect_plot_types(path: Path, headers: Sequence[str]) -> list[str]:
+    """Return every native plot family that can be recreated from one table.
+
+    Most NucleoSuite plot-source tables map to one figure.  Some intentionally
+    contain enough information for multiple figures; the dinucleotide profile
+    table is the canonical example because it stores both the 16 individual
+    dinucleotides and the derived WW/SS columns.
+    """
+
+    primary = detect_plot_type(path, headers)
+    available = [primary]
+    names = set(_header_map(headers))
+    has_dinucs = "position" in names and any(
+        re.fullmatch(r"[acgt]{2}_(?:pct|frac)", name) for name in names
+    )
+    has_ww_ss = "position" in names and (
+        {"ww_pct", "ss_pct"}.issubset(names) or {"ww_frac", "ss_frac"}.issubset(names)
+    )
+    if has_dinucs and "dinucleotide-profile" not in available:
+        available.append("dinucleotide-profile")
+    if has_ww_ss and "ww-ss-profile" not in available:
+        available.append("ww-ss-profile")
+    return available
+
+
+def _parse_plot_selection(values: Sequence[str] | None) -> list[str]:
+    selected: list[str] = []
+    for raw in values or []:
+        for token in str(raw).split(","):
+            token = token.strip().lower()
+            if not token:
+                continue
+            plot_type = PLOT_TYPE_ALIASES.get(token, token)
+            if plot_type == "auto" or plot_type not in PLOT_TYPES:
+                valid = ", ".join(p for p in PLOT_TYPES if p != "auto")
+                raise ValueError(f"Unknown plot type {token!r}. Valid plot types: {valid}")
+            if plot_type not in selected:
+                selected.append(plot_type)
+    return selected
+
+
 def _parse_value(text: str) -> Any:
     lowered = text.strip().lower()
     if lowered in {"true", "yes", "on"}:
@@ -287,9 +340,18 @@ def _parse_artist_values(values: Sequence[str] | None) -> dict[str, dict[str, An
         lhs, value = item.split("=", 1)
         target, key = lhs.split(".", 1)
         target = target.strip().lower()
+        key = key.strip()
         if target not in {"line", "raw", "smooth", "points", "bar", "heatmap", "legend"}:
             raise ValueError(f"Unsupported --mpl-kw target {target!r}")
-        groups[target][key.strip()] = _parse_value(value.strip())
+        parsed = _parse_value(value.strip())
+        # Matplotlib accepts numeric grayscale colours as strings ("0.7"),
+        # not as bare floats.  Preserve that convention for artist overrides.
+        if key.lower() in {
+            "color", "colour", "facecolor", "facecolors", "edgecolor",
+            "edgecolors", "markerfacecolor", "markeredgecolor",
+        } and isinstance(parsed, (int, float)) and not isinstance(parsed, bool):
+            parsed = value.strip()
+        groups[target][key] = parsed
     return dict(groups)
 
 
@@ -301,17 +363,43 @@ def _apply_rc(values: Sequence[str] | None) -> None:
         mpl.rcParams[key] = value
 
 
-def _resolve_output(input_path: Path, output: Path | None, fmt: str) -> Path:
+def _input_stem(input_path: Path) -> str:
+    name = input_path.name
+    lower = name.lower()
+    for suffix in (".tsv.gz", ".csv.gz", ".txt.gz", ".tsv", ".csv", ".txt", ".gz"):
+        if lower.endswith(suffix):
+            return name[: -len(suffix)]
+    return input_path.stem
+
+
+def _resolve_output(
+    input_path: Path, output: Path | None, fmt: str, *,
+    plot_type: str | None = None, primary_plot_type: str | None = None,
+    multiple: bool = False, metadata: Mapping[str, str] | None = None,
+) -> Path:
     if output is not None:
         path = Path(output)
         if path.suffix.lower() not in {".png", ".svg", ".pdf"}:
             path = path.with_suffix(f".{fmt}")
         return path
-    name = input_path.name
-    if name.lower().endswith(".tsv.gz"):
-        stem = name[:-7]
-    else:
-        stem = input_path.stem
+
+    # New source metadata records the original output path separately for every
+    # plot family.  Reuse that basename when possible so replot names mirror the
+    # originating command without writing over the original figure.
+    if plot_type and metadata:
+        original = str(metadata.get(f"plot.{plot_type}.plot_output", "")).strip()
+        if original:
+            stem = Path(original).stem
+            return input_path.parent / f"{stem}_replot.{fmt}"
+
+    stem = _input_stem(input_path)
+    if plot_type == "ww-ss-profile":
+        if stem.lower().endswith("_dinuc_profile"):
+            stem = stem + "_ww_ss"
+        elif not stem.lower().endswith(("_ww_ss_profile", "_ww_ss")):
+            stem = stem + "_ww_ss_profile"
+    elif multiple and plot_type and primary_plot_type and plot_type != primary_plot_type:
+        stem = stem + "_" + plot_type.replace("-", "_")
     return input_path.parent / f"{stem}_replot.{fmt}"
 
 
@@ -3027,6 +3115,47 @@ def _read_replot_metadata(path: Path) -> dict[str, str]:
     return metadata
 
 
+def _metadata_associated_plot_types(metadata: Mapping[str, str] | None) -> list[str]:
+    values: list[str] = []
+    if not metadata:
+        return values
+    for raw in (metadata.get("associated_plot_types", ""), metadata.get("detected_plot_type", "")):
+        for item in str(raw).split(","):
+            item = item.strip()
+            if item in PLOT_TYPES and item != "auto" and item not in values:
+                values.append(item)
+    return values
+
+
+def _metadata_for_plot_type(metadata: Mapping[str, str] | None, plot_type: str) -> dict[str, str]:
+    """Return the base recipe with plot-specific fields overlaid.
+
+    Older source sidecars describe only one plot.  When column detection finds
+    an additional plot family, generic command parameters are still reusable,
+    but the legacy plot's resolved title/output path must not leak into the
+    newly inferred plot.
+    """
+
+    result = {
+        str(key): str(value)
+        for key, value in (metadata or {}).items()
+        if not str(key).startswith("plot.")
+    }
+    prefix = f"plot.{plot_type}."
+    found_specific = False
+    for key, value in (metadata or {}).items():
+        key = str(key)
+        if key.startswith(prefix):
+            found_specific = True
+            result[key[len(prefix):]] = str(value)
+    legacy_type = str((metadata or {}).get("detected_plot_type", "")).strip()
+    if not found_specific and legacy_type and legacy_type != plot_type:
+        result.pop("resolved_title", None)
+        result.pop("plot_output", None)
+    result["detected_plot_type"] = plot_type
+    return result
+
+
 def _metadata_value(metadata: Mapping[str, str] | None, key: str, default: Any = None) -> Any:
     if not metadata:
         return default
@@ -3194,21 +3323,35 @@ def _generic_metadata_default(metadata: Mapping[str, str] | None, attr: str, def
     return default
 
 
+def _metadata_text_default(metadata: Mapping[str, str] | None, attr: str, default: str | None) -> str | None:
+    """Return a metadata value as text, including numeric grayscale colours."""
+
+    value = _generic_metadata_default(metadata, attr, default)
+    return None if value is None else str(value)
+
+
 def build_parser(
-    plot_type: str | None = None,
+    plot_type: str | Sequence[str] | None = None,
     metadata: Mapping[str, str] | None = None,
 ) -> argparse.ArgumentParser:
-    """Build the generic replot parser plus options for one detected plot family."""
+    """Build the replot parser plus options for the detected plot families."""
 
+    plot_types = (
+        [plot_type] if isinstance(plot_type, str)
+        else [str(item) for item in (plot_type or [])]
+    )
     parser = argparse.ArgumentParser(
         prog="nucleosuite plot",
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("input", type=Path, help="NucleoSuite TSV/TSV.GZ output used to recreate a figure.")
-    parser.add_argument("--plot-type", choices=PLOT_TYPES, default="auto", help="Plot family; default uses metadata first, then filename/column detection.")
+    parser.add_argument("input", type=Path, help="NucleoSuite TSV/TSV.GZ output used to recreate one or more figures.")
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--plot-type", choices=PLOT_TYPES, default="auto", help="Force one plot family. Kept for backwards compatibility; auto recreates all applicable native plots.")
+    selection.add_argument("--plots", action="append", metavar="TYPE[,TYPE...]", help="Recreate only this subset of applicable plots; comma-separated and repeatable. Short aliases include dinuc and ww-ss.")
+    parser.add_argument("--list-plots", action="store_true", help="List plot families available from the input table and exit without rendering.")
     parser.add_argument("--from-command", choices=tuple(sorted(COMMAND_TYPES)), help="Identify the NucleoSuite command that produced the input when auto-detection is ambiguous.")
-    parser.add_argument("--output", type=Path, help="Output image; default <input>_replot.<format>.")
+    parser.add_argument("--output", type=Path, help="Output image when rendering one plot. With multiple detected plots, omit this option to use distinct automatic names.")
     parser.add_argument("--format", choices=("png", "svg", "pdf"), default=_generic_metadata_default(metadata, "format", "png"), help="Output image format; defaults to metadata, otherwise png.")
     parser.add_argument("--width", type=float, default=_generic_metadata_default(metadata, "width", None), help="Figure width in inches; defaults to metadata/source style.")
     parser.add_argument("--height", type=float, default=_generic_metadata_default(metadata, "height", None), help="Figure height in inches; defaults to metadata/source style.")
@@ -3231,8 +3374,8 @@ def build_parser(
             group = parser.add_mutually_exclusive_group()
             group.add_argument(f"--{axis}-{which}-grid", dest=f"{axis}_{which}_grid", action="store_true", default=_generic_metadata_default(metadata, f"{axis}_{which}_grid", None), help=f"Show {which} {axis}-axis grid lines.")
             group.add_argument(f"--no-{axis}-{which}-grid", dest=f"{axis}_{which}_grid", action="store_false", help=f"Hide {which} {axis}-axis grid lines.")
-    parser.add_argument("--major-grid-color", default=_generic_metadata_default(metadata, "major_grid_color", "0.65"), help="Matplotlib color for major grid lines.")
-    parser.add_argument("--minor-grid-color", default=_generic_metadata_default(metadata, "minor_grid_color", "0.65"), help="Matplotlib color for minor grid lines.")
+    parser.add_argument("--major-grid-color", default=_metadata_text_default(metadata, "major_grid_color", "0.65"), help="Matplotlib color for major grid lines.")
+    parser.add_argument("--minor-grid-color", default=_metadata_text_default(metadata, "minor_grid_color", "0.65"), help="Matplotlib color for minor grid lines.")
     parser.add_argument("--major-grid-alpha", type=float, default=float(_generic_metadata_default(metadata, "major_grid_alpha", 0.65)), help="Major grid-line opacity.")
     parser.add_argument("--minor-grid-alpha", type=float, default=float(_generic_metadata_default(metadata, "minor_grid_alpha", 0.55)), help="Minor grid-line opacity.")
     parser.add_argument("--major-grid-width", type=float, default=float(_generic_metadata_default(metadata, "major_grid_width", 0.75)), help="Major grid-line width in points.")
@@ -3241,7 +3384,7 @@ def build_parser(
     parser.add_argument("--minor-grid-style", default=_generic_metadata_default(metadata, "minor_grid_style", ":"), help="Matplotlib linestyle for minor grids.")
     parser.add_argument("--x-tick-rotation", type=float, default=_generic_metadata_default(metadata, "x_tick_rotation", None), help="Rotate x tick labels by this many degrees.")
     parser.add_argument("--y-tick-rotation", type=float, default=_generic_metadata_default(metadata, "y_tick_rotation", None), help="Rotate y tick labels by this many degrees.")
-    parser.add_argument("--axes-facecolor", default=_generic_metadata_default(metadata, "axes_facecolor", None), help="Matplotlib color for the axes background.")
+    parser.add_argument("--axes-facecolor", default=_metadata_text_default(metadata, "axes_facecolor", None), help="Matplotlib color for the axes background.")
     parser.add_argument("--transparent", action="store_true", default=bool(_generic_metadata_default(metadata, "transparent", False)), help="Save with a transparent figure background.")
     parser.add_argument("--no-legend", action="store_true", default=bool(_generic_metadata_default(metadata, "no_legend", False)), help="Hide the legend.")
     parser.add_argument("--x-column", help="Explicit x column for generic or ambiguous tables.")
@@ -3255,17 +3398,21 @@ def build_parser(
     # become defaults, so editing the sidecar changes the next replot. CLI values
     # then override those defaults naturally through argparse.
     registered: set[str] = set()
-    for key, fallback, choices, inverse_alias, help_text in _plot_parameter_specs(plot_type):
-        default = _metadata_value(metadata, key, fallback)
-        _add_dynamic_parameter(parser, key, default, help_text=help_text, choices=choices, inverse_alias=inverse_alias)
-        registered.add(key)
+    for family in plot_types:
+        family_metadata = _metadata_for_plot_type(metadata, family)
+        for key, fallback, choices, inverse_alias, help_text in _plot_parameter_specs(family):
+            if key in registered:
+                continue
+            default = _metadata_value(family_metadata, key, fallback)
+            _add_dynamic_parameter(parser, key, default, help_text=help_text, choices=choices, inverse_alias=inverse_alias)
+            registered.add(key)
 
     # Accept other originating-command parameters only for this particular
     # source. They are hidden unless a renderer explicitly uses them, but this
     # keeps the metadata recipe fully editable/overridable without polluting the
     # global `nucleosuite plot --help` interface.
     for field, raw in sorted((metadata or {}).items()):
-        if not field.startswith("parameter."):
+        if field.startswith("plot.") or not field.startswith("parameter."):
             continue
         key = field[len("parameter."):]
         if not key or key in registered:
@@ -3282,27 +3429,56 @@ def build_parser(
     return parser
 
 
-def _detect_plot_request(input_path: Path, requested: str, from_command: str | None, metadata: Mapping[str, str]) -> tuple[list[str], list[dict[str, str]], str]:
+def _detect_plot_request(
+    input_path: Path,
+    requested: str,
+    requested_plots: Sequence[str] | None,
+    from_command: str | None,
+    metadata: Mapping[str, str],
+) -> tuple[list[str], list[dict[str, str]], list[str], list[str]]:
+    """Resolve selected and available native plots for one source table."""
+
     headers, rows = _read_table(input_path)
-    detected = detect_plot_type(input_path, headers)
-    if requested != "auto":
-        return headers, rows, requested
-    metadata_type = str(metadata.get("detected_plot_type", "")).strip()
-    if metadata_type in PLOT_TYPES and metadata_type != "auto":
-        return headers, rows, metadata_type
-    plot_type = COMMAND_TYPES.get(from_command, detected) if from_command else detected
-    if (
-        detected in {
+    detected = detect_plot_types(input_path, headers)
+    detected_primary = detected[0]
+
+    specialised = (
+        detected_primary in {
             "nrl-regression", "fragment-size-nrl-profile", "fragment-size-nrl-regression", "heatmap",
             "distance-state-overlay", "aggregate-nrl-profile", "aggregate-nrl-regression",
             "distance-percentile-curves", "distance-percentile-peak-counts", "gene-expression-spacing",
             "gene-expression-fft-trajectory", "gene-expression-spacing-scatter", "gene-expression-ranking",
         }
-        or detected.startswith("compare-positions-")
-    ):
-        plot_type = detected
-    return headers, rows, plot_type
+        or detected_primary.startswith("compare-positions-")
+    )
+    primary = COMMAND_TYPES.get(from_command, detected_primary) if from_command else detected_primary
+    if specialised:
+        primary = detected_primary
 
+    available: list[str] = []
+    # Prefer the table/command-derived primary family, then append every plot
+    # explicitly registered in metadata and every additional column-detectable
+    # family.  This keeps legacy WW/SS-only sidecars from changing the natural
+    # dinucleotide-first order of a shared profile table.
+    for plot_type in [primary, *_metadata_associated_plot_types(metadata), *detected]:
+        if plot_type not in available:
+            available.append(plot_type)
+
+    if requested != "auto":
+        selected = [requested]
+    else:
+        selected = _parse_plot_selection(requested_plots)
+        if not selected:
+            selected = list(available)
+        unavailable = [plot_type for plot_type in selected if plot_type not in available]
+        if unavailable:
+            raise ValueError(
+                "Requested plot(s) are not available from this input: "
+                + ", ".join(unavailable)
+                + ". Available plots: "
+                + ", ".join(available)
+            )
+    return headers, rows, selected, available
 
 
 def build_help_parser(argv: Sequence[str] | None = None) -> argparse.ArgumentParser:
@@ -3317,19 +3493,30 @@ def build_help_parser(argv: Sequence[str] | None = None) -> argparse.ArgumentPar
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument("input", type=Path)
     pre.add_argument("--plot-type", choices=PLOT_TYPES, default="auto")
+    pre.add_argument("--plots", action="append")
+    pre.add_argument("--list-plots", action="store_true")
     pre.add_argument("--from-command", choices=tuple(sorted(COMMAND_TYPES)))
     try:
         preliminary, _unknown = pre.parse_known_args(values)
         metadata = _read_replot_metadata(preliminary.input)
-        _headers, _rows, plot_type = _detect_plot_request(
+        _headers, _rows, selected, available = _detect_plot_request(
             preliminary.input,
             preliminary.plot_type,
+            preliminary.plots,
             preliminary.from_command,
             metadata,
         )
-        return build_parser(plot_type, metadata)
+        return build_parser(selected or available, metadata)
     except (SystemExit, FileNotFoundError, OSError, ValueError):
         return build_parser()
+
+
+def _explicit_cli_options(values: Sequence[str]) -> set[str]:
+    return {
+        token.split("=", 1)[0]
+        for token in values
+        if str(token).startswith("--")
+    }
 
 
 def parse_cli_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -3339,18 +3526,27 @@ def parse_cli_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument("input", type=Path)
     pre.add_argument("--plot-type", choices=PLOT_TYPES, default="auto")
+    pre.add_argument("--plots", action="append")
+    pre.add_argument("--list-plots", action="store_true")
     pre.add_argument("--from-command", choices=tuple(sorted(COMMAND_TYPES)))
     try:
         preliminary, _unknown = pre.parse_known_args(values)
     except SystemExit:
         return build_parser().parse_args(values)
     metadata = _read_replot_metadata(preliminary.input)
-    # Reading the table here lets the parser expose only options relevant to the
-    # actual source, including when the user asks for source-specific --help.
-    _headers, _rows, plot_type = _detect_plot_request(preliminary.input, preliminary.plot_type, preliminary.from_command, metadata)
-    args = build_parser(plot_type, metadata).parse_args(values)
+    _headers, _rows, selected, available = _detect_plot_request(
+        preliminary.input,
+        preliminary.plot_type,
+        preliminary.plots,
+        preliminary.from_command,
+        metadata,
+    )
+    args = build_parser(selected, metadata).parse_args(values)
     args._replot_metadata = metadata
-    args._detected_plot_type = plot_type
+    args._detected_plot_types = selected
+    args._available_plot_types = available
+    args._detected_plot_type = selected[0]
+    args._explicit_options = _explicit_cli_options(values)
     return args
 
 
@@ -3371,6 +3567,65 @@ def _ensure_render_defaults(args: argparse.Namespace) -> None:
         if not hasattr(args, key):
             setattr(args, key, value)
 
+_FAMILY_GENERIC_OPTIONS: dict[str, tuple[str, ...]] = {
+    "format": ("--format",),
+    "width": ("--width",), "height": ("--height",), "dpi": ("--dpi",),
+    "title": ("--title", "--no-title"), "no_title": ("--title", "--no-title"),
+    "x_label": ("--x-label",), "y_label": ("--y-label",), "font_size": ("--font-size",),
+    "x_min": ("--x-min",), "x_max": ("--x-max",), "y_min": ("--y-min",), "y_max": ("--y-max",),
+    "x_major_tick": ("--x-major-tick",), "x_minor_tick": ("--x-minor-tick",),
+    "y_major_tick": ("--y-major-tick",), "y_minor_tick": ("--y-minor-tick",),
+    "x_major_grid": ("--x-major-grid", "--no-x-major-grid"),
+    "x_minor_grid": ("--x-minor-grid", "--no-x-minor-grid"),
+    "y_major_grid": ("--y-major-grid", "--no-y-major-grid"),
+    "y_minor_grid": ("--y-minor-grid", "--no-y-minor-grid"),
+    "major_grid_color": ("--major-grid-color",), "minor_grid_color": ("--minor-grid-color",),
+    "major_grid_alpha": ("--major-grid-alpha",), "minor_grid_alpha": ("--minor-grid-alpha",),
+    "major_grid_width": ("--major-grid-width",), "minor_grid_width": ("--minor-grid-width",),
+    "major_grid_style": ("--major-grid-style",), "minor_grid_style": ("--minor-grid-style",),
+    "x_tick_rotation": ("--x-tick-rotation",), "y_tick_rotation": ("--y-tick-rotation",),
+    "axes_facecolor": ("--axes-facecolor",), "transparent": ("--transparent",),
+    "no_legend": ("--no-legend",),
+}
+
+
+def _args_for_plot_family(args: argparse.Namespace, plot_type: str) -> argparse.Namespace:
+    """Return independent renderer arguments with this family's metadata recipe.
+
+    Explicit CLI options always win.  Plot-specific metadata is used only for
+    values the user did not override, which allows one source table to recreate
+    multiple original figures with different titles or other stored settings.
+    """
+
+    result = copy.deepcopy(args)
+    metadata = _metadata_for_plot_type(getattr(args, "_replot_metadata", {}), plot_type)
+    explicit = set(getattr(args, "_explicit_options", set()))
+
+    for attr, options in _FAMILY_GENERIC_OPTIONS.items():
+        if explicit.intersection(options):
+            continue
+        current = getattr(result, attr, None)
+        value = _generic_metadata_default(metadata, attr, current)
+        if attr in {"major_grid_color", "minor_grid_color", "axes_facecolor"} and value is not None:
+            value = str(value)
+        setattr(result, attr, value)
+
+    for key, fallback, _choices, inverse_alias, _help_text in _plot_parameter_specs(plot_type):
+        options = {"--" + key.replace("_", "-")}
+        if inverse_alias:
+            options.add(inverse_alias)
+        elif isinstance(getattr(result, key, fallback), bool):
+            options.add("--no-" + key.replace("_", "-"))
+        if explicit.intersection(options):
+            continue
+        current = getattr(result, key, fallback)
+        setattr(result, key, _metadata_value(metadata, key, current))
+
+    result._detected_plot_type = plot_type
+    _ensure_render_defaults(result)
+    return result
+
+
 def validate_argv(argv: Sequence[str] | None = None) -> None:
     args = parse_cli_args(argv)
     _ensure_render_defaults(args)
@@ -3389,18 +3644,20 @@ def validate_argv(argv: Sequence[str] | None = None) -> None:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_cli_args(argv)
     _ensure_render_defaults(args)
+
+    selected = list(getattr(args, "_detected_plot_types", [getattr(args, "_detected_plot_type", "auto")]))
+    available = list(getattr(args, "_available_plot_types", selected))
+    if args.list_plots:
+        print("Available plots:")
+        for plot_type in available:
+            print(f"  {plot_type}")
+        return 0
     import matplotlib
     matplotlib.use("Agg")
     _apply_rc(args.mpl_rc)
-    matplotlib.rcParams["font.size"] = args.font_size
     headers, rows = _read_table(args.input)
-    plot_type = str(getattr(args, "_detected_plot_type", "auto"))
-    if args.plot_type != "auto":
-        plot_type = args.plot_type
-    output = _resolve_output(args.input, args.output, args.format)
     artist_kw = _parse_artist_values(args.mpl_kw)
-    from nucleosuite.plotting import configure_unique_category_cycle
-    configure_unique_category_cycle()
+    from nucleosuite.plotting import configure_unique_category_cycle, write_plot_metadata
 
     dispatch = {
         "dac": _plot_dac, "dcc": _plot_dcc, "nrl-profile": _plot_nrl_profile, "nrl-regression": _plot_nrl_regression,
@@ -3429,26 +3686,54 @@ def main(argv: Sequence[str] | None = None) -> int:
         "dinucleotide-profile": _plot_dinucleotide_profile, "ww-ss-profile": _plot_ww_ss_profile, "ww-type-summary": _plot_ww_type_summary,
         "ww-type-by-length": _plot_ww_type_by_length, "gene-sets-venn": _plot_gene_sets_venn, "profile-overlay": _plot_profile_overlay, "count-profile": _plot_count_profile,
     }
-    if plot_type in dispatch:
-        saved, fig = dispatch[plot_type](args.input, headers, rows, args, output, artist_kw)
-    elif plot_type in {"generic-line", "generic-scatter", "generic-bar"}:
-        saved, fig = _generic_plot(args.input, headers, rows, args, output, artist_kw, plot_type)
-    else:
-        raise ValueError(f"Unsupported plot type: {plot_type}")
-    from nucleosuite.plotting import write_plot_metadata
-    resolved_title = ""
-    if getattr(fig, "_suptitle", None) is not None:
-        resolved_title = str(fig._suptitle.get_text()).strip()
-    if not resolved_title and fig.axes:
-        resolved_title = str(fig.axes[0].get_title()).strip()
-    metadata_extra = {"detected_plot_type": plot_type, "source_table": str(args.input)}
-    if resolved_title:
-        metadata_extra["resolved_title"] = resolved_title
-    write_plot_metadata(saved, extra=metadata_extra)
+
     import matplotlib.pyplot as plt
-    plt.close(fig)
-    print(f"Detected plot type: {plot_type}")
-    print(f"Wrote: {saved}")
+    written: list[Path] = []
+    primary = selected[0] if selected else None
+    for plot_type in selected:
+        plot_args = _args_for_plot_family(args, plot_type)
+        matplotlib.rcParams["font.size"] = plot_args.font_size
+        configure_unique_category_cycle()
+        output = _resolve_output(
+            args.input,
+            args.output if (len(selected) == 1 or plot_type == primary) else None,
+            plot_args.format,
+            plot_type=plot_type,
+            primary_plot_type=primary,
+            multiple=len(selected) > 1,
+            metadata=getattr(args, "_replot_metadata", {}),
+        )
+        if plot_type in dispatch:
+            saved, fig = dispatch[plot_type](args.input, headers, rows, plot_args, output, artist_kw)
+        elif plot_type in {"generic-line", "generic-scatter", "generic-bar"}:
+            saved, fig = _generic_plot(args.input, headers, rows, plot_args, output, artist_kw, plot_type)
+        else:
+            raise ValueError(f"Unsupported plot type: {plot_type}")
+
+        resolved_title = ""
+        if getattr(fig, "_suptitle", None) is not None:
+            resolved_title = str(fig._suptitle.get_text()).strip()
+        if not resolved_title and fig.axes:
+            resolved_title = str(fig.axes[0].get_title()).strip()
+
+        # Replot provenance belongs only beside the replot.  In particular, do
+        # not pass ``source_table`` here: that key registers/updates the original
+        # analysis sidecar and would make a replot mutate its own input recipe.
+        metadata_extra = {
+            "detected_plot_type": plot_type,
+            "replot_source_table": str(args.input),
+            "metadata_role": "replot_output",
+        }
+        if resolved_title:
+            metadata_extra["resolved_title"] = resolved_title
+        write_plot_metadata(saved, extra=metadata_extra)
+        plt.close(fig)
+        written.append(Path(saved))
+        print(f"Detected plot type: {plot_type}")
+        print(f"Wrote: {saved}")
+
+    if len(written) > 1:
+        print(f"Recreated {len(written)} plots from: {args.input}")
     return 0
 
 

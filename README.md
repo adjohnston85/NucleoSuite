@@ -75,7 +75,7 @@ nucleosuite --help
 | [`chrom-sizes`](docs/commands/chrom-sizes.md) | Write chromosome names and lengths from a BAM or CRAM header. |
 | [`resources`](docs/commands/resources.md) | List, locate, validate, or copy bundled resources. |
 | [`validate-inputs`](docs/commands/validate-inputs.md) | Validate input integrity and reference compatibility before a run. |
-| [`plot`](docs/commands/plot.md) | Recreate and deeply customize figures from existing NucleoSuite output tables. |
+| [`plot`](docs/commands/plot.md) | Recreate and deeply customize all applicable figures from existing NucleoSuite output tables. |
 
 
 ## Typical workflows
@@ -97,28 +97,62 @@ Detailed command behaviour, advanced options, output layouts, resource handling,
 
 ## Installation
 
-Create the supplied development environment and install NucleoSuite:
+### Recommended installation
+
+NucleoSuite is intended to run in the supplied Conda environment. The recommended installation is to clone the repository, create that environment, build the package locally, and install the generated wheel.
+
+Before starting, ensure that [Git](docs/INSTALLATION.md#installing-git) and [Conda or Mamba](docs/INSTALLATION.md#installing-conda-and-mamba) are available.
+
+1. Choose a directory for the repository and clone NucleoSuite:
+
+```bash
+mkdir -p ~/software
+cd ~/software
+git clone https://github.com/adjohnston85/NucleoSuite.git
+cd NucleoSuite
+```
+
+2. Create and activate the supplied environment. Mamba is recommended for environment creation:
 
 ```bash
 mamba env create -f environment.yml
 conda activate nucleosuite
-python -m pip install -e . --no-deps
 ```
 
-Or install the release wheel directly:
+If Mamba is not available, use Conda instead:
 
 ```bash
-python -m pip install nucleosuite-0.8.18-py3-none-any.whl
+conda env create -f environment.yml
+conda activate nucleosuite
 ```
 
-Verify the installation with:
+3. Build the wheel and source distribution:
+
+```bash
+rm -rf dist/
+python -m build
+```
+
+4. Install the wheel into the active environment:
+
+```bash
+python -m pip install --upgrade --force-reinstall --no-deps dist/*.whl
+```
+
+The supplied environment already provides NucleoSuite's dependencies, so `--no-deps` prevents pip from replacing Conda-managed packages.
+
+5. Verify the installation:
 
 ```bash
 nucleosuite --version
 nucleosuite --help
 ```
 
-See [Installation](docs/INSTALLATION.md) for complete setup instructions.
+The `dist/` directory is generated locally and is intentionally excluded from Git.
+
+Other common installation approaches are also supported. See [Alternative installation methods](docs/INSTALLATION.md#alternative-installation-methods), including direct source installation, editable development installs, source distributions, and installation of an already-built wheel.
+
+For complete setup, prerequisite, update, and troubleshooting instructions, see [Installation](docs/INSTALLATION.md).
 
 ## Documentation
 

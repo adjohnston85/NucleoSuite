@@ -54,7 +54,7 @@ Each command page describes the calculation, a typical invocation, analysis opti
 
 ## Replot and customize figures
 
-- [`plot`](commands/plot.md) — recreate and deeply customize figures from existing NucleoSuite output tables.
+- [`plot`](commands/plot.md) — recreate and deeply customize all applicable figures from existing NucleoSuite output tables.
 
 ## Utilities
 

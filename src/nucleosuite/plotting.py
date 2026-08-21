@@ -1022,12 +1022,36 @@ def _write_metadata_rows(metadata: Path, rows) -> Path:
     return metadata
 
 
+def _read_metadata_mapping(path: Path) -> dict[str, str]:
+    """Read a metadata sidecar while preserving its latest value per field."""
+
+    import csv
+
+    if not path.is_file():
+        return {}
+    values: dict[str, str] = {}
+    try:
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle, delimiter="\t")
+            if not reader.fieldnames or "field" not in reader.fieldnames or "value" not in reader.fieldnames:
+                return {}
+            for row in reader:
+                key = str(row.get("field", "")).strip()
+                if key:
+                    values[key] = str(row.get("value", ""))
+    except OSError:
+        return {}
+    return values
+
+
 def write_plot_metadata(plot_path_value: str | Path, *, extra=None) -> Path:
     """Write complete plot metadata beside the figure and its replot source.
 
-    When ``extra`` supplies ``source_table``, the same metadata recipe is also
-    written beside that table. ``nucleosuite plot`` treats the source-table
-    sidecar as the canonical editable recipe for replots.
+    When ``extra`` supplies ``source_table``, the source-table sidecar is the
+    canonical editable recipe used by :command:`nucleosuite plot`.  A source
+    table may legitimately drive more than one figure (for example a full
+    dinucleotide profile and its WW/SS summary).  Repeated registrations are
+    therefore merged instead of overwriting the earlier association.
     """
     import json
     from nucleosuite import __version__
@@ -1051,11 +1075,42 @@ def write_plot_metadata(plot_path_value: str | Path, *, extra=None) -> Path:
             value = json.dumps(value, sort_keys=True, separators=(",", ":"))
         rows.append((str(key), value))
     _write_metadata_rows(metadata, rows)
+
     source_table = resolved_extra.get("source_table")
     if source_table:
         source_metadata = plot_source_metadata_path(source_table)
-        source_rows = list(rows)
-        source_rows.append(("metadata_role", "replot_source"))
+        existing = _read_metadata_mapping(source_metadata)
+        current = {str(key): "" if value is None else str(value) for key, value in rows}
+        plot_type = str(resolved_extra.get("detected_plot_type", "")).strip()
+
+        associated: list[str] = []
+        for raw in (existing.get("associated_plot_types", ""), existing.get("detected_plot_type", ""), plot_type):
+            for item in str(raw).split(","):
+                item = item.strip()
+                if item and item not in associated:
+                    associated.append(item)
+
+        # Keep the first registered plot family as the backwards-compatible
+        # primary detected type.  A later figure that shares the same source
+        # table must not replace the primary recipe (title, output path, etc.);
+        # it only adds its association and plot-specific recipe.
+        primary = existing.get("detected_plot_type", "").strip() or plot_type
+        merged = dict(existing)
+        for key, value in current.items():
+            merged.setdefault(key, value)
+        if primary:
+            merged["detected_plot_type"] = primary
+        if associated:
+            merged["associated_plot_types"] = ",".join(associated)
+        merged["metadata_role"] = "replot_source"
+
+        if plot_type:
+            for key, value in current.items():
+                if key in {"source_table", "detected_plot_type"}:
+                    continue
+                merged[f"plot.{plot_type}.{key}"] = value
+
+        source_rows = list(merged.items())
         _write_metadata_rows(source_metadata, source_rows)
     return metadata
 

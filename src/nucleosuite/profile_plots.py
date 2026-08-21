@@ -54,7 +54,11 @@ def plot_dinucleotide_profile(tsv_path: str, png_path: str, title: str | None = 
     from nucleosuite.plotting import write_plot_metadata
     write_plot_metadata(
         saved_path,
-        extra={"source_table": str(tsv_path), "resolved_title": ax.get_title()},
+        extra={
+            "source_table": str(tsv_path),
+            "detected_plot_type": "dinucleotide-profile",
+            "resolved_title": ax.get_title(),
+        },
     )
     plt.close(fig)
     return saved_path
@@ -96,6 +100,15 @@ def plot_ww_ss_profile(tsv_path: str, png_path: str, title: str | None = None) -
     fig.tight_layout()
     from nucleosuite.plotting import save_figure
     saved_path = save_figure(fig, png_path, default_dpi=220)
+    from nucleosuite.plotting import write_plot_metadata
+    write_plot_metadata(
+        saved_path,
+        extra={
+            "source_table": str(tsv_path),
+            "detected_plot_type": "ww-ss-profile",
+            "resolved_title": ax.get_title(),
+        },
+    )
     plt.close(fig)
     return saved_path
 

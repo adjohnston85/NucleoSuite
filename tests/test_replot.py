@@ -631,3 +631,77 @@ def test_compare_score_signal_source_replots_without_distance_controls(tmp_path:
     output = tmp_path / "signal.png"
     assert main([str(path), "--output", str(output)]) == 0
     assert output.exists() and output.stat().st_size > 1000
+
+
+def test_dinucleotide_replot_recreates_all_applicable_plots_by_default(tmp_path: Path) -> None:
+    path = tmp_path / "sample_dinuc_profile.tsv"
+    _write(
+        path,
+        ["position", "AA_pct", "AT_pct", "WW_pct", "SS_pct"],
+        [[-1, 5, 6, 11, 8], [0, 7, 8, 15, 9], [1, 5, 6, 11, 8]],
+    )
+    assert main([str(path)]) == 0
+    assert (tmp_path / "sample_dinuc_profile_replot.png").is_file()
+    assert (tmp_path / "sample_dinuc_profile_ww_ss_replot.png").is_file()
+
+
+def test_dinucleotide_replot_can_select_plot_subset(tmp_path: Path) -> None:
+    path = tmp_path / "sample_dinuc_profile.tsv"
+    _write(
+        path,
+        ["position", "AA_pct", "AT_pct", "WW_pct", "SS_pct"],
+        [[-1, 5, 6, 11, 8], [0, 7, 8, 15, 9], [1, 5, 6, 11, 8]],
+    )
+    assert main([str(path), "--plots", "ww-ss"]) == 0
+    assert not (tmp_path / "sample_dinuc_profile_replot.png").exists()
+    assert (tmp_path / "sample_dinuc_profile_ww_ss_replot.png").is_file()
+
+
+def test_dinucleotide_replot_lists_all_applicable_plots(tmp_path: Path, capsys) -> None:
+    path = tmp_path / "sample_dinuc_profile.tsv"
+    _write(
+        path,
+        ["position", "AA_pct", "AT_pct", "WW_pct", "SS_pct"],
+        [[-1, 5, 6, 11, 8], [0, 7, 8, 15, 9], [1, 5, 6, 11, 8]],
+    )
+    assert main([str(path), "--list-plots"]) == 0
+    output = capsys.readouterr().out
+    assert "dinucleotide-profile" in output
+    assert "ww-ss-profile" in output
+    assert not list(tmp_path.glob("*_replot.png"))
+
+
+def test_replot_never_modifies_original_source_metadata_and_numeric_grayscale_is_safe(tmp_path: Path) -> None:
+    from nucleosuite.plotting import plot_source_metadata_path
+
+    path = tmp_path / "sample_dinuc_profile.tsv"
+    _write(
+        path,
+        ["position", "AA_pct", "AT_pct", "WW_pct", "SS_pct"],
+        [[-1, 5, 6, 11, 8], [0, 7, 8, 15, 9], [1, 5, 6, 11, 8]],
+    )
+    metadata = plot_source_metadata_path(path)
+    metadata.write_text(
+        "field\tvalue\n"
+        "detected_plot_type\tdinucleotide-profile\n"
+        "associated_plot_types\tdinucleotide-profile,ww-ss-profile\n"
+        "parameter.major_grid_color\t0.65\n"
+        "parameter.minor_grid_color\t0.65\n"
+        "parameter.x_major_grid\tTrue\n"
+        "parameter.x_minor_grid\tTrue\n"
+        "resolved_title\tOriginal dinucleotide title\n",
+        encoding="utf-8",
+    )
+    original = metadata.read_bytes()
+
+    assert main([str(path)]) == 0
+    assert metadata.read_bytes() == original
+    assert main([str(path)]) == 0
+    assert metadata.read_bytes() == original
+
+    replot_metadata = tmp_path / "sample_dinuc_profile_replot_metadata.tsv"
+    wwss_replot_metadata = tmp_path / "sample_dinuc_profile_ww_ss_replot_metadata.tsv"
+    assert replot_metadata.is_file()
+    assert wwss_replot_metadata.is_file()
+    assert "metadata_role\treplot_output" in replot_metadata.read_text(encoding="utf-8")
+    assert "replot_source_table\t" in replot_metadata.read_text(encoding="utf-8")
