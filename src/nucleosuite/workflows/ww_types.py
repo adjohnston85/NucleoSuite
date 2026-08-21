@@ -334,12 +334,12 @@ def run(args) -> int:
                 plot_dinucleotide_profile(
                     f"{group_prefix}_dinuc_profile.tsv",
                     f"{group_prefix}_dinuc_profile.png",
-                    title=f"{group} dinucleotide profile",
+                    title="Dinucleotide profile",
                 )
                 plot_ww_ss_profile(
                     f"{group_prefix}_dinuc_profile.tsv",
                     f"{group_prefix}_ww_ss_profile.png",
-                    title=f"{group} WW/SS profile",
+                    title="WW/SS dinucleotide profile",
                 )
 
         interval_beds = [combined_bed]

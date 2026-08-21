@@ -39,18 +39,23 @@ def plot_dinucleotide_profile(tsv_path: str, png_path: str, title: str | None = 
             except (ValueError, TypeError):
                 values.append(float("nan"))
         ax.plot(position, values, linewidth=1.1, label=column.rsplit("_", 1)[0], marker="o", markersize=1.8, markeredgewidth=0)
-    ax.axvline(0, linewidth=0.8, alpha=0.5)
-    from nucleosuite.plotting import apply_base_pair_x_axis
-    apply_base_pair_x_axis(ax, position)
+    ax.axvline(0, color="black", linewidth=1.0, alpha=1.0, zorder=3)
+    from nucleosuite.plotting import apply_dyad_profile_x_axis
+    apply_dyad_profile_x_axis(ax, position)
     ax.set_xlabel("Position relative to dyad (bp)")
     ax.set_ylabel("Dinucleotide fraction" if columns and columns[0].endswith("_frac") else "Dinucleotide percentage")
-    if title:
-        ax.set_title(title)
+    from nucleosuite.plotting import automatic_plot_title
+    ax.set_title(automatic_plot_title(tsv_path, title or "Dinucleotide profile"))
     if columns:
         ax.legend(frameon=False, ncol=4, fontsize="small")
     fig.tight_layout()
     from nucleosuite.plotting import save_figure
     saved_path = save_figure(fig, png_path, default_dpi=220)
+    from nucleosuite.plotting import write_plot_metadata
+    write_plot_metadata(
+        saved_path,
+        extra={"source_table": str(tsv_path), "resolved_title": ax.get_title()},
+    )
     plt.close(fig)
     return saved_path
 
@@ -80,13 +85,13 @@ def plot_ww_ss_profile(tsv_path: str, png_path: str, title: str | None = None) -
             except (ValueError, TypeError):
                 values.append(float("nan"))
         ax.plot(position, values, linewidth=1.4, label=column.rsplit("_", 1)[0], marker="o", markersize=2.0, markeredgewidth=0)
-    ax.axvline(0, linewidth=0.8, alpha=0.5)
-    from nucleosuite.plotting import apply_base_pair_x_axis
-    apply_base_pair_x_axis(ax, position)
+    ax.axvline(0, color="black", linewidth=1.0, alpha=1.0, zorder=3)
+    from nucleosuite.plotting import apply_dyad_profile_x_axis
+    apply_dyad_profile_x_axis(ax, position)
     ax.set_xlabel("Position relative to dyad (bp)")
     ax.set_ylabel("Dinucleotide fraction" if columns[0].endswith("_frac") else "Dinucleotide percentage")
-    if title:
-        ax.set_title(title)
+    from nucleosuite.plotting import automatic_plot_title
+    ax.set_title(automatic_plot_title(tsv_path, title or "WW/SS dinucleotide profile"))
     ax.legend(frameon=False)
     fig.tight_layout()
     from nucleosuite.plotting import save_figure

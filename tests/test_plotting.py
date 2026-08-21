@@ -24,7 +24,7 @@ from nucleosuite.profile_plots import (
 def test_default_minor_tick_intervals():
     assert default_minor_tick_interval(10) == 5
     assert default_minor_tick_interval(100) == 10
-    assert default_minor_tick_interval(50) == 25
+    assert default_minor_tick_interval(50) == 10
     assert default_minor_tick_interval(20) == 10
 
 
@@ -245,3 +245,66 @@ def test_dac_peak_labels_are_opt_in_and_nrl_labels_peaks_by_default():
     assert default_for(dac) == "none"
     assert default_for(dcc) == "none"
     assert default_for(nrl) == "peaks"
+
+
+def test_category_palette_uses_dark_tab20_colours_before_lighter_variants():
+    import matplotlib.pyplot as plt
+    from nucleosuite.plotting import category_colors
+
+    colours = category_colors(20)
+    tab20 = plt.get_cmap("tab20")
+    assert colours[:10] == [tab20(index) for index in range(0, 20, 2)]
+    assert colours[10:20] == [tab20(index) for index in range(1, 20, 2)]
+
+
+def test_base_pair_axis_retains_ten_bp_minor_ticks_when_major_labels_are_wider():
+    from nucleosuite.plotting import apply_base_pair_x_axis
+
+    figure, axis = plt.subplots()
+    axis.plot([0, 350], [0, 1])
+    interval = apply_base_pair_x_axis(axis, [0, 350])
+    figure.canvas.draw()
+    assert interval == 50
+    visible_minor = [
+        tick for tick in axis.xaxis.get_minorticklocs()
+        if axis.get_xlim()[0] <= tick <= axis.get_xlim()[1]
+    ]
+    assert visible_minor
+    assert all(tick % 10 == pytest.approx(0) for tick in visible_minor)
+    plt.close(figure)
+
+
+def test_dyad_profile_axis_is_symmetric_with_ten_and_five_bp_ticks():
+    from nucleosuite.plotting import apply_dyad_profile_x_axis
+
+    figure, axis = plt.subplots()
+    axis.plot(range(-73, 74), [0] * 147)
+    limit, major, minor = apply_dyad_profile_x_axis(axis, range(-73, 74))
+    figure.canvas.draw()
+    assert limit == 80
+    assert major == 10
+    assert minor == 5
+    assert axis.get_xlim() == pytest.approx((-80, 80))
+    visible_major = [tick for tick in axis.get_xticks() if -80 <= tick <= 80]
+    visible_minor = [tick for tick in axis.xaxis.get_minorticklocs() if -80 <= tick <= 80]
+    assert all(tick % 10 == pytest.approx(0) for tick in visible_major)
+    assert all(tick % 5 == pytest.approx(0) for tick in visible_minor)
+    plt.close(figure)
+
+
+def test_automatic_title_cleans_generated_dinucleotide_suffix_and_metadata_preserves_it(tmp_path: Path):
+    from nucleosuite.plotting import automatic_plot_title, configure_plot_metadata, save_figure
+
+    title = automatic_plot_title(
+        tmp_path / "Gaffney_147_chr9_dinuc_lower147_upper147_dinuc_profile.tsv",
+        "Dinucleotide profile",
+    )
+    assert title == "Gaffney_147_chr9 — Dinucleotide profile"
+
+    configure_plot_metadata("dinuc-profile", [], {})
+    figure, axis = plt.subplots()
+    axis.set_title(title)
+    output = save_figure(figure, tmp_path / "Gaffney_147_chr9_dinuc_profile.png")
+    plt.close(figure)
+    metadata = output.with_name(output.stem + "_metadata.tsv").read_text(encoding="utf-8")
+    assert f"resolved_title\t{title}" in metadata

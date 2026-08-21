@@ -327,7 +327,10 @@ def _nice_bp_major(span: float) -> float:
     return float(max(10.0, 10 * power))
 
 
-def _configure_ticks_and_grids(ax, args, *, bp_x: bool = False, default_x_major: float | None = None, default_x_minor: float | None = None) -> None:
+def _configure_ticks_and_grids(
+    ax, args, *, bp_x: bool = False, default_x_major: float | None = None,
+    default_x_minor: float | None = None, default_x_grids: bool = False,
+) -> None:
     from matplotlib.ticker import MultipleLocator
 
     x0, x1 = ax.get_xlim()
@@ -340,7 +343,7 @@ def _configure_ticks_and_grids(ax, args, *, bp_x: bool = False, default_x_major:
         if x_minor is None:
             if default_x_minor is not None:
                 x_minor = default_x_minor
-            elif x_major > 50:
+            elif x_major > 10.0:
                 x_minor = 10.0
             elif math.isclose(x_major, 10.0):
                 x_minor = 5.0
@@ -366,8 +369,8 @@ def _configure_ticks_and_grids(ax, args, *, bp_x: bool = False, default_x_major:
     # New plot command defaults to restrained vertical guides only. Major and
     # minor grid families can be enabled/disabled independently on each axis.
     defaults = {
-        "x_major_grid": False,
-        "x_minor_grid": False,
+        "x_major_grid": bool(default_x_grids),
+        "x_minor_grid": bool(default_x_grids),
         "y_major_grid": False,
         "y_minor_grid": False,
     }
@@ -402,6 +405,7 @@ def _finish(
     bp_x: bool = False,
     default_x_major: float | None = None,
     default_x_minor: float | None = None,
+    default_x_grids: bool = False,
     legend: bool = False,
     artist_kw: Mapping[str, Mapping[str, Any]] | None = None,
     default_size: tuple[float, float] = (10.0, 5.5),
@@ -421,7 +425,10 @@ def _finish(
     if args.y_min is not None or args.y_max is not None:
         bottom, top = ax.get_ylim()
         ax.set_ylim(bottom if args.y_min is None else args.y_min, top if args.y_max is None else args.y_max)
-    _configure_ticks_and_grids(ax, args, bp_x=bp_x, default_x_major=default_x_major, default_x_minor=default_x_minor)
+    _configure_ticks_and_grids(
+        ax, args, bp_x=bp_x, default_x_major=default_x_major,
+        default_x_minor=default_x_minor, default_x_grids=default_x_grids,
+    )
     if args.x_tick_rotation is not None:
         for label in ax.get_xticklabels():
             label.set_rotation(args.x_tick_rotation)
@@ -2792,6 +2799,9 @@ def _plot_multi_numeric_profile(
     bp_x: bool = True, linewidth: float = 1.25,
     markersize: float = 1.8, default_size: tuple[float, float] = (10.0, 5.5),
     vertical_zero: bool = False, exact_x_limits: bool = False,
+    symmetric_x_limits: bool = False, default_x_major: float | None = None,
+    default_x_minor: float | None = None, default_x_grids: bool = False,
+    title_descriptor: str | None = None,
     legend_defaults: Mapping[str, Any] | None = None,
 ):
     import matplotlib.pyplot as plt
@@ -2812,12 +2822,17 @@ def _plot_multi_numeric_profile(
     if not plotted:
         raise ValueError(f"No numeric profile columns could be plotted from {path}")
     if vertical_zero:
-        ax.axvline(0, linewidth=0.8, alpha=0.5)
-    if exact_x_limits:
-        finite_x = x[np.isfinite(x)]
-        if finite_x.size:
-            ax.set_xlim(float(np.min(finite_x)), float(np.max(finite_x)))
-    ax.set_xlabel(xlabel); ax.set_ylabel(ylabel); ax.set_title(path.stem.replace("_", " "))
+        ax.axvline(0, color="black", linewidth=1.0, alpha=1.0, zorder=3)
+    finite_x = x[np.isfinite(x)]
+    if symmetric_x_limits and finite_x.size:
+        extent = float(np.max(np.abs(finite_x)))
+        limit = max(10.0, math.ceil(extent / 10.0) * 10.0)
+        ax.set_xlim(-limit, limit)
+    elif exact_x_limits and finite_x.size:
+        ax.set_xlim(float(np.min(finite_x)), float(np.max(finite_x)))
+    ax.set_xlabel(xlabel); ax.set_ylabel(ylabel)
+    from nucleosuite.plotting import automatic_plot_title
+    ax.set_title(automatic_plot_title(path, title_descriptor or path.stem.replace("_", " ")))
     configured_artist_kw = {key: dict(value) for key, value in artist_kw.items()}
     if legend_defaults:
         configured_artist_kw.setdefault("legend", {})
@@ -2826,8 +2841,9 @@ def _plot_multi_numeric_profile(
             **configured_artist_kw["legend"],
         }
     return _finish(
-        ax, fig, args, output, bp_x=bp_x, legend=plotted > 1,
-        artist_kw=configured_artist_kw, default_size=default_size,
+        ax, fig, args, output, bp_x=bp_x, default_x_major=default_x_major,
+        default_x_minor=default_x_minor, default_x_grids=default_x_grids,
+        legend=plotted > 1, artist_kw=configured_artist_kw, default_size=default_size,
     ), fig
 
 
@@ -2842,7 +2858,9 @@ def _plot_dinucleotide_profile(path, headers, rows, args, output, artist_kw):
         path, headers, rows, args, output, artist_kw,
         x_key=x_key, columns=columns, xlabel="Position relative to dyad (bp)",
         ylabel=f"Dinucleotide {suffix}", linewidth=1.1, markersize=1.8,
-        default_size=(12.0, 5.0), vertical_zero=True,
+        default_size=(12.0, 5.0), vertical_zero=True, symmetric_x_limits=True,
+        default_x_major=10.0, default_x_minor=5.0, default_x_grids=True,
+        title_descriptor="Dinucleotide profile",
         legend_defaults={"ncol": 4, "fontsize": "small"},
     )
 
@@ -2858,7 +2876,9 @@ def _plot_ww_ss_profile(path, headers, rows, args, output, artist_kw):
         path, headers, rows, args, output, artist_kw,
         x_key=x_key, columns=columns, xlabel="Position relative to dyad (bp)",
         ylabel=f"Dinucleotide {suffix}", linewidth=1.4, markersize=2.0,
-        default_size=(12.0, 5.0), vertical_zero=True,
+        default_size=(12.0, 5.0), vertical_zero=True, symmetric_x_limits=True,
+        default_x_major=10.0, default_x_minor=5.0, default_x_grids=True,
+        title_descriptor="WW/SS dinucleotide profile",
     )
 
 
@@ -3154,7 +3174,7 @@ def _generic_metadata_default(metadata: Mapping[str, str] | None, attr: str, def
         "width": ("plot_width", "width"),
         "height": ("plot_height", "height"),
         "dpi": ("plot_dpi", "dpi"),
-        "title": ("plot_title", "title"),
+        "title": ("plot_title", "resolved_title", "title"),
         "no_title": ("no_plot_title", "no_title"),
         "x_label": ("plot_x_label", "x_label"),
         "y_label": ("plot_y_label", "y_label"),
@@ -3218,7 +3238,7 @@ def build_parser(
     parser.add_argument("--major-grid-width", type=float, default=float(_generic_metadata_default(metadata, "major_grid_width", 0.75)), help="Major grid-line width in points.")
     parser.add_argument("--minor-grid-width", type=float, default=float(_generic_metadata_default(metadata, "minor_grid_width", 0.65)), help="Minor grid-line width in points.")
     parser.add_argument("--major-grid-style", default=_generic_metadata_default(metadata, "major_grid_style", "-"), help="Matplotlib linestyle for major grids.")
-    parser.add_argument("--minor-grid-style", default=_generic_metadata_default(metadata, "minor_grid_style", "--"), help="Matplotlib linestyle for minor grids.")
+    parser.add_argument("--minor-grid-style", default=_generic_metadata_default(metadata, "minor_grid_style", ":"), help="Matplotlib linestyle for minor grids.")
     parser.add_argument("--x-tick-rotation", type=float, default=_generic_metadata_default(metadata, "x_tick_rotation", None), help="Rotate x tick labels by this many degrees.")
     parser.add_argument("--y-tick-rotation", type=float, default=_generic_metadata_default(metadata, "y_tick_rotation", None), help="Rotate y tick labels by this many degrees.")
     parser.add_argument("--axes-facecolor", default=_generic_metadata_default(metadata, "axes_facecolor", None), help="Matplotlib color for the axes background.")
@@ -3379,6 +3399,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         plot_type = args.plot_type
     output = _resolve_output(args.input, args.output, args.format)
     artist_kw = _parse_artist_values(args.mpl_kw)
+    from nucleosuite.plotting import configure_unique_category_cycle
+    configure_unique_category_cycle()
+
     dispatch = {
         "dac": _plot_dac, "dcc": _plot_dcc, "nrl-profile": _plot_nrl_profile, "nrl-regression": _plot_nrl_regression,
         "fragment-size-nrl-profile": _plot_fragment_size_nrl_profile,
@@ -3413,7 +3436,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         raise ValueError(f"Unsupported plot type: {plot_type}")
     from nucleosuite.plotting import write_plot_metadata
-    write_plot_metadata(saved, extra={"detected_plot_type": plot_type, "source_table": str(args.input)})
+    resolved_title = ""
+    if getattr(fig, "_suptitle", None) is not None:
+        resolved_title = str(fig._suptitle.get_text()).strip()
+    if not resolved_title and fig.axes:
+        resolved_title = str(fig.axes[0].get_title()).strip()
+    metadata_extra = {"detected_plot_type": plot_type, "source_table": str(args.input)}
+    if resolved_title:
+        metadata_extra["resolved_title"] = resolved_title
+    write_plot_metadata(saved, extra=metadata_extra)
     import matplotlib.pyplot as plt
     plt.close(fig)
     print(f"Detected plot type: {plot_type}")

@@ -59,7 +59,12 @@ def _nice_base_pair_interval(span: float, target_intervals: int = 8) -> float:
 
 
 def apply_base_pair_x_axis(axis, values: Iterable[float] | None = None) -> float:
-    """Use automatic major ticks at multiples of 10 on a base-pair axis."""
+    """Use readable base-pair ticks while retaining 10-bp positional guides.
+
+    Major ticks use the restrained 10/20/50/100... progression.  Whenever
+    labels need a spacing wider than 10 bp, 10-bp minor ticks are retained so
+    genomic position/distance plots never lose 10-bp visual resolution.
+    """
 
     from matplotlib.ticker import MultipleLocator, StrMethodFormatter
 
@@ -80,6 +85,9 @@ def apply_base_pair_x_axis(axis, values: Iterable[float] | None = None) -> float
     interval = _nice_base_pair_interval(span)
     axis.xaxis.set_major_locator(MultipleLocator(interval))
     axis.xaxis.set_major_formatter(StrMethodFormatter("{x:.0f}"))
+    if interval > 10.0:
+        axis.xaxis.set_minor_locator(MultipleLocator(10.0))
+        axis.tick_params(axis="x", which="minor", length=3)
     return interval
 
 
@@ -103,28 +111,99 @@ def discrete_line_kwargs(*, markersize: float = 2.2) -> dict[str, object]:
 
 
 
-def category_colors(count: int):
-    """Return ``count`` distinct category colours for one plot.
+def _ordered_categorical_indices(name: str) -> list[int]:
+    """Return strong-to-light indices for Matplotlib's 20-colour palettes."""
 
-    The palette is sampled without cycling so plots with more than Matplotlib's
-    default ten categories (for example all 16 dinucleotides) never reuse a
-    colour within the same figure.
+    if name == "tab20":
+        # tab20 stores each saturated colour immediately before its pale mate.
+        # Use all ten stronger colours before starting the lighter companions.
+        return list(range(0, 20, 2)) + list(range(1, 20, 2))
+    if name in {"tab20b", "tab20c"}:
+        # tab20b/c contain five four-shade families.  Traverse the darkest
+        # member of every family first, then each progressively lighter shade.
+        return [family + shade for shade in range(4) for family in range(0, 20, 4)]
+    return list(range(20))
+
+
+def category_colors(count: int):
+    """Return ``count`` distinct categorical colours in strong-first order.
+
+    ``tab20`` contributes ten darker colours followed by their ten lighter
+    companions.  ``tab20b`` and ``tab20c`` then extend the palette in
+    progressively lighter shade passes, giving 60 categorical colours before
+    falling back to a continuous palette.
     """
     if count <= 0:
         return []
     import matplotlib.pyplot as plt
-    if count <= 20:
-        cmap = plt.get_cmap("tab20")
-        return [cmap(index) for index in range(count)]
-    if count <= 60:
-        colours = []
-        for name in ("tab20", "tab20b", "tab20c"):
-            cmap = plt.get_cmap(name)
-            colours.extend(cmap(index) for index in range(20))
-        return colours[:count]
+    colours = []
+    for name in ("tab20", "tab20b", "tab20c"):
+        cmap = plt.get_cmap(name)
+        colours.extend(cmap(index) for index in _ordered_categorical_indices(name))
+        if len(colours) >= count:
+            return colours[:count]
     cmap = plt.get_cmap("turbo")
     denominator = max(1, count - 1)
     return [cmap(index / denominator) for index in range(count)]
+
+
+def clean_dataset_basename(path_value: str | Path) -> str:
+    """Return a compact dataset/output basename suitable for automatic titles."""
+
+    import re
+
+    name = Path(path_value).name
+    lower = name.lower()
+    for suffix in (".tsv.gz", ".csv.gz", ".txt.gz", ".bed.gz", ".tsv", ".csv", ".txt", ".png", ".svg", ".bed", ".bw", ".bb", ".gz"):
+        if lower.endswith(suffix):
+            name = name[: -len(suffix)]
+            break
+    # Remove plot/table-role suffixes first, then command-generated parameter
+    # tails that describe the analysis rather than the underlying dataset.
+    name = re.sub(
+        r"_(?:dinuc_profile|ww_ss_profile|ww_type_summary|ww_type_by_length_stacked|fragment_length_counts|fragment_length_distribution|run_length_distribution)$",
+        "",
+        name,
+        flags=re.IGNORECASE,
+    )
+    name = re.sub(r"_dinuc_lower\d+_upper\d+", "", name, flags=re.IGNORECASE)
+    name = re.sub(r"_wwtypes_lower\d+_upper\d+", "", name, flags=re.IGNORECASE)
+    name = re.sub(r"_coverage_lower\d+_upper\d+", "", name, flags=re.IGNORECASE)
+    name = re.sub(r"_dyads_lower\d+_upper\d+", "", name, flags=re.IGNORECASE)
+    name = re.sub(r"_fragment_ends_lower\d+_upper\d+", "", name, flags=re.IGNORECASE)
+    name = re.sub(r"__+", "_", name).strip("_ -")
+    return name
+
+
+def automatic_plot_title(path_value: str | Path, descriptor: str) -> str:
+    """Combine a cleaned output basename with a concise plot descriptor."""
+
+    dataset = clean_dataset_basename(path_value)
+    descriptor = str(descriptor).strip()
+    if not dataset:
+        return descriptor
+    if not descriptor:
+        return dataset
+    if descriptor.casefold() in dataset.replace("_", " ").casefold():
+        return dataset
+    return f"{dataset} — {descriptor}"
+
+
+def apply_dyad_profile_x_axis(axis, values: Iterable[float] | None = None) -> tuple[float, float, float]:
+    """Apply symmetric dyad-centred 10-bp/5-bp dinucleotide axis defaults."""
+
+    finite = _finite_values(values)
+    if finite.size:
+        extent = float(np.max(np.abs(finite)))
+    else:
+        left, right = map(float, axis.get_xlim())
+        extent = max(abs(left), abs(right))
+    if not math.isfinite(extent) or extent <= 0:
+        extent = 10.0
+    limit = max(10.0, math.ceil(extent / 10.0) * 10.0)
+    major, minor = apply_distance_x_axis(axis, major_interval=10.0, minor_interval=5.0)
+    axis.set_xlim(-limit, limit)
+    return float(limit), float(major), float(minor)
 
 
 def configure_unique_category_cycle(count: int = 60) -> None:
@@ -169,7 +248,7 @@ def default_minor_tick_interval(major_interval: float) -> float:
         raise ValueError("Major tick interval must be finite and greater than zero.")
     if math.isclose(major_interval, 10.0, rel_tol=1e-9, abs_tol=1e-9):
         return 5.0
-    if major_interval > 50.0:
+    if major_interval > 10.0:
         return 10.0
     return major_interval / 2.0
 
@@ -1009,7 +1088,16 @@ def save_figure(
     # DPI can still matter for rasterized artists embedded inside an SVG.
     kwargs["dpi"] = int(options.dpi if options.dpi is not None else default_dpi)
     figure.savefig(output, **kwargs)
-    write_plot_metadata(output)
+    resolved_title = ""
+    if getattr(figure, "_suptitle", None) is not None:
+        resolved_title = str(figure._suptitle.get_text()).strip()
+    if not resolved_title:
+        for axis in _primary_axes(figure):
+            resolved_title = str(axis.get_title()).strip()
+            if resolved_title:
+                break
+    extra = {"resolved_title": resolved_title} if resolved_title else None
+    write_plot_metadata(output, extra=extra)
     return output
 
 

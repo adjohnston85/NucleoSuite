@@ -409,8 +409,8 @@ def _write_sequence_outputs(spec, state, args, context):
             prefix = group_output_prefix(spec.output_prefix, group)
             path = f"{prefix}_dinuc_profile.tsv"
             dinucleotide.write_profile(path, state.dinuc_accumulators[group], positions)
-            plot_dinucleotide_profile(path, f"{prefix}_dinuc_profile.png", title=f"{group} dinucleotide profile")
-            plot_ww_ss_profile(path, f"{prefix}_ww_ss_profile.png", title=f"{group} WW/SS profile")
+            plot_dinucleotide_profile(path, f"{prefix}_dinuc_profile.png", title="Dinucleotide profile")
+            plot_ww_ss_profile(path, f"{prefix}_ww_ss_profile.png", title="WW/SS dinucleotide profile")
     if state.need_ww_types:
         write_summary(spec.output_prefix, state.type_counts, state.total_used)
         plot_category_counts(
