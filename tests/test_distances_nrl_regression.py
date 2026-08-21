@@ -331,3 +331,39 @@ def test_zero_filled_distribution_is_bounded_by_requested_reporting_range(tmp_pa
     summary = next(csv.DictReader(summary_path.open(), delimiter="\t"))
     assert int(summary["observed_max_bp"]) == 8_000_000
     assert int(summary["raw_mode_bp"]) == 185
+
+
+def test_distances_length_filter_is_applied_before_score_percentile(tmp_path):
+    peak_bed = tmp_path / "length_peaks.bed"
+    peak_bed.write_text(
+        "chr1\t0\t50\tshort_high\t1000\n"
+        "chr1\t100\t200\ta\t1\n"
+        "chr1\t300\t400\tb\t2\n"
+        "chr1\t500\t600\tc\t3\n"
+    )
+    prefix = tmp_path / "length_filter"
+    assert distances.main(
+        [
+            str(peak_bed),
+            "--min-length", "100",
+            "--max-length", "100",
+            "--score-percentile", "50",
+            "--max-order", "1",
+            "--max-distance", "500",
+            "--count-smooth-window", "0",
+            "--percent-smooth-window", "0",
+            "--output-prefix", str(prefix),
+        ]
+    ) == 0
+    metadata = Path(
+        f"{prefix}_distmin1_distmax500_orders1_lenmin100_lenmax100_scorepct50_metadata.tsv"
+    )
+    assert metadata.is_file()
+    rows = dict(
+        line.rstrip("\n").split("\t", 1)
+        for line in metadata.read_text().splitlines()[1:]
+    )
+    assert float(rows["score_threshold"]) == pytest.approx(2.0)
+    assert rows["min_peak_length"] == "100"
+    assert rows["max_peak_length"] == "100"
+    assert rows["retained_count"] == "2"

@@ -133,6 +133,7 @@ class ParseSummary:
     used_lines: int = 0
     skipped_lines: int = 0
     blacklisted_lines: int = 0
+    length_filtered_lines: int = 0
 
 
 @dataclass
@@ -395,6 +396,8 @@ def load_peaks(
     category_rules=(),
     position_column: int | None = None,
     score_column: int = 5,
+    min_length: int | None = None,
+    max_length: int | None = None,
     strict: bool = False,
     blacklist: BlacklistIndex | None = None,
     progress: ProgressReporter | None = None,
@@ -441,6 +444,15 @@ def load_peaks(
                 else:
                     if not math.isfinite(score):
                         error = f"score column {score_column} is not finite"
+
+            if error is None:
+                length = end - start
+                if min_length is not None and length < min_length:
+                    summary.length_filtered_lines += 1
+                    continue
+                if max_length is not None and length > max_length:
+                    summary.length_filtered_lines += 1
+                    continue
 
             if error is None:
                 if position_index is None:
@@ -1779,6 +1791,8 @@ def write_threshold_metadata(
     selection: ThresholdSelection,
     results: DistanceResults,
     score_column: int,
+    min_length: int | None = None,
+    max_length: int | None = None,
     min_distance: int,
     max_distance: int,
     max_order: int,
@@ -1800,6 +1814,8 @@ def write_threshold_metadata(
         ("blacklist_bed", blacklist_path or ""),
         ("blacklist_overlapping_peaks_excluded", blacklisted_peaks),
         ("score_column", score_column),
+        ("min_peak_length", "" if min_length is None else min_length),
+        ("max_peak_length", "" if max_length is None else max_length),
         ("requested_percentile", f"{selection.requested_percentile:.12g}"),
         ("effective_percentile", f"{selection.effective_percentile:.12g}"),
         ("percentile_mode", percentile_mode),
@@ -2748,6 +2764,22 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         help="One-based numeric peak-score column (default: 5, the BED score field).",
     )
     parser.add_argument(
+        "--min-length",
+        type=int,
+        help=(
+            "Minimum peak-region length in bp retained before score-percentile "
+            "selection (inclusive)."
+        ),
+    )
+    parser.add_argument(
+        "--max-length",
+        type=int,
+        help=(
+            "Maximum peak-region length in bp retained before score-percentile "
+            "selection (inclusive)."
+        ),
+    )
+    parser.add_argument(
         "--score-percentile",
         type=float,
         default=0.0,
@@ -3030,6 +3062,16 @@ def _run_serial(args: argparse.Namespace) -> int:
             raise ValueError("--max-distance must be greater than or equal to --min-distance")
         if args.max_order < 1:
             raise ValueError("--max-order must be at least 1")
+        if args.min_length is not None and args.min_length < 1:
+            raise ValueError("--min-length must be at least 1 bp")
+        if args.max_length is not None and args.max_length < 1:
+            raise ValueError("--max-length must be at least 1 bp")
+        if (
+            args.min_length is not None
+            and args.max_length is not None
+            and args.max_length < args.min_length
+        ):
+            raise ValueError("--max-length must be greater than or equal to --min-length")
         percentile_sweep = bool(
             args.pct_range or args.pct_values or args.pct_bin_size is not None
         )
@@ -3088,6 +3130,8 @@ def _run_serial(args: argparse.Namespace) -> int:
             category_rules=category_rules,
             position_column=args.position_column,
             score_column=args.score_column,
+            min_length=args.min_length,
+            max_length=args.max_length,
             strict=args.strict,
             blacklist=blacklist,
             progress=reporter,
@@ -3096,7 +3140,8 @@ def _run_serial(args: argparse.Namespace) -> int:
             f"Loaded {peak_summary.used_lines:,} peaks across "
             f"{len(peaks_by_chrom):,} contigs; skipped "
             f"{peak_summary.skipped_lines:,} "
-            f"({peak_summary.blacklisted_lines:,} blacklisted)"
+            f"({peak_summary.blacklisted_lines:,} blacklisted; "
+            f"{peak_summary.length_filtered_lines:,} outside length bounds)"
         )
         input_chromosomes = sorted(peaks_by_chrom, key=natural_sort_key)
 
@@ -3156,6 +3201,15 @@ def _run_serial(args: argparse.Namespace) -> int:
                 ("ties", args.bin_tie_mode),
             ),
         )
+        length_parameters = []
+        if args.min_length is not None:
+            length_parameters.append(("lenmin", args.min_length))
+        if args.max_length is not None:
+            length_parameters.append(("lenmax", args.max_length))
+        if length_parameters:
+            base_prefix = parameterized_prefix(
+                base_prefix, length_parameters, max_parameters=2,
+            )
         base_prefix.parent.mkdir(parents=True, exist_ok=True)
 
         include_chromosomes = args.scope in {"all", "chromosome"}
@@ -3223,6 +3277,8 @@ def _run_serial(args: argparse.Namespace) -> int:
                 selection=selection,
                 results=results,
                 score_column=args.score_column,
+                min_length=args.min_length,
+                max_length=args.max_length,
                 min_distance=args.min_distance,
                 max_distance=args.max_distance,
                 max_order=args.max_order,
@@ -3403,21 +3459,29 @@ def run(args: argparse.Namespace) -> int:
 
     requested = args.output_prefix or default_output_prefix(args.input, args.state_bed)
     grouping = output_grouping_token(args)
-    args.output_prefix = str(
-        parameterized_prefix(
-            requested,
-            (
-                ("distmin", args.min_distance),
-                ("distmax", args.max_distance),
-                ("orders", args.max_order),
-                ("nrlmode", args.nrl_mode),
-                ("countsg", f"{args.count_smooth_window}x{args.count_smooth_polyorder}"),
-                ("pctsg", f"{args.percent_smooth_window}x{args.percent_smooth_polyorder}"),
-                ("groups", grouping),
-                ("ties", args.bin_tie_mode),
-            ),
-        )
+    resolved_prefix = parameterized_prefix(
+        requested,
+        (
+            ("distmin", args.min_distance),
+            ("distmax", args.max_distance),
+            ("orders", args.max_order),
+            ("nrlmode", args.nrl_mode),
+            ("countsg", f"{args.count_smooth_window}x{args.count_smooth_polyorder}"),
+            ("pctsg", f"{args.percent_smooth_window}x{args.percent_smooth_polyorder}"),
+            ("groups", grouping),
+            ("ties", args.bin_tie_mode),
+        ),
     )
+    length_parameters = []
+    if args.min_length is not None:
+        length_parameters.append(("lenmin", args.min_length))
+    if args.max_length is not None:
+        length_parameters.append(("lenmax", args.max_length))
+    if length_parameters:
+        resolved_prefix = parameterized_prefix(
+            resolved_prefix, length_parameters, max_parameters=2,
+        )
+    args.output_prefix = str(resolved_prefix)
     percentage_bins = (
         args.bin_tie_mode == "split"
         and (args.pct_bin_size is not None or args.pct_bins)

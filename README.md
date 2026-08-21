@@ -53,6 +53,7 @@ nucleosuite --help
 | [`positive-runs`](docs/commands/positive-runs.md) | Measure contiguous positive-signal intervals in a BigWig. |
 | [`peak-score-frequency`](docs/commands/peak-score-frequency.md) | Compare peak-score distributions. |
 | [`filter-coverage`](docs/commands/filter-coverage.md) | Filter BED peaks by BigWig coverage at the summit or interval midpoint. |
+| [`filter-peaks`](docs/commands/filter-peaks.md) | Filter peak intervals by score, score percentile, or region length. |
 | [`peak-states`](docs/commands/peak-states.md) | Measure peak abundance and score-dependent enrichment by chromatin state. |
 
 ### Regional and gene analyses

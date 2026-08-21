@@ -1,5 +1,5 @@
 {% set name = "nucleosuite" %}
-{% set version = "0.8.21" %}
+{% set version = "0.9.0" %}
 
 package:
   name: {{ name|lower }}
@@ -48,6 +48,7 @@ test:
     - nucleosuite.positive_runs
     - nucleosuite.peak_score_frequency
     - nucleosuite.filter_coverage
+    - nucleosuite.filter_peaks
     - nucleosuite.replot
   commands:
     - nucleosuite --version
@@ -63,6 +64,7 @@ test:
     - nucleosuite positive-runs --help
     - nucleosuite peak-score-frequency --help
     - nucleosuite filter-coverage --help
+    - nucleosuite filter-peaks --help
     - nucleosuite plot --help
     - nucleosuite fragment-heatmap --help
     - nucleosuite gene-sets --help
@@ -76,6 +78,7 @@ test:
     - nucleosuite validate-inputs --help
 
 about:
+  home: https://github.com/adjohnston85/NucleoSuite
   summary: Nucleosome, chromatin and fragmentomics analysis from genomic sequencing data
   license: MIT
   license_file: LICENSE

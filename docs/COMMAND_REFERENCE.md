@@ -30,6 +30,7 @@ Each command page describes the calculation, a typical invocation, analysis opti
 - [`compare-positions`](commands/compare-positions.md) — compare one main callset with positional callsets and optional BigWig score comparators.
 - [`peak-score-frequency`](commands/peak-score-frequency.md) — compare peak-score distributions.
 - [`filter-coverage`](commands/filter-coverage.md) — retain peaks that meet a BigWig coverage threshold at their selected position.
+- [`filter-peaks`](commands/filter-peaks.md) — filter peak intervals by score, score percentile, and region length.
 - [`peak-states`](commands/peak-states.md) — count peaks and score-dependent enrichment across chromatin states.
 - [`positive-runs`](commands/positive-runs.md) — measure continuous signal intervals above a threshold.
 

@@ -24,7 +24,7 @@ Use [`distances`](commands/distances.md) to measure nearest-neighbour or higher-
 
 Use [`flank-spacing`](commands/flank-spacing.md) when you have nucleosome calls plus a BED of reference sites divided into categories and want to compare the distance between the nearest upstream and downstream nucleosomes for each category. Column 4 is the default category column.
 
-Use [`peak-states`](commands/peak-states.md) to measure how peaks are distributed across chromatin states. Use [`filter-coverage`](commands/filter-coverage.md) when you want to remove peaks that do not meet a minimum BigWig coverage value at their summit or interval midpoint.
+Use [`peak-states`](commands/peak-states.md) to measure how peaks are distributed across chromatin states. Use [`filter-peaks`](commands/filter-peaks.md) to retain peaks by score, score percentile, or interval length. Use [`filter-coverage`](commands/filter-coverage.md) when you want to remove peaks that do not meet a minimum BigWig coverage value at their summit or interval midpoint.
 
 ## I have a genomic signal and want periodicity
 

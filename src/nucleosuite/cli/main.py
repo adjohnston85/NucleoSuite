@@ -74,6 +74,11 @@ def _filter_coverage_main(argv: Sequence[str] | None = None) -> int:
     return main(argv)
 
 
+def _filter_peaks_main(argv: Sequence[str] | None = None) -> int:
+    from nucleosuite.filter_peaks import main
+    return main(argv)
+
+
 
 def _flank_spacing_main(argv: Sequence[str] | None = None) -> int:
     from nucleosuite.flank_spacing import main
@@ -186,6 +191,7 @@ DELEGATED_COMMANDS: dict[str, tuple[CommandMain, str]] = {
     "fragment-lengths": (_fragment_lengths_main, "Count how many fragments occur at each length."),
     "flank-spacing": (_flank_spacing_main, "Compare nucleosome spacing around categorized reference sites."),
     "filter-coverage": (_filter_coverage_main, "Filter BED peaks by coverage at their summit or interval midpoint."),
+    "filter-peaks": (_filter_peaks_main, "Filter peak intervals by score, percentile, and region length."),
     "fragment-heatmap": (_fragment_heatmap_main, "Compare fragment-length patterns across samples or region groups."),
     "aggregate": (_aggregate_main, "Aggregate BigWig signal around genomic features."),
     "region-extract": (_region_extract_main, "Export signal values and nearby peaks for each region in a BED file."),
@@ -220,6 +226,7 @@ DELEGATED_MODULES: dict[str, str] = {
     "fragment-lengths": "nucleosuite.fragment_lengths",
     "flank-spacing": "nucleosuite.flank_spacing",
     "filter-coverage": "nucleosuite.filter_coverage",
+    "filter-peaks": "nucleosuite.filter_peaks",
     "fragment-heatmap": "nucleosuite.fragment_heatmap",
     "aggregate": "nucleosuite.cli.aggregate",
     "region-extract": "nucleosuite.pns_region_extractor",
@@ -410,6 +417,7 @@ def build_parser() -> argparse.ArgumentParser:
         "fragment-lengths",
         "flank-spacing",
         "filter-coverage",
+        "filter-peaks",
         "fragment-heatmap",
         "aggregate",
         "region-extract",

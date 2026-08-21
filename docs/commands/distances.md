@@ -136,6 +136,21 @@ or exact thresholds with:
 
 Sweep outputs include count and percentage overlays plus a table of the retained peak counts at each threshold.
 
+## Peak-region length filtering
+
+`distances` can restrict the input peak population by BED interval length before score-percentile or target-peak selection:
+
+```bash
+nucleosuite distances peaks.bed \
+  --min-length 120 \
+  --max-length 180 \
+  --score-percentile 90
+```
+
+Length is `end - start`, and both bounds are inclusive. Either bound can be supplied independently. When a percentile threshold or `--target-peaks` is requested, the score distribution is calculated **after** the length filter, so the percentile or target applies to the length-eligible peak population. Automatic output names include non-default length bounds.
+
+For creating a reusable filtered peak file rather than filtering only within the spacing analysis, use [`filter-peaks`](filter-peaks.md).
+
 ## Zero-count distances
 
 Distance distributions are written with explicit zero-count positions by default. For each order/group, the `*_distances.tsv` output contains every integer distance from `--min-distance` through `--max-distance`; distances that were not observed receive a count of zero. This makes the raw profile continuous and prevents plotting software from connecting separated non-zero observations directly across missing integer positions.

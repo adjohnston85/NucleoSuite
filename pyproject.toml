@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nucleosuite"
-version = "0.8.21"
+version = "0.9.0"
 description = "Nucleosome, chromatin and fragmentomics analysis from genomic sequencing data"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [
-  {name = "Andrew D. Johnston"},
+  {name = "Andrew D. Johnston", email = "adjohnston85@gmail.com"},
   {name = "Fiach Antaw"}
 ]
 keywords = ["nucleosome", "cfDNA", "fragmentomics", "chromatin", "bioinformatics"]
@@ -39,6 +39,7 @@ dependencies = [
 test = ["pytest>=8", "build>=1.2"]
 
 [project.urls]
+Homepage = "https://github.com/adjohnston85/"
 Repository = "https://github.com/adjohnston85/NucleoSuite"
 Documentation = "https://github.com/adjohnston85/NucleoSuite/tree/main/docs"
 
