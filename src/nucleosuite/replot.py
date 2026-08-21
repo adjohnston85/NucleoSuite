@@ -1239,7 +1239,14 @@ def _grouped_line(
 
 
 def _plot_distances(path, headers, rows, args, output, artist_kw):
-    """Recreate the neighbour-order distribution plot from complete profiles."""
+    """Recreate neighbour-order distributions, optionally restoring missing zero rows.
+
+    Older ``distances`` tables can be sparse because zero-count distances were
+    omitted at write time.  Replotting may therefore densify only the displayed
+    integer-bp range without modifying the source table.  Smoothed values already
+    stored in the table are kept as-is; only the raw count/percentage support is
+    reconstructed with explicit zeros.
+    """
     import matplotlib.pyplot as plt
 
     hm = _header_map(headers)
@@ -1273,38 +1280,79 @@ def _plot_distances(path, headers, rows, args, output, artist_kw):
 
     fig, ax = plt.subplots()
     nrl_mode = str(getattr(args, "nrl_mode", "smoothed") or "smoothed")
+    fill_zeros = bool(getattr(args, "include_zero_distances", True))
+
     for group in sorted(groups, key=group_sort):
         group_rows = groups[group]
-        x = _numeric(group_rows, x_key)
+        source_x = _numeric(group_rows, x_key)
         raw_key = args.y_column or hm.get("count") or hm.get("raw_count")
         smooth_key = None if args.y_column else hm.get("smoothed_count")
         if raw_key is None:
             raw_key = hm.get("raw_percent") or hm.get("percent") or hm.get("smoothed_percent")
         if raw_key is None:
             raise ValueError("Distance replots require a count or percentage column")
-        raw = _numeric(group_rows, raw_key)
-        smooth = _numeric(group_rows, smooth_key) if smooth_key is not None else raw
-        finite_x = np.isfinite(x)
-        x, raw, smooth = x[finite_x], raw[finite_x], smooth[finite_x]
-        order = np.argsort(x)
-        x, raw, smooth = x[order], raw[order], smooth[order]
-        if not x.size:
+        source_raw = _numeric(group_rows, raw_key)
+        source_smooth = _numeric(group_rows, smooth_key) if smooth_key is not None else source_raw
+
+        finite_x = np.isfinite(source_x)
+        source_x = source_x[finite_x]
+        source_raw = source_raw[finite_x]
+        source_smooth = source_smooth[finite_x]
+        order = np.argsort(source_x)
+        source_x = source_x[order]
+        source_raw = source_raw[order]
+        source_smooth = source_smooth[order]
+        if not source_x.size:
             continue
+
+        # Use stored/display metadata when available.  For legacy sparse tables
+        # without metadata, avoid recreating the old multi-megabase densification
+        # problem by limiting the implicit range to the normal distances default
+        # (1500 bp).  Users can always request a larger range with --x-max.
+        if fill_zeros:
+            report_min = float(args.x_min) if args.x_min is not None else max(1.0, float(np.nanmin(source_x)))
+            report_max = float(args.x_max) if args.x_max is not None else min(1500.0, float(np.nanmax(source_x)))
+            dense_start = int(math.ceil(report_min))
+            dense_end = int(math.floor(report_max))
+            if dense_end < dense_start:
+                continue
+            raw_x = np.arange(dense_start, dense_end + 1, dtype=float)
+            raw_values = np.zeros(raw_x.size, dtype=float)
+            raw_lookup = {
+                int(round(float(xx))): float(yy)
+                for xx, yy in zip(source_x, source_raw)
+                if math.isfinite(float(xx)) and math.isfinite(float(yy))
+            }
+            for index, distance in enumerate(raw_x.astype(int)):
+                if distance in raw_lookup:
+                    raw_values[index] = raw_lookup[distance]
+
+            visible_source = (source_x >= report_min) & (source_x <= report_max)
+            smooth_x = source_x[visible_source]
+            smooth_values = source_smooth[visible_source]
+            lower, upper = report_min, report_max
+        else:
+            raw_x, raw_values = source_x, source_raw
+            smooth_x, smooth_values = source_x, source_smooth
+            lower = -math.inf if args.x_min is None else float(args.x_min)
+            upper = math.inf if args.x_max is None else float(args.x_max)
 
         use_smooth = smooth_key is not None and nrl_mode == "smoothed"
         if use_smooth:
-            raw_mask = np.isfinite(raw)
+            raw_mask = np.isfinite(raw_x) & np.isfinite(raw_values)
             raw_kw = {"color": "0.78", "linewidth": 0.8, "alpha": 0.65, "zorder": 1}
             raw_kw.update(artist_kw.get("raw", {}))
-            ax.plot(x[raw_mask], raw[raw_mask], **raw_kw)
+            ax.plot(raw_x[raw_mask], raw_values[raw_mask], **raw_kw)
+            selected_x, selected = smooth_x, smooth_values
+        else:
+            selected_x, selected = raw_x, raw_values
 
-        selected = smooth if use_smooth else raw
-        selected_mask = np.isfinite(selected)
+        selected_mask = np.isfinite(selected_x) & np.isfinite(selected)
         line_kw = {"linewidth": 1.5 if use_smooth else 1.35, "linestyle": "-", "zorder": 2}
         line_kw.update(artist_kw.get("line", {}))
         if group:
             line_kw["label"] = f"+{group}" if re.fullmatch(r"\d+(?:\.0+)?", group) else group
-        line, = ax.plot(x[selected_mask], selected[selected_mask], **line_kw)
+        line, = ax.plot(selected_x[selected_mask], selected[selected_mask], **line_kw)
 
         mode_key = hm.get("full_smoothed_mode_bp") if use_smooth else hm.get("full_raw_mode_bp")
         peak_x = None
@@ -1320,12 +1368,10 @@ def _plot_distances(path, headers, rows, args, output, artist_kw):
         elif np.any(selected_mask):
             finite_indices = np.flatnonzero(selected_mask)
             peak_index = finite_indices[int(np.argmax(selected[selected_mask]))]
-            peak_x = float(x[peak_index])
+            peak_x = float(selected_x[peak_index])
 
-        lower = -math.inf if args.x_min is None else float(args.x_min)
-        upper = math.inf if args.x_max is None else float(args.x_max)
         if peak_x is not None and lower <= peak_x <= upper:
-            matches = np.flatnonzero(x == peak_x)
+            matches = np.flatnonzero(selected_x == peak_x)
             if matches.size:
                 idx = int(matches[0])
                 if np.isfinite(selected[idx]):
@@ -1334,8 +1380,8 @@ def _plot_distances(path, headers, rows, args, output, artist_kw):
                         "linewidths": 0.8, "zorder": 4,
                     }
                     point_kw.update(artist_kw.get("points", {}))
-                    ax.scatter([x[idx]], [selected[idx]], **point_kw)
-                    _label_peaks(ax, x, selected, [idx], args, default=False)
+                    ax.scatter([selected_x[idx]], [selected[idx]], **point_kw)
+                    _label_peaks(ax, selected_x, selected, [idx], args, default=False)
 
     ax.set_xlabel("Distance (bp)")
     if args.y_column:
@@ -1347,7 +1393,6 @@ def _plot_distances(path, headers, rows, args, output, artist_kw):
         artist_kw={**artist_kw, "legend": {"title": "Neighbour order", **artist_kw.get("legend", {})}},
         default_size=(10.0, 5.5),
     ), fig
-
 
 def _plot_fragment_lengths(path, headers, rows, args, output, artist_kw):
     import matplotlib.pyplot as plt
@@ -3225,6 +3270,7 @@ def _add_dynamic_parameter(
 _PLOT_PARAMETER_SPECS: dict[str, tuple[tuple[str, Any, Sequence[str] | None, str | None, str], ...]] = {
     "distances": (
         ("nrl_mode", "smoothed", ("raw", "smoothed"), None, "Distance-distribution mode used for the selected order modes."),
+        ("include_zero_distances", True, None, "--no-include-zero-distances", "Fill missing integer distances with zero values in the displayed distance range (default)."),
         ("label_peaks", False, None, None, "Label displayed neighbour-order mode peaks."),
         ("peak_label_value", "x", ("x", "y", "both"), None, "Value written above labelled mode peaks."),
         ("peak_label_offset", 5.0, None, None, "Peak-label offset in points."),
@@ -3552,6 +3598,7 @@ def parse_cli_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 _RENDER_DEFAULTS = {
     "normalization": "auto", "smooth_window": 21, "show_raw": False,
+    "include_zero_distances": True,
     "detect_peaks": False, "peak_resolution": 160.0, "peak_min_distance": 100.0,
     "label_peaks": "auto", "peak_label_value": "x", "peak_label_offset": 5.0,
     "nrl_inset": "auto", "nrl_min_distance": 100.0, "inset_bounds": (0.70, 0.57, 0.27, 0.36),

@@ -83,6 +83,16 @@ nucleosuite plot output.tsv --plot-type generic-line \
   --y-column count
 ```
 
+## Reconstruct zero-count distance positions
+
+Distance tables produced by older NucleoSuite versions may omit distances with a raw count of zero. For a distance source, `plot` can reconstruct those missing integer-bp positions in memory before drawing the raw profile:
+
+```bash
+nucleosuite plot sample_distances.tsv --include-zero-distances
+```
+
+The source TSV and its original metadata are not modified. The reconstruction is limited to the displayed distance range (`--x-min` / `--x-max`, normally restored from the source metadata). Use `--no-include-zero-distances` when the sparse observed-only representation is desired. New `distances` outputs include zero-count positions by default.
+
 ## Major and minor ticks
 
 Base-pair plots use readable multiples of 10 where practical. Set exact tick spacing with:

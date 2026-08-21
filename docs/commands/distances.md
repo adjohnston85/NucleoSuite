@@ -136,9 +136,24 @@ or exact thresholds with:
 
 Sweep outputs include count and percentage overlays plus a table of the retained peak counts at each threshold.
 
+## Zero-count distances
+
+Distance distributions are written with explicit zero-count positions by default. For each order/group, the `*_distances.tsv` output contains every integer distance from `--min-distance` through `--max-distance`; distances that were not observed receive a count of zero. This makes the raw profile continuous and prevents plotting software from connecting separated non-zero observations directly across missing integer positions.
+
+The complete positive-distance distribution is still retained internally for smoothing, summary statistics, and neighbour-order mode detection. Dense zero filling is restricted to the requested reporting range, so a rare multi-megabase neighbour distance cannot cause NucleoSuite to allocate or write millions of unnecessary zero rows when, for example, `--max-distance 1500` is requested.
+
+Use the opt-out when a sparse observed-only table is specifically desired:
+
+```bash
+nucleosuite distances peaks.bed \
+  --no-include-zero-distances
+```
+
+`nucleosuite plot` exposes the same `--include-zero-distances` / `--no-include-zero-distances` control for distance tables. This allows an older sparse distance TSV to be replotted with explicit zeros without modifying the TSV itself.
+
 ## Higher-order distances and NRL regression
 
-Set `--max-order` above 1 when you want first-, second-, third-, or higher-neighbour distances in the same run. The default plotted/regression x-maximum is **1500 bp**; use `--max-distance` to change the visible range. `--max-distance` does **not** truncate distance calculation or the underlying per-order distribution.
+Set `--max-order` above 1 when you want first-, second-, third-, or higher-neighbour distances in the same run. The default plotted/regression x-maximum is **1500 bp**; use `--max-distance` to change the visible range. The same bounds define the default dense zero-filled reporting support. `--max-distance` does **not** truncate distance calculation, smoothing, or the underlying per-order distribution used for mode calling.
 
 Distances are always calculated **within contigs**. By default `--scope combined_chromosomes` pools the within-contig distance counts across all supplied contigs for the output distributions. The combined NRL regression is also the default:
 
@@ -162,7 +177,7 @@ See [Nucleosome repeat length](../ALGORITHMS.md#nucleosome-repeat-length) for th
 
 The requested options determine which outputs are written:
 
-- full raw and percentage distance tables (not truncated by `--max-distance`);
+- raw and percentage distance tables, zero-filled by default across the requested `--min-distance` to `--max-distance` reporting range;
 - per-state distance tables when `--state-bed` is used;
 - score-threshold or score-bin outputs;
 - percentile-sweep figures plus per-figure curve and retained-peak tables suitable for faithful replotting;

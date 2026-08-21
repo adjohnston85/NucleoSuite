@@ -279,3 +279,55 @@ def test_distance_peak_label_option_is_explicit():
     assert args.label_peaks is True
     assert args.peak_label_value == "both"
     assert args.peak_label_offset == pytest.approx(7.0)
+
+
+def test_distances_zero_filling_is_default_and_can_be_disabled():
+    default_args = distances.build_parser().parse_args(["peaks.bed"])
+    assert default_args.include_zero_distances is True
+
+    sparse_args = distances.build_parser().parse_args([
+        "peaks.bed", "--no-include-zero-distances"
+    ])
+    assert sparse_args.include_zero_distances is False
+
+
+def test_zero_filled_distribution_is_bounded_by_requested_reporting_range(tmp_path):
+    results = DistanceResults(
+        chrom_state={}, chrom_all={}, genome_state={},
+        genome_all={1: Counter({185: 10, 8_000_000: 1})},
+        duplicates={}, retained_by_chrom={}, threshold_pass_count=11, retained_count=11,
+    )
+    distance_path = tmp_path / "distances.tsv"
+    summary_path = tmp_path / "summary.tsv"
+    distributions, rows_written = distances.write_distribution_outputs(
+        results,
+        distance_path=distance_path,
+        summary_path=summary_path,
+        max_order=1,
+        include_chromosomes=False,
+        include_genome=True,
+        include_state_strata=False,
+        include_zero_distances=True,
+        count_smooth_window=0,
+        count_smooth_polyorder=2,
+        percent_smooth_window=0,
+        percent_smooth_polyorder=2,
+        min_distance=1,
+        max_distance=1500,
+    )
+    assert distributions == 1
+    assert rows_written == 1500
+
+    rows = list(csv.DictReader(distance_path.open(), delimiter="\t"))
+    assert len(rows) == 1500
+    assert int(rows[0]["distance_bp"]) == 1
+    assert int(rows[-1]["distance_bp"]) == 1500
+    by_distance = {int(row["distance_bp"]): int(row["count"]) for row in rows}
+    assert by_distance[184] == 0
+    assert by_distance[185] == 10
+    assert by_distance[186] == 0
+    assert 8_000_000 not in by_distance
+
+    summary = next(csv.DictReader(summary_path.open(), delimiter="\t"))
+    assert int(summary["observed_max_bp"]) == 8_000_000
+    assert int(summary["raw_mode_bp"]) == 185

@@ -1158,13 +1158,13 @@ def summarize_distribution(
 ) -> DistributionStatistics:
     """Summarize the complete positive-distance distribution.
 
-    ``min_distance`` and ``max_distance`` are accepted for API compatibility
-    but deliberately do not truncate the distribution.  The CLI uses those
-    values only as the display/regression window after the full distribution
-    and its mode have been determined.
+    The full positive-distance distribution is always retained for summary
+    statistics, smoothing, and mode detection.  ``min_distance`` and
+    ``max_distance`` only bound the *dense reporting support* requested by
+    ``include_zero_distances``.  This prevents one distant observed pair from
+    expanding a zero-filled output to millions of unnecessary rows.
     """
 
-    del min_distance, max_distance
     positive = {int(distance): int(count) for distance, count in counter.items() if int(distance) > 0 and int(count) > 0}
     if not positive:
         raise ValueError("Cannot summarize an empty distance distribution")
@@ -1172,7 +1172,13 @@ def summarize_distribution(
     observed_min = min(positive)
     observed_max = max(positive)
     if include_zero_distances:
-        output_distances = np.arange(1, observed_max + 1, dtype=int)
+        output_min = 1 if min_distance is None else int(min_distance)
+        output_max = observed_max if max_distance is None else int(max_distance)
+        if output_min < 0:
+            raise ValueError("min_distance must be zero or greater")
+        if output_max < output_min:
+            raise ValueError("max_distance must be greater than or equal to min_distance")
+        output_distances = np.arange(output_min, output_max + 1, dtype=int)
     else:
         output_distances = np.asarray(sorted(positive), dtype=int)
 
@@ -1865,7 +1871,7 @@ def write_threshold_metadata(
         ("duplicate_policy", duplicate_policy),
         ("min_distance", min_distance),
         ("max_distance", max_distance),
-        ("distance_limit_role", "plot_and_regression_inclusion_only"),
+        ("distance_limit_role", "plot_regression_and_dense_reporting_range"),
         ("distance_counting_upper_limit", "none"),
         ("order_mode_detection_scope", "full_positive_distance_distribution"),
         ("max_order", max_order),
@@ -2820,16 +2826,18 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "--min-distance",
         type=int,
         default=1,
-        help=("Minimum distance shown and eligible for neighbour-order regression in bp; "
-              "the full positive-distance distribution is still calculated (default: 1)."),
+        help=("Minimum distance shown, emitted in the default zero-filled reporting table, "
+              "and eligible for neighbour-order regression in bp; the full positive-distance "
+              "distribution is still calculated (default: 1)."),
     )
     parser.add_argument(
         "--max-distance",
         type=int,
         default=1500,
-        help=("Maximum distance shown and eligible for neighbour-order regression in bp; "
-              "distance counting, full distributions, smoothing, and mode detection are not "
-              "truncated by this limit (default: 1500)."),
+        help=("Maximum distance shown, emitted in the default zero-filled reporting table, "
+              "and eligible for neighbour-order regression in bp; distance counting, full "
+              "distributions, smoothing, and mode detection are not truncated by this limit "
+              "(default: 1500)."),
     )
     parser.add_argument(
         "--max-order",
@@ -2887,10 +2895,25 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         default=5.0,
         help="Vertical peak-label offset in typographic points (default: 5).",
     )
-    parser.add_argument(
+    zero_distance_group = parser.add_mutually_exclusive_group()
+    zero_distance_group.add_argument(
         "--include-zero-distances",
+        dest="include_zero_distances",
         action="store_true",
-        help="Emit zero-count rows between the minimum and maximum observed distances.",
+        default=True,
+        help=(
+            "Emit every integer distance from --min-distance through --max-distance, "
+            "inserting zero-count rows where no pair was observed (default)."
+        ),
+    )
+    zero_distance_group.add_argument(
+        "--no-include-zero-distances",
+        dest="include_zero_distances",
+        action="store_false",
+        help=(
+            "Write only observed positive-distance rows instead of the default "
+            "zero-filled reporting range."
+        ),
     )
     parser.add_argument(
         "--count-smooth-window",
@@ -3282,6 +3305,7 @@ def _run_serial(args: argparse.Namespace) -> int:
                         "label_peaks": bool(args.label_peaks),
                         "peak_label_value": args.peak_label_value,
                         "peak_label_offset": args.peak_label_offset,
+                        "include_zero_distances": bool(args.include_zero_distances),
                     },
                 )
             output_count = 3 + len(regression_outputs)
