@@ -82,6 +82,19 @@ nucleosuite --help
 
 For a single analysis, run the command that produces the required signal, profile, peak set, or spacing result. For coordinated analyses, use [`mnase-suite`](docs/commands/mnase-suite.md) or [`cfdna-suite`](docs/commands/cfdna-suite.md). Existing chromosome-wise runs can be recombined with [`combine`](docs/commands/combine.md), and generated figures can be recreated or customized with [`plot`](docs/commands/plot.md).
 
+### Clickable workflow test: dyads → DAC → NRL
+
+This small workflow is included as a test of clickable analysis nodes in the GitHub-rendered README. Click a command to open its example-output page.
+
+```mermaid
+flowchart LR
+    DYADS["dyads"] --> DAC["dac"] --> NRL["nrl"]
+
+    click DYADS href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/examples/dyads.md" "View dyads example outputs"
+    click DAC href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/examples/dac.md" "View DAC example outputs"
+    click NRL href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/examples/nrl.md" "View NRL example outputs"
+```
+
 A minimal PNS example:
 
 ```bash
