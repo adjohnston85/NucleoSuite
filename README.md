@@ -2,6 +2,12 @@
 
 NucleoSuite is a command-line toolkit that converts paired-end alignments or fragment intervals into nucleosome-positioning signals, cfDNA and MNase-seq fragmentomic analyses, peak calls, chromatin-state profiles, sequence profiles, spacing measurements, and coordinated workflows.
 
+<p align="center">
+  <img src="docs/images/PNS_example_tracks.png" alt="Example NucleoSuite genomic track outputs displayed in IGV" width="100%">
+</p>
+
+*Example NucleoSuite track outputs displayed in Integrative Genomics Viewer (IGV) v2.19.8, including coverage, positive PNS, PNS, nucleosome and breakpoint calls, fragment dyads, and fragment-end tracks [1].*
+
 ```bash
 nucleosuite COMMAND [options]
 ```
@@ -81,19 +87,6 @@ nucleosuite --help
 ## Typical workflows
 
 For a single analysis, run the command that produces the required signal, profile, peak set, or spacing result. For coordinated analyses, use [`mnase-suite`](docs/commands/mnase-suite.md) or [`cfdna-suite`](docs/commands/cfdna-suite.md). Existing chromosome-wise runs can be recombined with [`combine`](docs/commands/combine.md), and generated figures can be recreated or customized with [`plot`](docs/commands/plot.md).
-
-### Clickable workflow test: dyads → DAC → NRL
-
-This small workflow is included as a test of clickable analysis nodes in the GitHub-rendered README. Click a command to open its example-output page.
-
-```mermaid
-flowchart LR
-    DYADS["dyads"] --> DAC["dac"] --> NRL["nrl"]
-
-    click DYADS href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/examples/dyads.md" "View dyads example outputs"
-    click DAC href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/examples/dac.md" "View DAC example outputs"
-    click NRL href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/examples/nrl.md" "View NRL example outputs"
-```
 
 A minimal PNS example:
 
@@ -186,3 +179,8 @@ nucleosuite COMMAND --help
 nucleosuite COMMAND --help-all
 nucleosuite COMMAND --help-plotting
 ```
+
+## References
+
+1. Robinson JT, Thorvaldsdóttir H, Winckler W, Guttman M, Lander ES, Getz G, Mesirov JP. Integrative genomics viewer. *Nature Biotechnology*. 2011;29:24–26. [doi:10.1038/nbt.1754](https://doi.org/10.1038/nbt.1754).
+
