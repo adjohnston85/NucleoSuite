@@ -81,9 +81,11 @@ CORE_DESTINATIONS: dict[str, set[str]] = {
         "distribution", "ratio_x1", "ratio_x2", "top_categories", "x_min", "x_max",
         "output_dir", "output_prefix", "write_detail_tables",
     },
-    "filter-coverage": {
-        "bed", "bigwig", "coverage_threshold", "position_column", "output", "summary_output",
-        "chunk_size",
+    "filter-peaks": {
+        "input", "score_column", "min_score", "max_score", "score_percentile",
+        "min_length", "max_length", "abs_score", "score_scale", "coverage_bigwig",
+        "min_coverage", "coverage_position_column", "coverage_chunk_size", "output",
+        "output_format", "chrom_sizes", "summary_output", "strict",
     },
     "fragment-heatmap": {
         "input", "out_prefix", "min_frag", "max_frag", "normalisation", "downsample_to",

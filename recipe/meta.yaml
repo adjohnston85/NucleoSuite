@@ -1,5 +1,5 @@
 {% set name = "nucleosuite" %}
-{% set version = "0.9.0" %}
+{% set version = "0.9.1" %}
 
 package:
   name: {{ name|lower }}
@@ -47,7 +47,6 @@ test:
     - nucleosuite.nrl
     - nucleosuite.positive_runs
     - nucleosuite.peak_score_frequency
-    - nucleosuite.filter_coverage
     - nucleosuite.filter_peaks
     - nucleosuite.replot
   commands:
@@ -63,7 +62,6 @@ test:
     - nucleosuite nrl --help
     - nucleosuite positive-runs --help
     - nucleosuite peak-score-frequency --help
-    - nucleosuite filter-coverage --help
     - nucleosuite filter-peaks --help
     - nucleosuite plot --help
     - nucleosuite fragment-heatmap --help

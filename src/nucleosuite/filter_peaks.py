@@ -7,6 +7,7 @@ import argparse
 import csv
 import gzip
 import math
+import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +16,7 @@ from typing import Iterable, Sequence, TextIO
 import numpy as np
 
 from nucleosuite.cli.formatting import NucleoSuiteHelpFormatter
+from nucleosuite.core.regions import resolve_contig_name
 from nucleosuite.io.intervals import (
     convert_bed_to_bigbed,
     is_bigbed_path,
@@ -31,10 +33,13 @@ class PeakFilterSummary:
     total_records: int
     valid_records: int
     length_eligible_records: int
+    coverage_eligible_records: int
     retained_records: int
     malformed_records: int
     length_filtered_records: int
+    coverage_filtered_records: int
     score_filtered_records: int
+    missing_coverage_values: int
     percentile_threshold: float | None
 
     @property
@@ -42,6 +47,93 @@ class PeakFilterSummary:
         if self.valid_records == 0:
             return 0.0
         return self.retained_records / self.valid_records * 100.0
+
+
+class BigWigCoverageReader:
+    """Read point values with a fixed genomic cache for efficient peak scans."""
+
+    def __init__(self, handle, chunk_size: int = 1_000_000) -> None:
+        if chunk_size < 1:
+            raise ValueError("--coverage-chunk-size must be at least 1")
+        self.handle = handle
+        self.chunk_size = int(chunk_size)
+        self.chrom_sizes = {str(k): int(v) for k, v in handle.chroms().items()}
+        if not self.chrom_sizes:
+            raise ValueError("The coverage BigWig contains no chromosomes")
+        self._resolved: dict[str, str] = {}
+        self._cache_chrom: str | None = None
+        self._cache_start = 0
+        self._cache_values = np.empty(0, dtype=float)
+
+    def _resolve(self, chrom: str) -> str:
+        resolved = self._resolved.get(chrom)
+        if resolved is not None:
+            return resolved
+        try:
+            resolved = resolve_contig_name(
+                chrom, list(self.chrom_sizes), source_label="coverage BigWig"
+            )
+        except KeyError as exc:
+            raise ValueError(str(exc)) from exc
+        self._resolved[chrom] = resolved
+        return resolved
+
+    def value(self, chrom: str, position: int) -> tuple[float, bool]:
+        resolved = self._resolve(chrom)
+        chrom_length = self.chrom_sizes[resolved]
+        if position < 0 or position >= chrom_length:
+            raise ValueError(
+                f"Peak position {chrom}:{position} lies outside coverage BigWig "
+                f"chromosome length {chrom_length}"
+            )
+        cache_end = self._cache_start + len(self._cache_values)
+        if not (
+            self._cache_chrom == resolved
+            and self._cache_start <= position < cache_end
+        ):
+            chunk_start = (position // self.chunk_size) * self.chunk_size
+            chunk_end = min(chrom_length, chunk_start + self.chunk_size)
+            try:
+                values = self.handle.values(resolved, chunk_start, chunk_end, numpy=True)
+            except TypeError:  # older pyBigWig builds
+                values = self.handle.values(resolved, chunk_start, chunk_end)
+            self._cache_chrom = resolved
+            self._cache_start = chunk_start
+            self._cache_values = np.asarray(values, dtype=float)
+        value = float(self._cache_values[position - self._cache_start])
+        if not math.isfinite(value):
+            return 0.0, True
+        return value, False
+
+
+def bed_position(fields: Sequence[str], position_column: int | None) -> int:
+    """Return the zero-based genomic position used to sample coverage."""
+    try:
+        start = int(fields[1])
+        end = int(fields[2])
+    except (IndexError, ValueError) as exc:
+        raise ValueError("invalid BED coordinates") from exc
+    if start < 0 or end <= start:
+        raise ValueError("require 0 <= start < end")
+    if position_column is None:
+        return (start + end) // 2
+    index = position_column - 1
+    if index >= len(fields):
+        raise ValueError(
+            f"coverage position column {position_column} is absent from a "
+            f"{len(fields)}-column record"
+        )
+    try:
+        position = int(fields[index])
+    except ValueError as exc:
+        raise ValueError(
+            f"coverage position column {position_column} is not an integer"
+        ) from exc
+    if position < 0:
+        raise ValueError(
+            f"coverage position column {position_column} must be zero or greater"
+        )
+    return position
 
 
 def _split_fields(text: str) -> list[str]:
@@ -82,6 +174,17 @@ def _strip_interval_suffix(path: str | Path) -> tuple[str, str]:
     return Path(name).stem, Path(name).suffix
 
 
+def _safe_path_token(path: str | Path) -> str:
+    name = Path(path).name
+    lower = name.lower()
+    for suffix in (".bigwig", ".bw", ".bedgraph", ".bed.gz", ".bed", ".gz"):
+        if lower.endswith(suffix):
+            name = name[: -len(suffix)]
+            break
+    token = re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("_.-")
+    return token or "track"
+
+
 def resolved_output_format(input_path: str | Path, requested: str) -> str:
     if requested not in OUTPUT_FORMATS:
         raise ValueError(f"Unknown output format: {requested}")
@@ -99,6 +202,9 @@ def automatic_output_path(
     max_length: int | None,
     abs_score: bool,
     score_scale: float,
+    coverage_bigwig: str | Path | None,
+    min_coverage: float | None,
+    coverage_position_column: int | None,
 ) -> Path:
     """Build a collision-resistant automatic output filename."""
     path = Path(input_path)
@@ -115,6 +221,11 @@ def automatic_output_path(
         tokens.append(f"lenmin{min_length}")
     if max_length is not None:
         tokens.append(f"lenmax{max_length}")
+    if coverage_bigwig is not None:
+        tokens.append(f"cov{_safe_path_token(coverage_bigwig)}")
+        tokens.append(f"covmin{_filter_token(min_coverage)}")
+        if coverage_position_column is not None:
+            tokens.append(f"covposcol{coverage_position_column}")
     if abs_score:
         tokens.append("absscore")
     if not math.isclose(score_scale, 1.0, rel_tol=0.0, abs_tol=1e-15):
@@ -135,6 +246,23 @@ def transformed_score(raw_score: float, *, abs_score: bool, score_scale: float) 
     return value * score_scale
 
 
+def _score_required(
+    *,
+    min_score: float | None,
+    max_score: float | None,
+    score_percentile: float | None,
+    abs_score: bool,
+    score_scale: float,
+) -> bool:
+    return (
+        min_score is not None
+        or max_score is not None
+        or score_percentile is not None
+        or abs_score
+        or not math.isclose(score_scale, 1.0, rel_tol=0.0, abs_tol=1e-15)
+    )
+
+
 def _validate_filters(
     *,
     score_column: int,
@@ -144,6 +272,10 @@ def _validate_filters(
     min_length: int | None,
     max_length: int | None,
     score_scale: float,
+    coverage_bigwig: str | Path | None,
+    min_coverage: float | None,
+    coverage_position_column: int | None,
+    coverage_chunk_size: int,
 ) -> None:
     if score_column < 1:
         raise ValueError("--score-column must be a one-based column number of 1 or greater")
@@ -164,23 +296,25 @@ def _validate_filters(
         raise ValueError("--max-length must be greater than or equal to --min-length")
     if not math.isfinite(score_scale) or score_scale <= 0:
         raise ValueError("--score-scale must be a finite value greater than 0")
+    if (coverage_bigwig is None) != (min_coverage is None):
+        raise ValueError("--coverage-bigwig and --min-coverage must be supplied together")
+    if min_coverage is not None and (
+        not math.isfinite(min_coverage) or min_coverage < 0
+    ):
+        raise ValueError("--min-coverage must be a finite value of 0 or greater")
+    if coverage_position_column is not None:
+        if coverage_bigwig is None:
+            raise ValueError("--coverage-position-column requires --coverage-bigwig")
+        if coverage_position_column < 1:
+            raise ValueError("--coverage-position-column must be a one-based column number")
+    if coverage_chunk_size < 1:
+        raise ValueError("--coverage-chunk-size must be at least 1")
 
 
-def _parse_record(
-    path: str | Path,
-    line_number: int,
-    text: str,
-    *,
-    score_column: int,
-) -> tuple[list[str], int, float]:
+def _parse_interval_record(text: str) -> tuple[list[str], int]:
     fields = _split_fields(text)
-    score_index = score_column - 1
     if len(fields) < 3:
         raise ValueError("expected at least BED3")
-    if score_index >= len(fields):
-        raise ValueError(
-            f"score column {score_column} is absent from a {len(fields)}-column record"
-        )
     try:
         start = int(fields[1])
         end = int(fields[2])
@@ -188,58 +322,120 @@ def _parse_record(
         raise ValueError("BED start/end must be integers") from exc
     if start < 0 or end <= start:
         raise ValueError("BED start/end must satisfy 0 <= start < end")
+    return fields, end - start
+
+
+def _parse_score(fields: Sequence[str], score_column: int) -> float:
+    score_index = score_column - 1
+    if score_index >= len(fields):
+        raise ValueError(
+            f"score column {score_column} is absent from a {len(fields)}-column record"
+        )
     try:
         score = float(fields[score_index])
     except ValueError as exc:
         raise ValueError(f"score column {score_column} is not numeric") from exc
     if not math.isfinite(score):
         raise ValueError(f"score column {score_column} is not finite")
-    return fields, end - start, score
+    return score
 
 
-def collect_length_eligible_scores(
+def _open_coverage_reader(path: str | Path, chunk_size: int):
+    try:
+        import pyBigWig  # type: ignore
+    except ImportError as exc:  # pragma: no cover - environment dependent
+        raise RuntimeError("Coverage filtering requires pyBigWig") from exc
+    handle = pyBigWig.open(str(path))
+    if handle is None:
+        raise OSError(f"Could not open coverage BigWig: {path}")
+    try:
+        reader = BigWigCoverageReader(handle, chunk_size=chunk_size)
+    except Exception:
+        handle.close()
+        raise
+    return handle, reader
+
+
+def collect_filter_eligible_scores(
     input_path: str | Path,
     *,
     score_column: int,
     min_length: int | None,
     max_length: int | None,
     abs_score: bool,
+    require_score: bool,
+    coverage_bigwig: str | Path | None,
+    min_coverage: float | None,
+    coverage_position_column: int | None,
+    coverage_chunk_size: int,
     strict: bool,
     progress: ProgressReporter | None = None,
-) -> tuple[np.ndarray, int, int, int, int]:
-    """First pass: collect scores after the region-length filter."""
+) -> tuple[np.ndarray, int, int, int, int, int, int, int, int]:
+    """Collect score values after length and optional coverage eligibility."""
     scores: list[float] = []
-    total = valid = malformed = length_filtered = 0
+    total = valid = malformed = length_filtered = coverage_filtered = 0
+    length_eligible = coverage_eligible = missing_coverage = 0
     seen_contigs: set[str] = set()
-    with open_interval_text(input_path) as source:
-        for line_number, raw in enumerate(source, 1):
-            text = raw.rstrip("\n")
-            stripped = text.strip()
-            if not stripped or stripped.startswith(HEADER_PREFIXES):
-                continue
-            total += 1
-            try:
-                fields, length, score = _parse_record(
-                    input_path, line_number, text, score_column=score_column
-                )
-            except ValueError as exc:
-                malformed += 1
-                if strict:
-                    raise ValueError(f"{input_path}:{line_number}: {exc}") from exc
-                continue
-            valid += 1
-            chrom = fields[0]
-            if progress is not None and chrom not in seen_contigs:
-                seen_contigs.add(chrom)
-                progress.reading_contig("peaks", chrom)
-            if min_length is not None and length < min_length:
-                length_filtered += 1
-                continue
-            if max_length is not None and length > max_length:
-                length_filtered += 1
-                continue
-            scores.append(abs(score) if abs_score else score)
-    return np.asarray(scores, dtype=float), total, valid, malformed, length_filtered
+    coverage_handle = coverage_reader = None
+    if coverage_bigwig is not None:
+        coverage_handle, coverage_reader = _open_coverage_reader(
+            coverage_bigwig, coverage_chunk_size
+        )
+    try:
+        with open_interval_text(input_path) as source:
+            for line_number, raw in enumerate(source, 1):
+                text = raw.rstrip("\n")
+                stripped = text.strip()
+                if not stripped or stripped.startswith(HEADER_PREFIXES):
+                    continue
+                total += 1
+                try:
+                    fields, length = _parse_interval_record(text)
+                    raw_score = _parse_score(fields, score_column) if require_score else None
+                except ValueError as exc:
+                    malformed += 1
+                    if strict:
+                        raise ValueError(f"{input_path}:{line_number}: {exc}") from exc
+                    continue
+                valid += 1
+                chrom = fields[0]
+                if progress is not None and chrom not in seen_contigs:
+                    seen_contigs.add(chrom)
+                    progress.reading_contig("peaks", chrom)
+                if min_length is not None and length < min_length:
+                    length_filtered += 1
+                    continue
+                if max_length is not None and length > max_length:
+                    length_filtered += 1
+                    continue
+                length_eligible += 1
+                if coverage_reader is not None:
+                    try:
+                        position = bed_position(fields, coverage_position_column)
+                        coverage, was_missing = coverage_reader.value(chrom, position)
+                    except ValueError as exc:
+                        raise ValueError(f"{input_path}:{line_number}: {exc}") from exc
+                    missing_coverage += int(was_missing)
+                    if coverage < float(min_coverage):
+                        coverage_filtered += 1
+                        continue
+                coverage_eligible += 1
+                if raw_score is not None:
+                    scores.append(abs(raw_score) if abs_score else raw_score)
+    finally:
+        if coverage_handle is not None:
+            coverage_handle.close()
+    return (
+        np.asarray(scores, dtype=float),
+        total,
+        valid,
+        malformed,
+        length_filtered,
+        length_eligible,
+        coverage_filtered,
+        coverage_eligible,
+        missing_coverage,
+    )
 
 
 def infer_bigbed_chrom_sizes(path: str | Path) -> dict[str, int]:
@@ -283,6 +479,10 @@ def write_summary(
     max_length: int | None,
     abs_score: bool,
     score_scale: float,
+    coverage_bigwig: str | Path | None,
+    min_coverage: float | None,
+    coverage_position_column: int | None,
+    coverage_chunk_size: int,
     summary: PeakFilterSummary,
 ) -> Path:
     output = Path(output_path)
@@ -297,15 +497,28 @@ def write_summary(
         ("percentile_score_threshold", "" if percentile_threshold is None else _format_number(percentile_threshold)),
         ("min_length", "" if min_length is None else min_length),
         ("max_length", "" if max_length is None else max_length),
+        ("coverage_bigwig", "" if coverage_bigwig is None else coverage_bigwig),
+        ("min_coverage", "" if min_coverage is None else _format_number(min_coverage)),
+        (
+            "coverage_position_source",
+            "" if coverage_bigwig is None else (
+                "interval_midpoint" if coverage_position_column is None
+                else f"bed_column_{coverage_position_column}"
+            ),
+        ),
+        ("coverage_chunk_size", "" if coverage_bigwig is None else coverage_chunk_size),
         ("absolute_score", str(bool(abs_score)).lower()),
         ("score_scale", _format_number(score_scale)),
         ("total_records", summary.total_records),
         ("valid_records", summary.valid_records),
         ("length_eligible_records", summary.length_eligible_records),
+        ("coverage_eligible_records", summary.coverage_eligible_records),
         ("retained_records", summary.retained_records),
         ("malformed_records", summary.malformed_records),
         ("length_filtered_records", summary.length_filtered_records),
+        ("coverage_filtered_records", summary.coverage_filtered_records),
         ("score_filtered_records", summary.score_filtered_records),
+        ("missing_coverage_values_treated_as_zero", summary.missing_coverage_values),
         ("retained_percent_of_valid", f"{summary.retained_percent:.6f}"),
     ]
     with output.open("wt", encoding="utf-8", newline="") as handle:
@@ -328,12 +541,16 @@ def filter_peaks(
     max_length: int | None = None,
     abs_score: bool = False,
     score_scale: float = 1.0,
+    coverage_bigwig: str | Path | None = None,
+    min_coverage: float | None = None,
+    coverage_position_column: int | None = None,
+    coverage_chunk_size: int = 1_000_000,
     chrom_sizes: str | Path | None = None,
     summary_output: str | Path | None = None,
     strict: bool = False,
     progress: ProgressReporter | None = None,
 ) -> tuple[Path, Path, PeakFilterSummary]:
-    """Filter a BED/BED.gz/bigBed while preserving its interval representation."""
+    """Filter BED/BED.gz/bigBed peaks by score, length, and/or coverage."""
     _validate_filters(
         score_column=score_column,
         min_score=min_score,
@@ -342,11 +559,24 @@ def filter_peaks(
         min_length=min_length,
         max_length=max_length,
         score_scale=score_scale,
+        coverage_bigwig=coverage_bigwig,
+        min_coverage=min_coverage,
+        coverage_position_column=coverage_position_column,
+        coverage_chunk_size=coverage_chunk_size,
     )
     source_path = Path(input_path)
     if not source_path.exists():
         raise FileNotFoundError(source_path)
+    if coverage_bigwig is not None and not Path(coverage_bigwig).exists():
+        raise FileNotFoundError(coverage_bigwig)
     fmt = resolved_output_format(source_path, output_format)
+    require_score = _score_required(
+        min_score=min_score,
+        max_score=max_score,
+        score_percentile=score_percentile,
+        abs_score=abs_score,
+        score_scale=score_scale,
+    )
     if fmt == "bigbed" and score_column != 5 and (
         abs_score or not math.isclose(score_scale, 1.0, rel_tol=0.0, abs_tol=1e-15)
     ):
@@ -357,24 +587,41 @@ def filter_peaks(
 
     if progress is not None:
         progress.file_start("peaks", source_path)
-        progress.stage("Reading peak scores and applying region-length eligibility")
+        progress.stage("Reading peaks and applying length/coverage eligibility")
 
-    scores, total, valid, malformed, length_filtered = collect_length_eligible_scores(
+    (
+        scores,
+        total,
+        valid,
+        malformed,
+        length_filtered,
+        length_eligible,
+        coverage_filtered,
+        coverage_eligible,
+        missing_coverage,
+    ) = collect_filter_eligible_scores(
         source_path,
         score_column=score_column,
         min_length=min_length,
         max_length=max_length,
         abs_score=abs_score,
+        require_score=require_score,
+        coverage_bigwig=coverage_bigwig,
+        min_coverage=min_coverage,
+        coverage_position_column=coverage_position_column,
+        coverage_chunk_size=coverage_chunk_size,
         strict=strict,
         progress=progress,
     )
     if valid == 0:
-        raise ValueError(f"No valid scored BED records were found in: {source_path}")
-    if scores.size == 0:
-        raise ValueError("No peaks remain after the requested region-length filter")
-
+        raise ValueError(f"No valid BED records were found in: {source_path}")
     percentile_threshold: float | None = None
     if score_percentile is not None:
+        if coverage_eligible == 0 or scores.size == 0:
+            raise ValueError(
+                "No scored peaks remain after the requested length/coverage filters "
+                "for percentile calculation"
+            )
         percentile_threshold = float(np.percentile(scores, score_percentile))
 
     output_path = Path(output) if output is not None else automatic_output_path(
@@ -387,16 +634,27 @@ def filter_peaks(
         max_length=max_length,
         abs_score=abs_score,
         score_scale=score_scale,
+        coverage_bigwig=coverage_bigwig,
+        min_coverage=min_coverage,
+        coverage_position_column=coverage_position_column,
     )
     summary_path = Path(summary_output) if summary_output is not None else default_summary_path(output_path)
 
     if progress is not None:
-        detail = (
-            f"score percentile {score_percentile:g} -> threshold {percentile_threshold:.12g}"
-            if percentile_threshold is not None
-            else "absolute score bounds"
+        filters: list[str] = []
+        if min_length is not None or max_length is not None:
+            filters.append("length")
+        if coverage_bigwig is not None:
+            filters.append("coverage")
+        if percentile_threshold is not None:
+            filters.append(
+                f"score percentile {score_percentile:g} -> {percentile_threshold:.12g}"
+            )
+        elif min_score is not None or max_score is not None:
+            filters.append("absolute score")
+        progress.stage(
+            "Writing filtered intervals" + (f" ({', '.join(filters)})" if filters else "")
         )
-        progress.stage(f"Writing filtered intervals using {detail}")
 
     temporary_dir: tempfile.TemporaryDirectory[str] | None = None
     if fmt == "bigbed":
@@ -408,9 +666,13 @@ def filter_peaks(
         compressed = fmt == "bed.gz"
 
     retained = 0
-    length_eligible = 0
     score_filtered = 0
     score_index = score_column - 1
+    coverage_handle = coverage_reader = None
+    if coverage_bigwig is not None:
+        coverage_handle, coverage_reader = _open_coverage_reader(
+            coverage_bigwig, coverage_chunk_size
+        )
     try:
         with open_interval_text(source_path) as source, _open_output_text(text_output, compressed=compressed) as destination:
             for line_number, raw in enumerate(source, 1):
@@ -421,9 +683,8 @@ def filter_peaks(
                         destination.write(text + "\n")
                     continue
                 try:
-                    fields, length, raw_score = _parse_record(
-                        source_path, line_number, text, score_column=score_column
-                    )
+                    fields, length = _parse_interval_record(text)
+                    raw_score = _parse_score(fields, score_column) if require_score else None
                 except ValueError as exc:
                     if strict:
                         raise ValueError(f"{source_path}:{line_number}: {exc}") from exc
@@ -432,24 +693,36 @@ def filter_peaks(
                     continue
                 if max_length is not None and length > max_length:
                     continue
-                length_eligible += 1
-                filter_score = abs(raw_score) if abs_score else raw_score
+                if coverage_reader is not None:
+                    try:
+                        position = bed_position(fields, coverage_position_column)
+                        coverage, _was_missing = coverage_reader.value(fields[0], position)
+                    except ValueError as exc:
+                        raise ValueError(f"{source_path}:{line_number}: {exc}") from exc
+                    if coverage < float(min_coverage):
+                        continue
+
                 keep = True
-                if percentile_threshold is not None:
-                    keep = filter_score >= percentile_threshold
-                else:
-                    if min_score is not None and filter_score < min_score:
-                        keep = False
-                    if max_score is not None and filter_score > max_score:
-                        keep = False
+                if raw_score is not None:
+                    filter_score = abs(raw_score) if abs_score else raw_score
+                    if percentile_threshold is not None:
+                        keep = filter_score >= percentile_threshold
+                    else:
+                        if min_score is not None and filter_score < min_score:
+                            keep = False
+                        if max_score is not None and filter_score > max_score:
+                            keep = False
                 if not keep:
                     score_filtered += 1
                     continue
 
-                output_score = transformed_score(
-                    raw_score, abs_score=abs_score, score_scale=score_scale
-                )
-                if abs_score or not math.isclose(score_scale, 1.0, rel_tol=0.0, abs_tol=1e-15):
+                if raw_score is not None and (
+                    abs_score
+                    or not math.isclose(score_scale, 1.0, rel_tol=0.0, abs_tol=1e-15)
+                ):
+                    output_score = transformed_score(
+                        raw_score, abs_score=abs_score, score_scale=score_scale
+                    )
                     fields[score_index] = _format_number(output_score)
                     destination.write("\t".join(fields) + "\n")
                 else:
@@ -472,10 +745,10 @@ def filter_peaks(
                 bigbed_score_multiplier=1.0,
             )
             if converted is None:
-                # Keep an explicit BED marker path from the converter semantics but
-                # report the requested bigBed path for a predictable CLI contract.
                 output_path = Path(str(output_path) + ".empty")
     finally:
+        if coverage_handle is not None:
+            coverage_handle.close()
         if temporary_dir is not None:
             temporary_dir.cleanup()
 
@@ -483,10 +756,13 @@ def filter_peaks(
         total_records=total,
         valid_records=valid,
         length_eligible_records=length_eligible,
+        coverage_eligible_records=coverage_eligible,
         retained_records=retained,
         malformed_records=malformed,
         length_filtered_records=length_filtered,
+        coverage_filtered_records=coverage_filtered,
         score_filtered_records=score_filtered,
+        missing_coverage_values=missing_coverage,
         percentile_threshold=percentile_threshold,
     )
     write_summary(
@@ -502,6 +778,10 @@ def filter_peaks(
         max_length=max_length,
         abs_score=abs_score,
         score_scale=score_scale,
+        coverage_bigwig=coverage_bigwig,
+        min_coverage=min_coverage,
+        coverage_position_column=coverage_position_column,
+        coverage_chunk_size=coverage_chunk_size,
         summary=summary,
     )
     return output_path, summary_path, summary
@@ -511,16 +791,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="nucleosuite filter-peaks",
         description=(
-            "Filter nucleosome/peak BED, BED.gz, or bigBed intervals by absolute "
-            "score, score percentile, and region length. The filtered output uses "
-            "the same interval format as the input by default."
+            "Filter nucleosome/peak BED, BED.gz, or bigBed intervals by score, "
+            "score percentile, region length, and/or BigWig coverage. The filtered "
+            "output uses the same interval format as the input by default."
         ),
         formatter_class=NucleoSuiteHelpFormatter,
     )
     parser.add_argument("input", help="Input peak BED, BED.gz, or bigBed file.")
     parser.add_argument(
         "--score-column", type=int, default=5,
-        help="One-based numeric score column (default: 5).",
+        help=(
+            "One-based numeric score column (default: 5). Required only when a "
+            "score filter or score transformation is requested."
+        ),
     )
     score_group = parser.add_argument_group("score filtering")
     score_group.add_argument(
@@ -535,7 +818,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--score-percentile", type=float,
         help=(
             "Retain peaks at or above this score percentile (0-100), calculated "
-            "after region-length filtering."
+            "after region-length and coverage filtering."
         ),
     )
     score_group.add_argument(
@@ -560,6 +843,29 @@ def build_parser() -> argparse.ArgumentParser:
     length_group.add_argument(
         "--max-length", type=int,
         help="Maximum BED interval length in bp to retain (inclusive).",
+    )
+    coverage_group = parser.add_argument_group("coverage filtering")
+    coverage_group.add_argument(
+        "--coverage-bigwig",
+        help="BigWig track sampled to filter peaks by coverage.",
+    )
+    coverage_group.add_argument(
+        "--min-coverage", type=float,
+        help=(
+            "Minimum coverage required at the selected peak position (inclusive). "
+            "Requires --coverage-bigwig."
+        ),
+    )
+    coverage_group.add_argument(
+        "--coverage-position-column", type=int,
+        help=(
+            "One-based BED column containing the zero-based genomic position to "
+            "sample from --coverage-bigwig. Default: interval midpoint."
+        ),
+    )
+    coverage_group.add_argument(
+        "--coverage-chunk-size", type=int, default=1_000_000,
+        help="BigWig cache chunk size in bp (default: 1000000).",
     )
     parser.add_argument(
         "--output",
@@ -602,12 +908,16 @@ def run(args: argparse.Namespace) -> int:
             max_length=args.max_length,
             abs_score=args.abs_score,
             score_scale=args.score_scale,
+            coverage_bigwig=args.coverage_bigwig,
+            min_coverage=args.min_coverage,
+            coverage_position_column=args.coverage_position_column,
+            coverage_chunk_size=args.coverage_chunk_size,
             chrom_sizes=args.chrom_sizes,
             summary_output=args.summary_output,
             strict=args.strict,
             progress=reporter,
         )
-    except (OSError, RuntimeError, ValueError) as exc:
+    except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
         print(f"[ERROR] {exc}")
         return 2
     print(f"filtered_peaks\t{output}")
@@ -615,7 +925,9 @@ def run(args: argparse.Namespace) -> int:
     print(
         f"[INFO] Retained {result.retained_records:,}/{result.valid_records:,} valid peaks "
         f"({result.retained_percent:.2f}%); length-filtered "
-        f"{result.length_filtered_records:,}, score-filtered {result.score_filtered_records:,}."
+        f"{result.length_filtered_records:,}, coverage-filtered "
+        f"{result.coverage_filtered_records:,}, score-filtered "
+        f"{result.score_filtered_records:,}."
     )
     return 0
 

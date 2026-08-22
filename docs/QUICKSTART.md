@@ -46,11 +46,11 @@ nucleosuite pns \
 For an existing peak BED and coverage BigWig:
 
 ```bash
-nucleosuite filter-coverage \
+nucleosuite filter-peaks \
   sample_nucleosome_regions.bed \
-  --bigwig sample_coverage.bw \
-  --coverage-threshold 2 \
-  --position-column 7
+  --coverage-bigwig sample_coverage.bw \
+  --min-coverage 2 \
+  --coverage-position-column 7
 ```
 
 ## 3. Measure nucleosome spacing

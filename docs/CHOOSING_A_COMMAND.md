@@ -20,11 +20,11 @@ For a coordinated analysis with standard defaults, use [`cfdna-suite`](commands/
 
 Use [`mean-scale`](commands/mean-scale.md) when an existing BigWig should be expressed relative to a reference mean, including mean non-zero coverage, mean BED/bigBed region scores, or a supplied reference value.
 
-Use [`distances`](commands/distances.md) to measure nearest-neighbour or higher-order spacing. Use [`compare-positions`](commands/compare-positions.md) when one main nucleosome callset should be compared with one or more other callsets using one-to-one positional matching, main-score percentile groups, and optional within-percentile statistics. Use [`peak-score-frequency`](commands/peak-score-frequency.md) to compare their score distributions.
+Use [`filter-peaks`](commands/filter-peaks.md) to create a reusable peak subset by score, score percentile, interval length, BigWig coverage, or combinations of these filters. Use [`peak-score-frequency`](commands/peak-score-frequency.md) to compare peak-score distributions and [`peak-states`](commands/peak-states.md) to measure how peaks are distributed across chromatin states.
 
-Use [`flank-spacing`](commands/flank-spacing.md) when you have nucleosome calls plus a BED of reference sites divided into categories and want to compare the distance between the nearest upstream and downstream nucleosomes for each category. Column 4 is the default category column.
+Use [`compare-positions`](commands/compare-positions.md) when one main nucleosome callset should be compared with one or more other callsets using one-to-one positional matching, main-score percentile groups, and optional within-percentile statistics.
 
-Use [`peak-states`](commands/peak-states.md) to measure how peaks are distributed across chromatin states. Use [`filter-peaks`](commands/filter-peaks.md) to retain peaks by score, score percentile, or interval length. Use [`filter-coverage`](commands/filter-coverage.md) when you want to remove peaks that do not meet a minimum BigWig coverage value at their summit or interval midpoint.
+Use [`distances`](commands/distances.md) to measure nearest-neighbour or higher-order spacing. Use [`flank-spacing`](commands/flank-spacing.md) when you have nucleosome calls plus a BED of reference sites divided into categories and want to compare the distance between the nearest upstream and downstream nucleosomes for each category. Column 4 is the default category column.
 
 ## I have a genomic signal and want periodicity
 

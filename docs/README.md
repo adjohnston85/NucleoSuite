@@ -52,4 +52,4 @@ nucleosuite COMMAND --help-all   # all command-specific options and defaults
 nucleosuite COMMAND --help-plotting  # shared plot controls, when available
 ```
 
-- [`filter-peaks`](commands/filter-peaks.md) filters peak interval files by score, percentile, and region length.
+- [`filter-peaks`](commands/filter-peaks.md) filters peak interval files by score, percentile, region length, and/or BigWig coverage.

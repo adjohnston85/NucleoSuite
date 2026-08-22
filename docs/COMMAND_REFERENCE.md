@@ -25,13 +25,12 @@ Each command page describes the calculation, a typical invocation, analysis opti
 ## Analyse peaks and spacing
 
 - [`call-peaks`](commands/call-peaks.md) — call PNS or WPS features from an existing signal track.
+- [`filter-peaks`](commands/filter-peaks.md) — filter peak intervals by score, score percentile, region length, and/or BigWig coverage.
+- [`peak-score-frequency`](commands/peak-score-frequency.md) — compare peak-score distributions.
+- [`peak-states`](commands/peak-states.md) — count peaks and score-dependent enrichment across chromatin states.
+- [`compare-positions`](commands/compare-positions.md) — compare one main callset with positional callsets and optional BigWig score comparators.
 - [`distances`](commands/distances.md) — measure adjacent and higher-order peak spacing.
 - [`flank-spacing`](commands/flank-spacing.md) — compare category-wise spacing between nucleosomes flanking reference sites and rank the distributions.
-- [`compare-positions`](commands/compare-positions.md) — compare one main callset with positional callsets and optional BigWig score comparators.
-- [`peak-score-frequency`](commands/peak-score-frequency.md) — compare peak-score distributions.
-- [`filter-coverage`](commands/filter-coverage.md) — retain peaks that meet a BigWig coverage threshold at their selected position.
-- [`filter-peaks`](commands/filter-peaks.md) — filter peak intervals by score, score percentile, and region length.
-- [`peak-states`](commands/peak-states.md) — count peaks and score-dependent enrichment across chromatin states.
 - [`positive-runs`](commands/positive-runs.md) — measure continuous signal intervals above a threshold.
 
 ## Analyse periodicity and offsets

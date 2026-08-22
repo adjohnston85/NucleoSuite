@@ -22,7 +22,7 @@ def subparser_choices(parser: argparse.ArgumentParser) -> set[str]:
 
 
 def test_version_is_current_release():
-    assert __version__ == "0.9.0"
+    assert __version__ == "0.9.1"
 
 
 def test_all_primary_commands_are_registered():
@@ -31,7 +31,7 @@ def test_all_primary_commands_are_registered():
         "tracks", "pns", "wps", "coverage", "dyads", "dyad", "fragment-ends", "mean-scale",
         "dinuc-profile", "ww-types", "call-peaks", "peak-call",
         "aggregate", "compare-positions", "dac", "dcc", "distances", "fragment-lengths",
-        "fragment-heatmap", "filter-coverage", "filter-peaks", "gene-sets", "gene-expression", "tss-expression-quintiles", "mnase-suite", "cfdna-suite", "chrom-sizes", "nrl", "plot", "positive-runs", "peak-score-frequency", "peak-states", "resources", "region-extract", "validate-inputs",
+        "fragment-heatmap", "filter-peaks", "gene-sets", "gene-expression", "tss-expression-quintiles", "mnase-suite", "cfdna-suite", "chrom-sizes", "nrl", "plot", "positive-runs", "peak-score-frequency", "peak-states", "resources", "region-extract", "validate-inputs",
     } <= choices
 
 

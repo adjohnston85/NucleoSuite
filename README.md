@@ -44,17 +44,16 @@ nucleosuite --help
 | Command | Function |
 |---|---|
 | [`call-peaks`](docs/commands/call-peaks.md) | Call nucleosome and breakpoint features from PNS or WPS BigWigs. |
+| [`filter-peaks`](docs/commands/filter-peaks.md) | Filter peak intervals by score, score percentile, region length, and/or BigWig coverage. |
+| [`peak-score-frequency`](docs/commands/peak-score-frequency.md) | Compare peak-score distributions. |
+| [`peak-states`](docs/commands/peak-states.md) | Measure peak abundance and score-dependent enrichment by chromatin state. |
+| [`compare-positions`](docs/commands/compare-positions.md) | Compare one main callset with one or more positional callsets and optional BigWig score comparators. |
 | [`distances`](docs/commands/distances.md) | Calculate adjacent and higher-order distances between called positions. |
 | [`flank-spacing`](docs/commands/flank-spacing.md) | Compare the spacing between nucleosomes flanking categorized reference sites and rank category-specific distributions. |
 | [`dac`](docs/commands/dac.md) | Calculate distance autocorrelation within one signal. |
 | [`dcc`](docs/commands/dcc.md) | Calculate distance cross-correlation between two signals. |
 | [`nrl`](docs/commands/nrl.md) | Estimate nucleosome repeat length from recurring DAC or DCC peaks. |
-| [`compare-positions`](docs/commands/compare-positions.md) | Compare one main callset with one or more positional callsets and optional BigWig score comparators. |
 | [`positive-runs`](docs/commands/positive-runs.md) | Measure contiguous positive-signal intervals in a BigWig. |
-| [`peak-score-frequency`](docs/commands/peak-score-frequency.md) | Compare peak-score distributions. |
-| [`filter-coverage`](docs/commands/filter-coverage.md) | Filter BED peaks by BigWig coverage at the summit or interval midpoint. |
-| [`filter-peaks`](docs/commands/filter-peaks.md) | Filter peak intervals by score, score percentile, or region length. |
-| [`peak-states`](docs/commands/peak-states.md) | Measure peak abundance and score-dependent enrichment by chromatin state. |
 
 ### Regional and gene analyses
 

@@ -99,7 +99,7 @@ nucleosuite pns \
 
 Only nucleosome peaks with coverage of at least 2 at BED column 7 are written. Breakpoint peaks are not filtered by this option. The filter is off by default.
 
-To apply the same type of filter to an existing BED and coverage BigWig, use [`filter-coverage`](filter-coverage.md).
+To apply the same type of filter to an existing BED/BED.gz/bigBed and coverage BigWig, use [`filter-peaks`](filter-peaks.md) with `--coverage-bigwig` and `--min-coverage`.
 
 ## Peak scores and bigBed
 
