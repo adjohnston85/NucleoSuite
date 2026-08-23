@@ -88,6 +88,18 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--skip-first-peaks",
+        type=int,
+        default=0,
+        metavar="N",
+        help=(
+            "Exclude the first N called peaks from the linear NRL regression while "
+            "retaining and labelling them in the profile and peak table. Peak numbering "
+            "is preserved, so --skip-first-peaks 1 makes the regression begin at Peak 2. "
+            "Default: 0."
+        ),
+    )
+    parser.add_argument(
         "--x-major-tick",
         type=float,
         default=None,
@@ -633,18 +645,22 @@ def write_regression_tsv(
     path: Path, input_path: Path, distance_column: str, value_column: str,
     min_distance: float, max_distance: float, peak_resolution: float,
     detection_window: int, local_max_window: int, regression: Regression,
+    *, called_peak_count: int | None = None, skip_first_peaks: int = 0,
 ) -> None:
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle, delimiter="\t")
         writer.writerow([
             "input", "distance_column", "value_column", "min_distance", "max_distance",
             "peak_resolution_bp", "detection_smoothing_window", "local_max_smoothing_window",
-            "peak_count", "slope_bp_per_peak", "intercept_bp", "r_squared",
+            "called_peak_count", "skip_first_peaks", "regression_peak_count",
+            "slope_bp_per_peak", "intercept_bp", "r_squared",
             "slope_standard_error", "mean_adjacent_peak_spacing_bp"
         ])
         writer.writerow([
             str(input_path), distance_column, value_column, f"{min_distance:.12g}", f"{max_distance:.12g}",
-            f"{peak_resolution:.12g}", detection_window, local_max_window, regression.n_peaks,
+            f"{peak_resolution:.12g}", detection_window, local_max_window,
+            regression.n_peaks if called_peak_count is None else called_peak_count,
+            skip_first_peaks, regression.n_peaks,
             _format_float(regression.slope), _format_float(regression.intercept),
             _format_float(regression.r_squared), _format_float(regression.slope_standard_error),
             _format_float(regression.mean_adjacent_spacing)
@@ -785,6 +801,7 @@ def default_output_prefix(
     min_distance: float,
     max_distance: float,
     peak_resolution: float = 160.0,
+    skip_first_peaks: int = 0,
     base: str | Path | None = None,
 ) -> Path:
     """Build the NRL stem, including every fit-defining parameter."""
@@ -798,7 +815,9 @@ def default_output_prefix(
             ("peakres", peak_resolution),
             ("min", min_distance),
             ("max", max_distance),
+            ("skipfirst", skip_first_peaks),
         ),
+        max_parameters=4,
     )
 
 
@@ -807,6 +826,8 @@ def run(args: argparse.Namespace) -> int:
         raise ValueError("--max-distance must be greater than --min-distance.")
     if args.peak_resolution < 0:
         raise ValueError("--peak-resolution must be 0 or greater.")
+    if args.skip_first_peaks < 0:
+        raise ValueError("--skip-first-peaks must be 0 or greater.")
     from nucleosuite.plotting import validate_tick_interval
     validate_tick_interval(args.x_major_tick, "--x-major-tick")
     validate_tick_interval(args.x_minor_tick, "--x-minor-tick")
@@ -829,7 +850,11 @@ def run(args: argparse.Namespace) -> int:
     peaks = call_resolution_peaks(
         distances, raw_values, local_values, detection_values, args.peak_resolution
     )
-    regression = regress_peak_distances(peaks)
+    regression_peaks = peaks[args.skip_first_peaks :]
+    regression_peak_numbers = np.arange(
+        args.skip_first_peaks + 1, len(peaks) + 1, dtype=np.float64
+    )
+    regression = regress_peak_distances(regression_peaks, regression_peak_numbers)
 
     requested_prefix = Path(args.output_prefix).resolve() if args.output_prefix else None
     prefix = default_output_prefix(
@@ -837,6 +862,7 @@ def run(args: argparse.Namespace) -> int:
         args.min_distance,
         args.max_distance,
         args.peak_resolution,
+        args.skip_first_peaks,
         base=requested_prefix,
     )
     prefix.parent.mkdir(parents=True, exist_ok=True)
@@ -851,7 +877,8 @@ def run(args: argparse.Namespace) -> int:
     write_peaks_tsv(peaks_tsv, peaks)
     write_regression_tsv(
         regression_tsv, input_path, distance_column, value_column, args.min_distance, args.max_distance,
-        args.peak_resolution, detection_window, local_max_window, regression
+        args.peak_resolution, detection_window, local_max_window, regression,
+        called_peak_count=len(peaks), skip_first_peaks=args.skip_first_peaks
     )
     plot_title = args.title or input_path.stem
     profile_png = create_profile_plot(
@@ -861,7 +888,9 @@ def run(args: argparse.Namespace) -> int:
         args.dpi, args.x_major_tick, args.x_minor_tick
     )
     regression_png = create_regression_plot(
-        regression_png, peaks, regression, f"{plot_title}: peak-spacing regression", args.dpi
+        regression_png, regression_peaks, regression,
+        f"{plot_title}: peak-spacing regression", args.dpi,
+        peak_numbers=regression_peak_numbers
     )
 
     if not args.quiet:
@@ -871,6 +900,11 @@ def run(args: argparse.Namespace) -> int:
         print("Detection smoothing window: " + (f"{detection_window} bp" if detection_window > 1 else "none"))
         print("Local-max smoothing window: " + (f"{local_max_window} bp" if local_max_window > 1 else "none"))
         print(f"Called peaks: {len(peaks)}")
+        if args.skip_first_peaks:
+            print(
+                f"Regression peaks: {len(regression_peaks)} "
+                f"(skipped first {args.skip_first_peaks} called peak(s))"
+            )
         if math.isfinite(regression.slope):
             print(f"Estimated periodicity/NRL: {regression.slope:.6g} bp")
             print(f"R-squared: {regression.r_squared:.6g}")

@@ -7,18 +7,21 @@ This page shows how NucleoSuite commands connect. Each diagram is followed by a 
 ```mermaid
 flowchart TB
     A[Paired-end cfDNA BAM or fragment BED] --> B[cfdna-suite]
-    B --> C[PNS mode 167 and WPS]
-    B --> D[Dyads, fragment ends, and fragment lengths]
+    B --> C[PNS mode 167]
+    B --> D[Dyads and fragment ends]
     B --> E[Dinucleotide and WW/SS analyses]
     C --> F[Peak calls]
-    D --> G[DAC and DCC]
-    F --> H[Peak spacing and callset comparisons]
-    G --> I[NRL and positional relationships]
-    B --> J[CTCF, TSS, chromatin-state, and expression analyses]
+    D --> G[DAC]
+    G --> I[NRL]
+    F --> H[Peak spacing and NRL regression]
+    C --> S[Post-combine mean scaling]
+    S --> J[CTCF, TSS, chromatin-state, and expression analyses]
 
     classDef commandLink color:#0969da,text-decoration:none;
-    class B commandLink;
+    class B,G,I commandLink;
     click B href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/cfdna-suite.md" "Open cfdna-suite documentation"
+    click G href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/dac.md" "Open dac documentation"
+    click I href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/nrl.md" "Open nrl documentation"
 ```
 
 [`cfdna-suite`](commands/cfdna-suite.md) applies cfDNA-oriented defaults and uses one filtered fragment set throughout the full analysis tree.
@@ -73,17 +76,21 @@ nucleosuite distances sample_methodpns_mode167_lower137_upper197_smooth0x2_nucle
 ```mermaid
 flowchart TB
     A[MNase BAM or fragment BED] --> B[mnase-suite]
-    B --> C[PNS mode 147 and WPS]
+    B --> C[PNS mode 147]
     B --> D[Coverage, dyads, and fragment ends]
     B --> E[Dinucleotide and WW/SS analyses]
     C --> F[Peak calls]
-    D --> G[DAC, DCC, and NRL]
-    F --> H[Peak spacing and callset comparisons]
-    B --> I[CTCF, TSS, chromatin-state, and expression analyses]
+    D --> G[DAC]
+    G --> N[NRL]
+    F --> H[Peak spacing and NRL regression]
+    C --> S[Post-combine mean scaling]
+    S --> I[CTCF, TSS, chromatin-state, and expression analyses]
 
     classDef commandLink color:#0969da,text-decoration:none;
-    class B commandLink;
+    class B,G,N commandLink;
     click B href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/mnase-suite.md" "Open mnase-suite documentation"
+    click G href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/dac.md" "Open dac documentation"
+    click N href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/nrl.md" "Open nrl documentation"
 ```
 
 [`mnase-suite`](commands/mnase-suite.md) applies MNase-oriented defaults and uses one retained fragment population across downstream outputs.

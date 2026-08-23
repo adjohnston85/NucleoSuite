@@ -45,6 +45,18 @@ def _parse_labelled_path(value: str) -> tuple[str, Path]:
     return label, Path(raw_path)
 
 
+def _is_bigbed_path(path: Path) -> bool:
+    lower = path.name.lower()
+    return lower.endswith(".bb") or lower.endswith(".bigbed")
+
+
+def _effective_score_scale(dataset: PeakScoreSet, score_scale: float | None) -> float:
+    """Return explicit scale, or the default common 0-1000 display scale."""
+    if score_scale is not None:
+        return float(score_scale)
+    return 1.0 if _is_bigbed_path(dataset.path) else 1000.0
+
+
 def _read_scores(
     label: str,
     path: Path,
@@ -110,9 +122,12 @@ def _histogram_edges(
     score_min: float | None,
     score_max: float | None,
     integer_bins: bool,
-    score_scale: float = 1.0,
+    score_scale: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray | None]:
-    all_scores = np.concatenate([dataset.scores for dataset in datasets]) * float(score_scale)
+    all_scores = np.concatenate([
+        dataset.scores * _effective_score_scale(dataset, score_scale)
+        for dataset in datasets
+    ])
     if integer_bins:
         if bins is not None or bin_width is not None:
             raise ValueError("--integer-bins cannot be combined with --bins or --bin-width")
@@ -220,7 +235,7 @@ def _write_frequency(
     output: Path,
     *,
     integer_labels: np.ndarray | None = None,
-    score_scale: float = 1.0,
+    score_scale: float | None = None,
 ) -> dict[str, np.ndarray]:
     output.parent.mkdir(parents=True, exist_ok=True)
     histograms: dict[str, np.ndarray] = {}
@@ -242,7 +257,7 @@ def _write_frequency(
             )
         widths = np.diff(edges)
         for dataset in datasets:
-            scaled_scores = dataset.scores * float(score_scale)
+            scaled_scores = dataset.scores * _effective_score_scale(dataset, score_scale)
             counts, _ = np.histogram(scaled_scores, bins=edges)
             histograms[dataset.label] = counts
             total = counts.sum()
@@ -296,7 +311,7 @@ def _plot_frequency(
     plot_x_min: float | None,
     plot_x_max: float | None,
     integer_labels: np.ndarray | None = None,
-    score_scale: float = 1.0,
+    score_scale: float | None = None,
 ) -> Path:
     import matplotlib
 
@@ -310,10 +325,12 @@ def _plot_frequency(
     for dataset in datasets:
         values = _normalised_values(histograms[dataset.label], edges, normalization)
         ax.step(midpoints, values, where="mid", linewidth=1.5, label=dataset.label)
-    ax.set_xlabel(
-        "Peak score" if math.isclose(score_scale, 1.0)
-        else f"Peak score (×{score_scale:g})"
-    )
+    if score_scale is None:
+        ax.set_xlabel("Peak score (0–1000 scale)")
+    elif math.isclose(score_scale, 1.0):
+        ax.set_xlabel("Peak score")
+    else:
+        ax.set_xlabel(f"Peak score (×{score_scale:g})")
     ylabel = {
         "count": "Frequency (count)",
         "fraction": "Frequency (fraction)",
@@ -366,10 +383,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--score-column", type=int, default=5, help="1-based score column. Default: 5")
     parser.add_argument(
-        "--score-scale", type=float, default=1.0,
+        "--score-scale", type=float, default=None,
         help=(
-            "Multiply scores by this value before histogram binning and plotting "
-            "(default: 1). Raw score summaries/detail tables remain unscaled."
+            "Override score scaling before histogram binning and plotting. By default, "
+            "BED/BED.gz scores are multiplied by 1000 and bigBed scores are used as "
+            "stored, placing both on the standard 0–1000 display scale. Raw score "
+            "summaries/detail tables remain unscaled."
         ),
     )
     parser.add_argument(
@@ -423,7 +442,9 @@ def build_parser() -> argparse.ArgumentParser:
 def _run_serial(args: argparse.Namespace) -> int:
     if args.score_column < 1:
         raise ValueError("--score-column must be at least 1")
-    if not math.isfinite(args.score_scale) or args.score_scale <= 0:
+    if args.score_scale is not None and (
+        not math.isfinite(args.score_scale) or args.score_scale <= 0
+    ):
         raise ValueError("--score-scale must be a finite value greater than zero")
     labelled = [_parse_labelled_path(value) for value in args.peaks]
     labels = [label for label, _ in labelled]
@@ -462,7 +483,7 @@ def _run_serial(args: argparse.Namespace) -> int:
         args.output_prefix,
         (
             bin_parameter,
-            ("scorescale", args.score_scale),
+            ("scorescale", "auto" if args.score_scale is None else args.score_scale),
             ("scoremin", args.score_min),
             ("scoremax", args.score_max),
             ("norm", args.normalization),
@@ -499,9 +520,14 @@ def _run_serial(args: argparse.Namespace) -> int:
         extra={
             "source_table": str(frequency_path),
             "detected_plot_type": "peak-score-frequency",
-            "score_scale": args.score_scale,
+            "score_scale": "auto" if args.score_scale is None else args.score_scale,
+            "dataset_score_scales": ",".join(
+                f"{dataset.label}:{_effective_score_scale(dataset, args.score_scale):g}"
+                for dataset in datasets
+            ),
             "x_label": (
-                "Peak score" if math.isclose(args.score_scale, 1.0)
+                "Peak score (0–1000 scale)" if args.score_scale is None
+                else "Peak score" if math.isclose(args.score_scale, 1.0)
                 else f"Peak score (×{args.score_scale:g})"
             ),
         },
@@ -528,7 +554,7 @@ def run(args: argparse.Namespace) -> int:
             args.output_prefix,
             (
                 bin_parameter,
-                ("scorescale", args.score_scale),
+                ("scorescale", "auto" if args.score_scale is None else args.score_scale),
                 ("scoremin", args.score_min),
                 ("scoremax", args.score_max),
                 ("norm", args.normalization),

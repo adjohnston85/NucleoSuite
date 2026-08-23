@@ -1,13 +1,12 @@
 # Full-suite output layout
 
-`mnase-suite` and `cfdna-suite` use the numbered analysis tree below. By default, they analyse observed fragments. `--randomize` writes a validated randomized fragment set in `00_setup/` and analyses that control set in the same tree.
+`mnase-suite` and `cfdna-suite` use the same numbered analysis tree. WPS and DCC are standalone analyses and are not part of the current automated suite trees.
 
 ```text
 00_setup/
 00_gene_sets/
 01_combined_tracks/
 02_dac/
-03_dcc/
 04_nrl/
 05_ctcf_aggregation/
 06_tss_aggregation/
@@ -23,20 +22,12 @@ logs/
 .done/
 ```
 
-Randomized output names, logs, completion markers, and provenance files contain `_randomized_control`.
-
-## Setup and provenance
-
-`00_setup/` contains chromosome sizes, normalized resources, validation records, and parameter tables. Observed support files include `analysis.chrom.sizes`, `selected.chrom.sizes`, and `run_parameters.tsv`. Randomized mode prefixes support names with the marked sample and adds `*.randomized.fragments.bed.gz`, combined randomization QC, and relocation-distance outputs. Downstream work starts after the randomized BED and its QC pass validation.
-
-Each run writes parameters, a suite report, and a JSON manifest containing the NucleoSuite version, run mode, input identities and provenance, parameter hash, blacklist selection, completion state, and outputs. `--resume` reuses matching completed steps, `--force` reruns them, and `--dry-run` validates inputs and prints the plan.
-
-## Combined tracks
+## Combined tracks and scaling
 
 ```text
 01_combined_tracks/
 ├── pns/
-├── wps/
+├── scaled/
 ├── dyads/
 │   ├── exact/<length>/
 │   └── ranges/<lower-upper>/
@@ -52,31 +43,25 @@ Each run writes parameters, a suite report, and a JSON manifest containing the N
 └── completion_report.tsv
 ```
 
-In randomized runs, the manifest and completion-report filenames are prefixed with the `_randomized_control` sample name.
+Raw PNS, posPNS and coverage tracks are retained beneath `pns/`. Only after chromosome combination, `scaled/` receives mean-scaled coverage, mean-scaled posPNS, and PNS scaled relative to the mean combined nucleosome-peak score. PNS aggregate stages use the scaled PNS track.
 
-The MNase suite writes exact 145 and 147 bp tracks and a 145–147 bp range. Its PNS range is 120–180 bp with mode 147 bp.
-
-The cfDNA suite writes exact 145, 161, and 167 bp tracks and the ranges 145–147, 160–162, and 166–168 bp. Its PNS range is 137–197 bp with mode 167 bp.
-
-Both suites store primary coverage with the PNS outputs. WPS and its auxiliary coverage and dyad tracks use 120–180 bp fragments and a 120 bp protection window.
+MNase uses the 146–148 bp ranged class, exact 147 bp dyads/ends, and exact 145/147 bp dinucleotide profiles. cfDNA uses ranged classes 144–146, 160–162 and 166–168 bp plus exact 145, 161 and 167 bp dyads/ends.
 
 ## Downstream organisation
 
-DAC uses dyad and WW-type dyad signals. DCC is organised by signal family beneath `03_dcc/`; the cfDNA workflow calculates pairwise dyad and same-side fragment-end comparisons. NRL and periodicity outputs preserve the relative DAC or DCC path beneath `04_nrl/from_dac/` and `04_nrl/from_dcc/`.
-
-Track-dependent stages are grouped by their input signal:
+`02_dac/` contains DAC from ranged dyads. `04_nrl/from_dac/` mirrors the DAC range paths and stores the long, short, and intermediate periodicity fits.
 
 ```text
-05_ctcf_aggregation/{pns,wps,dyads,type_dyads}/
+05_ctcf_aggregation/{pns,dyads,type_dyads}/
 06_tss_aggregation/<signal>/<gene-set>/
-07_distances/{pns_peaks,wps_peaks}/
-08_region_extract/ctcf/{pns,wps}/
-11_gene_expression/{pns,wps}/
-12_positive_runs/{pns,wps}/
-13_peak_analysis/{pns,wps,pns_vs_wps}/
+07_distances/pns_peaks/
+08_region_extract/ctcf/pns/
+11_gene_expression/pns/
+12_positive_runs/pns/
+13_peak_analysis/score_frequencies/pns/
 ```
 
-Fragment-length products are grouped by the regions counted:
+Fragment-length products remain under:
 
 ```text
 09_fragment_lengths/combined_chromosomes/
@@ -86,19 +71,6 @@ Fragment-length products are grouped by the regions counted:
 
 ## Multicontig runs
 
-With multiple selected contigs, the default `--analysis-scope combined-only` writes prerequisites beneath `per_contig/<contig>/`, combines complete contributions beneath `combined/`, and runs downstream analyses once on the pooled chromosomes. `combined/00_setup/combined_chromosomes.tsv` records included and skipped chromosomes; randomized runs prefix the filename with the marked sample name.
+With `--analysis-scope combined-only` (default), per-contig workers create combine prerequisites beneath `per_contig/<contig>/`; complete tracks are combined beneath `combined/`, then scaling and downstream analyses run once on the pooled selected chromosomes. `--resume` reuses matching completed work and `--force` reruns it.
 
-`--cores` controls per-contig processing, memory-light analyses, and streaming combines. `--analysis-cores` and `--streaming-combine-cores` override the corresponding stages. Indexed BigWig/bigBed creation uses `--indexed-combine-cores 1` by default. Whole-callset and other memory-heavy analyses use `--memory-intensive-analysis-cores 1` by default. Increase either value explicitly when sufficient memory is available.
-
-Each top-level command writes a timestamped log containing the command, version, resolved parameters, working directory, console messages, exit status, and elapsed time. Output-adjacent logs are stored beneath `logs/commands/`; commands without an explicit destination use `nucleosuite_logs/` in the working directory. Suite steps also retain their dedicated logs.
-
-Per-contig track directories contain completion checkpoints. Track writers use `.partial` files until an output is complete. Restarted commands report whether each checkpointed stage was completed, reused, or rerun.
-
-[Back to the documentation index](README.md)
-
-## Automatic filename parameter limit
-
-Automatic output stems include at most three central analysis-parameter tokens. This prevents long input names and parameter-rich analyses from exceeding filesystem filename limits. Plot outputs additionally receive a `*_metadata.tsv` sidecar containing the complete command invocation and parameter set.
-
-Large supporting tables that contain one row per region, matched pair, or other analysis record are opt-in where they are not the primary result of the command. Use `--write-detail-tables` on commands that expose it. Compact summary and plot-source tables remain enabled by default so figures can still be recreated with `nucleosuite plot`.
-
+Randomized runs use the same tree and mark their sample/output names with `_randomized_control`.

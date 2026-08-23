@@ -38,7 +38,7 @@ Shared boundaries are used across all labelled inputs so their distributions are
 
 ## Scale small scores before binning
 
-`--score-scale` multiplies input scores **before histogram binning and plotting**. The default is `1`. This is useful for PNS callsets whose BED scores are often below 1 and would otherwise collapse into very few integer bins.
+`--score-scale` multiplies input scores **before histogram binning and plotting**. By default NucleoSuite automatically uses ×1000 for BED/BED.gz inputs and ×1 for bigBed inputs, placing both representations on the same 0–1000 display scale without double-scaling bigBed scores. Supplying `--score-scale` explicitly overrides this input-aware default for every dataset.
 
 For example:
 

@@ -2,13 +2,11 @@
 
 ## What this command does
 
-`mnase-suite` runs a coordinated MNase-seq nucleosome workflow from paired-end BAMs or fragment intervals. One filtered fragment population feeds the signal, sequence, spacing, periodicity, regional, and optional expression stages shown below.
+`mnase-suite` runs the coordinated MNase-seq NucleoSuite workflow. With multiple contigs, tracks are produced per contig, combined, and normalization/downstream analyses are then performed once on the combined data.
 
-Observed-data analysis is the default.
+## Why use it
 
-## Why use the suite
-
-Use `mnase-suite` when all stages should share fragment filters, resources, provenance, and a resumable output tree. Use standalone commands for an individual analysis or different filters between outputs.
+Use the suite when the MNase track, sequence, spacing, periodicity and regional analyses should share the same fragment filtering, resources, provenance, combination step and post-combine normalization. Use standalone commands when only one analysis is needed or when different filters are required between analyses.
 
 ## Typical run
 
@@ -22,96 +20,61 @@ nucleosuite mnase-suite \
   --outdir sample_mnase_suite
 ```
 
-If complete fragment intervals already exist, use `--fragments FILE [MORE ...]` instead of `--bam`.
-
-## What the workflow does
+## Workflow
 
 ```mermaid
 flowchart TB
-    A[MNase BAM or fragment intervals] --> B[Filter accepted fragments]
-    B --> C[Shared track generation]
-    C --> D[PNS and WPS]
-    C --> E[Coverage, dyads, and fragment ends]
-    C --> F[Dinucleotide and WW/SS analyses]
-    D --> G[Peak calls]
-    E --> H[DAC, DCC, and NRL]
-    G --> I[Spacing and callset comparisons]
-    C --> J[CTCF, TSS, state, and expression analyses]
+    A[MNase BAM or fragments] --> B[mnase-suite]
+    B --> C[PNS, dyads, ends, sequence]
+    C --> D[Combine chromosomes]
+    D --> E[Scale PNS, posPNS, coverage]
+    D --> F[DAC from 146-148 dyads]
+    F --> G[NRL]
+    E --> H[Aggregate and regional analyses]
+    D --> I[PNS peak distances]
 ```
 
-The shared track pass reads each accepted fragment once per chunk and reuses its fragment and sequence information.
-
-## Scientific defaults
+## Main defaults
 
 | Setting | MNase default |
 |---|---|
 | PNS | 120–180 bp fragments; mode 147 bp |
-| WPS | 120–180 bp fragments; 120 bp protection window |
-| WPS adjustment | 21 bp, order-2 Savitzky–Golay smoothing; 1,000 bp raw-WPS median baseline |
-| Fine dyad/sequence range | 145–147 bp |
-| Exact dyad lengths | 145 and 147 bp |
-| Identical-fragment limit | 1 |
-| Even-length dyads | 0.5 on each central base |
-| Interval format | BED and bigBed |
-| Expression value | nTPM |
+| Ranged dyads/ends, DAC and WW/SS | 146–148 bp |
+| Exact dyad and fragment ends | 147 bp |
+| Exact dinucleotide profiles | 145 and 147 bp |
+| PNS nucleosome distances | order 1 to 500 bp; orders 1–7 to 1500 bp |
+| Long DAC-derived NRL | 1–1500 bp, resolution 160; first called peak excluded from regression |
+| Short periodicity | 1–144 bp, resolution 1 |
+| Intermediate periodicity | 150–220 bp, resolution 8 |
 
-PNS text BED scores remain six-decimal floating values. PNS bigBed scores use `--bigbed-score-scale 1000` by default before integer conversion/clamping.
+WPS and DCC remain available as standalone NucleoSuite commands but are **not run by `mnase-suite`**.
 
-## Bundled resources
+## Post-combine normalization
 
-`--resource-set hg19-gm12878` supplies the hg19/GM12878 annotations used by resource-dependent stages. See [`resources`](resources.md#what-is-in-the-hg19gm12878-set) for their contents, biological context, and sources. Use `nucleosuite resources path NAME` to inspect a file.
+The raw combined PNS, posPNS and coverage BigWigs are retained. After combination the suite additionally creates:
 
-## Randomized-control mode
+- coverage mean-scaled to 100;
+- posPNS mean-scaled to 100;
+- PNS scaled to 100 relative to the mean column-5 score of the combined PNS nucleosome calls.
 
-```bash
-nucleosuite mnase-suite ... \
-  --randomize \
-  --outdir sample_mnase_randomized
-```
+PNS aggregate analyses use the scaled PNS track. Regional extraction uses scaled PNS and scaled coverage.
 
-The suite first creates and validates a randomized fragment set, then runs that control through the same complete workflow. Randomized fragments retain chromosome and length, cannot remain at their original coordinates, and cannot overlap the effective blacklist.
+## DAC, NRL and spacing
 
-`--randomize-fallback uniform|skip` controls what happens when dinucleotide-matched placement is unavailable.
+DAC is calculated only from the ranged 146–148 bp dyad track. Its DAC outputs feed:
 
-## Blacklist behaviour
+1. NRL at 1–1500 bp, resolution 160, with the first called peak retained in the profile but omitted from regression;
+2. short periodicity at 1–144 bp, resolution 1;
+3. nucleosome-scale periodicity at 150–220 bp, resolution 8.
 
-The bundled hg19 blacklist v2 is enabled for exact hg19/GRCh37 reference lengths. `--blacklist-bed FILE` selects another blacklist; `--no-blacklist` disables filtering.
+The combined PNS nucleosome calls are analysed separately for adjacent spacing (order 1, 1–500 bp) and for orders 1–7 (1–1500 bp), with the latter performing combined NRL regression.
 
-Complete fragments and called intervals overlapping the blacklist are excluded. Blacklisted positions inside retained signal windows remain missing.
+## Other retained downstream analyses
 
-## Parallel execution
+The suite retains PNS peak calls, ChromHMM-stratified PNS spacing, CTCF/TSS aggregation, TSS expression quintiles, region extraction, fragment-length profiles and heatmaps, optional PNS gene-expression analysis, PNS positive runs, PNS peak-score-frequency analyses, dinucleotide profiles, WW/SS classification and WW/SS type-specific dyads.
 
-`--cores` controls normal per-contig and memory-light concurrency.
+`peak-score-frequency` automatically displays BED/BED.gz scores on a ×1000 scale; bigBed scores are already on the 0–1000 scale and are not multiplied again.
 
-Memory-sensitive work has separate defaults:
-
-- `--indexed-combine-cores 1` for concurrent BigWig/bigBed writers;
-- `--memory-intensive-analysis-cores 1` for whole-callset analyses.
-
-Increase these values only when sufficient memory is available.
-
-## Resume and recovery
-
-```text
---resume    reuse matching completed steps
---force     rerun completed steps
---dry-run   validate and print the planned workflow
-```
-
-Outputs use `.partial` names until verified. Checkpoints record the inputs, parameters, and completed outputs that `--resume` can reuse.
-
-## Long-range NRL resolution
-
-`--nrl-peak-resolution` defaults to 160 bp. This gives 51 bp smoothing for broad NRL peak detection and 21 bp smoothing for final local-maximum placement. The separate short-range periodicity summaries use no resolution-based smoothing.
-
-## What it writes
-
-See [Output layout](../OUTPUT_LAYOUT.md) for the numbered suite directories, per-contig/combined trees, manifests, logs, and completion markers.
-
-## Plot customization
-
-Shared plot options supplied to `mnase-suite` are forwarded to downstream plot-producing commands. See [Plot customization](../PLOTTING.md).
-
-See [Workflows](../WORKFLOWS.md) for examples showing how this command connects to downstream analyses.
+See [Output layout](../OUTPUT_LAYOUT.md), [Workflows](../WORKFLOWS.md), and the command-line help for the complete accepted option set.
 
 [Back to the command reference](../COMMAND_REFERENCE.md)

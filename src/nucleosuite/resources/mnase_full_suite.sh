@@ -29,7 +29,6 @@ EXPRESSION_GENE_COLUMN="Gene"
 EXPRESSION_NAME_COLUMN="Gene name"
 EXPRESSION_PROFILE_COLUMN="Cell line"
 EXPRESSION_FOCUS_PROFILES=()
-GENE_EXPRESSION_SIGNALS="pns"
 TSS_EXPRESSION_RESOURCE=""
 TSS_EXPRESSION_TISSUE="bone_marrow"
 TSS_EXPRESSION_WINDOW=2000
@@ -42,14 +41,13 @@ ANALYSIS_CHROM_SIZES_SOURCE=""
 
 PNS_FRAG_LOWER=120
 PNS_FRAG_UPPER=180
-WPS_FRAG_LOWER=120
-WPS_FRAG_UPPER=180
 PNS_MODE_LENGTH=147
 BIGBED_SCORE_SCALE=1000
-FINE_FRAG_LOWER=145
-FINE_FRAG_UPPER=147
-EXACT_SIZE_A=145
-EXACT_SIZE_B=147
+FINE_FRAG_LOWER=146
+FINE_FRAG_UPPER=148
+EXACT_SIZE=147
+DINUC_EXACT_A=145
+DINUC_EXACT_B=147
 MAX_DUPLICATES=1
 MAX_PER_COORDINATE=0
 DEDUP_SCOPE="all_bams"
@@ -58,10 +56,6 @@ EVEN_DYAD="split"
 PNS_SMOOTH_WINDOW=0
 PNS_SMOOTH_ORDER=2
 PNS_MAX_NEG_RUN=0
-WPS_PROTECTION=120
-WPS_BASELINE_WINDOW=1000
-WPS_SG_WINDOW=21
-WPS_SG_ORDER=2
 PEAK_SMOOTH_WINDOW=0
 PEAK_SMOOTH_ORDER=2
 
@@ -74,22 +68,20 @@ DAC_DMAX=2000
 DAC_WINDOW_SIZE=100000
 DAC_ALGORITHM="auto"
 
-NRL_MIN_DISTANCE=200
-NRL_MAX_DISTANCE=1200
+NRL_MIN_DISTANCE=1
+NRL_MAX_DISTANCE=1500
 NRL_PEAK_RESOLUTION=160
 DISTANCE_X_MAJOR_TICK=""
 DISTANCE_X_MINOR_TICK=""
 SHORT_PERIODICITY_MIN=1
-SHORT_PERIODICITY_MAX=140
-NUCLEOSOME_PERIODICITY_MIN=150
-NUCLEOSOME_PERIODICITY_MAX=220
+SHORT_PERIODICITY_MAX=144
+INTERMEDIATE_PERIODICITY_MIN=150
+INTERMEDIATE_PERIODICITY_MAX=220
+INTERMEDIATE_PERIODICITY_RESOLUTION=8
 
-DCC_DMAX=500
-DCC_WINDOW_SIZE=100000
-DCC_SUMMARY_LAG_WINDOW=25
-DCC_ALGORITHM="auto"
-DISTANCE_MAX=2000
-DISTANCE_MAX_ORDER=10
+DISTANCE_ADJACENT_MAX=500
+DISTANCE_LONG_MAX=1500
+DISTANCE_LONG_MAX_ORDER=7
 STATE_DISTANCE_MAX=500
 STATE_DISTANCE_SMOOTH_WINDOW=21
 STATE_DISTANCE_SMOOTH_ORDER=2
@@ -124,8 +116,6 @@ HEATMAP_MIN_FRAG=100
 HEATMAP_MAX_FRAG=500
 HEATMAP_NORMALIZATION="fragment-zscore"
 
-SKIP_BAM_DCC=0
-SKIP_END_DCC=0
 SKIP_NRL=0
 SKIP_FRAGMENT_HEATMAP=0
 SKIP_REGION_EXTRACT=0
@@ -246,7 +236,6 @@ Regional and bundled resources:
   --expression-name-column N    Gene-name column name. Default: Gene name.
   --expression-profile-column N Expression profile/cell-line column. Default: Cell line.
   --expression-focus-profile N  Profile highlighted in plots; may be repeated.
-  --gene-expression-signals V   pns, wps or both. Default: pns.
   --tss-expression-resource F   Tissue-expression TSV/TSV.gz for TSS quintiles. Default: bundled HPA tissue consensus.
   --tss-expression-tissue N     Tissue/profile selector; use underscores for spaces. Default: bone_marrow.
   --tss-expression-window N     Bases on each side of TSS. Default: 2000.
@@ -264,54 +253,45 @@ Regional and bundled resources:
 Fragment selection:
   --pns-frag-lower N            PNS lower fragment length. Default: 120.
   --pns-frag-upper N            PNS upper fragment length. Default: 180.
-  --wps-frag-lower N            WPS/coverage lower fragment length. Default: 120.
-  --wps-frag-upper N            WPS/coverage upper fragment length. Default: 180.
   --pns-mode-length N           PNS modal fragment length. Default: 147.
   --bigbed-score-scale N        PNS peak multiplier used for integer bigBed scores. Default: 1000.
-  --fine-frag-lower N           Dyad/dinucleotide/type lower length. Default: 145.
-  --fine-frag-upper N           Dyad/dinucleotide/type upper length. Default: 147.
-  --exact-size-a N              First exact size for dyad/DCC analyses. Default: 145.
-  --exact-size-b N              Second exact size for dyad/DCC analyses. Default: 147.
+  --fine-frag-lower N           Ranged dyad/WW lower length. Default: 146.
+  --fine-frag-upper N           Ranged dyad/WW upper length. Default: 148.
+  --exact-size N                Exact dyad and fragment-end length. Default: 147.
   --max-duplicates N            Identical-fragment copy limit; 0 disables. Default: 1.
   --max-per-coordinate N        Optional dyad/end coordinate cap; 0 disables. Default: 0.
   --dedup-scope VALUE           all_bams or per_bam. Default: all_bams.
   --even-dyad VALUE             split, left or right. Default: split.
 
-PNS, WPS and peak settings:
+PNS and peak settings:
   --pns-smooth-window N         Optional Savitzky-Golay window; 0 disables. Default: 0.
   --pns-smooth-order N          Optional smoothing polynomial order. Default: 2.
   --pns-max-neg-run N           Zero-or-negative bases bridged within PNS peaks. Default: 0.
-  --wps-protection N            Default: 120.
-  --wps-baseline-window N       Default: 1000.
-  --wps-sg-window N             Default: 21.
-  --wps-sg-order N              Default: 2.
   --peak-smooth-window N        Standalone PNS peak-caller window; 0 disables. Default: 0.
   --peak-smooth-order N         Standalone peak-caller order. Default: 2.
 
-DAC, DCC and distance settings:
+DAC, NRL and distance settings:
   --dac-dmax N                  Maximum DAC distance. Default: 2000.
   --dac-window-size N           DAC genomic window size. Default: 100000.
   --dac-algorithm VALUE         auto, sparse or fft. Default: auto.
-  --nrl-min-distance N          Main NRL lower bound. Default: 200.
-  --nrl-max-distance N          Main NRL upper bound. Default: 1200.
+  --nrl-min-distance N          Main NRL lower bound. Default: 1.
+  --nrl-max-distance N          Main NRL upper bound. Default: 1500.
   --nrl-peak-resolution N       Long-range NRL peak resolution in bp. Default: 160.
                                 Detection smoothing uses resolution/3 and local-max smoothing uses resolution/6, snapped down to 10n+1 windows.
   --distance-x-major-tick N     Major x-axis tick interval for numeric distance plots. Default: automatic.
   --distance-x-minor-tick N     Minor x-axis tick interval. Default: derived from the major interval.
   --short-periodicity-min N     Short-periodicity lower bound. Default: 1.
-  --short-periodicity-max N     Short-periodicity upper bound. Default: 140.
-  --nucleosome-periodicity-min N  Nucleosome-scale lower bound. Default: 150.
-  --nucleosome-periodicity-max N  Nucleosome-scale upper bound. Default: 220.
-  --dcc-dmax N                  Exact-size dyad DCC lag. Default: 500.
-  --dcc-window-size N           DCC genomic window size. Default: 100000.
-  --dcc-summary-lag-window N    Default: 25.
-  --dcc-algorithm VALUE         auto, sparse or fft. Default: auto.
-  --distance-max N              Maximum peak distance. Default: 2000.
-  --distance-max-order N        Maximum peak neighbour order. Default: 10.
+  --short-periodicity-max N     Short-periodicity upper bound. Default: 144.
+  --intermediate-periodicity-min N  Nucleosome-scale lower bound. Default: 150.
+  --intermediate-periodicity-max N  Nucleosome-scale upper bound. Default: 220.
+  --intermediate-periodicity-resolution N Peak resolution. Default: 8.
+  --distance-adjacent-max N     Adjacent PNS peak-distance maximum. Default: 500.
+  --distance-long-max N         1-7-order PNS distance maximum. Default: 1500.
+  --distance-long-max-order N   Long-range neighbour orders. Default: 7.
   --state-distance-max N        ChromHMM overlay maximum adjacent distance. Default: 500.
   --state-distance-smooth-window N  State overlay Savitzky-Golay window. Default: 21.
   --state-distance-smooth-order N   State overlay polynomial order. Default: 2.
-  --position-percentile-interval N  Width of independently ranked PNS/WPS peak-score
+  --position-percentile-interval N  Width of independently ranked peak-score
                                     percentile groups used in both directional
                                     comparisons. Default: 25.
   --score-z-limit N              Symmetric score-correlation z-score axis limit;
@@ -367,8 +347,6 @@ Randomized-control mode:
   --randomize-fallback VALUE    uniform or skip. Default: uniform.
 
 Optional skips:
-  --skip-bam-dcc
-  --skip-end-dcc               Skip dyad/dyad, left/left and right/right same-type DCC controls.
   --skip-nrl
   --skip-region-extract
   --skip-fragment-heatmap
@@ -436,7 +414,6 @@ while [[ $# -gt 0 ]]; do
         --expression-name-column) require_value "$@"; EXPRESSION_NAME_COLUMN="$2"; shift 2 ;;
         --expression-profile-column) require_value "$@"; EXPRESSION_PROFILE_COLUMN="$2"; shift 2 ;;
         --expression-focus-profile) require_value "$@"; EXPRESSION_FOCUS_PROFILES+=("$2"); shift 2 ;;
-        --gene-expression-signals) require_value "$@"; GENE_EXPRESSION_SIGNALS="$2"; shift 2 ;;
         --tss-expression-resource) require_value "$@"; TSS_EXPRESSION_RESOURCE="$2"; shift 2 ;;
         --tss-expression-tissue) require_value "$@"; TSS_EXPRESSION_TISSUE="$2"; shift 2 ;;
         --tss-expression-window) require_value "$@"; TSS_EXPRESSION_WINDOW="$2"; shift 2 ;;
@@ -493,16 +470,13 @@ while [[ $# -gt 0 ]]; do
         --interval-format) require_value "$@"; INTERVAL_FORMAT="$2"; shift 2 ;;
         --pns-frag-lower) require_value "$@"; PNS_FRAG_LOWER="$2"; shift 2 ;;
         --pns-frag-upper) require_value "$@"; PNS_FRAG_UPPER="$2"; shift 2 ;;
-        --wps-frag-lower) require_value "$@"; WPS_FRAG_LOWER="$2"; shift 2 ;;
-        --wps-frag-upper) require_value "$@"; WPS_FRAG_UPPER="$2"; shift 2 ;;
-        --broad-frag-lower) require_value "$@"; PNS_FRAG_LOWER="$2"; WPS_FRAG_LOWER="$2"; shift 2 ;;
-        --broad-frag-upper) require_value "$@"; PNS_FRAG_UPPER="$2"; WPS_FRAG_UPPER="$2"; shift 2 ;;
+        --broad-frag-lower) require_value "$@"; PNS_FRAG_LOWER="$2"; shift 2 ;;
+        --broad-frag-upper) require_value "$@"; PNS_FRAG_UPPER="$2"; shift 2 ;;
         --pns-mode-length) require_value "$@"; PNS_MODE_LENGTH="$2"; shift 2 ;;
     --bigbed-score-scale) require_value "$@"; BIGBED_SCORE_SCALE="$2"; shift 2 ;;
         --fine-frag-lower) require_value "$@"; FINE_FRAG_LOWER="$2"; shift 2 ;;
         --fine-frag-upper) require_value "$@"; FINE_FRAG_UPPER="$2"; shift 2 ;;
-        --exact-size-a) require_value "$@"; EXACT_SIZE_A="$2"; shift 2 ;;
-        --exact-size-b) require_value "$@"; EXACT_SIZE_B="$2"; shift 2 ;;
+        --exact-size) require_value "$@"; EXACT_SIZE="$2"; shift 2 ;;
         --max-duplicates) require_value "$@"; MAX_DUPLICATES="$2"; shift 2 ;;
         --max-per-coordinate) require_value "$@"; MAX_PER_COORDINATE="$2"; shift 2 ;;
         --dedup-scope) require_value "$@"; DEDUP_SCOPE="$2"; shift 2 ;;
@@ -510,10 +484,6 @@ while [[ $# -gt 0 ]]; do
         --pns-smooth-window) require_value "$@"; PNS_SMOOTH_WINDOW="$2"; shift 2 ;;
         --pns-smooth-order) require_value "$@"; PNS_SMOOTH_ORDER="$2"; shift 2 ;;
         --pns-max-neg-run) require_value "$@"; PNS_MAX_NEG_RUN="$2"; shift 2 ;;
-        --wps-protection) require_value "$@"; WPS_PROTECTION="$2"; shift 2 ;;
-        --wps-baseline-window) require_value "$@"; WPS_BASELINE_WINDOW="$2"; shift 2 ;;
-        --wps-sg-window) require_value "$@"; WPS_SG_WINDOW="$2"; shift 2 ;;
-        --wps-sg-order) require_value "$@"; WPS_SG_ORDER="$2"; shift 2 ;;
         --peak-smooth-window) require_value "$@"; PEAK_SMOOTH_WINDOW="$2"; shift 2 ;;
         --peak-smooth-order) require_value "$@"; PEAK_SMOOTH_ORDER="$2"; shift 2 ;;
         --ctcf-flank) require_value "$@"; CTCF_FLANK="$2"; shift 2 ;;
@@ -529,14 +499,12 @@ while [[ $# -gt 0 ]]; do
         --distance-x-minor-tick) require_value "$@"; DISTANCE_X_MINOR_TICK="$2"; shift 2 ;;
         --short-periodicity-min) require_value "$@"; SHORT_PERIODICITY_MIN="$2"; shift 2 ;;
         --short-periodicity-max) require_value "$@"; SHORT_PERIODICITY_MAX="$2"; shift 2 ;;
-        --nucleosome-periodicity-min) require_value "$@"; NUCLEOSOME_PERIODICITY_MIN="$2"; shift 2 ;;
-        --nucleosome-periodicity-max) require_value "$@"; NUCLEOSOME_PERIODICITY_MAX="$2"; shift 2 ;;
-        --dcc-dmax) require_value "$@"; DCC_DMAX="$2"; shift 2 ;;
-        --dcc-window-size) require_value "$@"; DCC_WINDOW_SIZE="$2"; shift 2 ;;
-        --dcc-summary-lag-window) require_value "$@"; DCC_SUMMARY_LAG_WINDOW="$2"; shift 2 ;;
-        --dcc-algorithm) require_value "$@"; DCC_ALGORITHM="$2"; shift 2 ;;
-        --distance-max) require_value "$@"; DISTANCE_MAX="$2"; shift 2 ;;
-        --distance-max-order) require_value "$@"; DISTANCE_MAX_ORDER="$2"; shift 2 ;;
+        --intermediate-periodicity-min) require_value "$@"; INTERMEDIATE_PERIODICITY_MIN="$2"; shift 2 ;;
+        --intermediate-periodicity-max) require_value "$@"; INTERMEDIATE_PERIODICITY_MAX="$2"; shift 2 ;;
+        --intermediate-periodicity-resolution) require_value "$@"; INTERMEDIATE_PERIODICITY_RESOLUTION="$2"; shift 2 ;;
+        --distance-adjacent-max) require_value "$@"; DISTANCE_ADJACENT_MAX="$2"; shift 2 ;;
+        --distance-long-max) require_value "$@"; DISTANCE_LONG_MAX="$2"; shift 2 ;;
+        --distance-long-max-order) require_value "$@"; DISTANCE_LONG_MAX_ORDER="$2"; shift 2 ;;
         --state-distance-max) require_value "$@"; STATE_DISTANCE_MAX="$2"; shift 2 ;;
         --state-distance-smooth-window) require_value "$@"; STATE_DISTANCE_SMOOTH_WINDOW="$2"; shift 2 ;;
         --state-distance-smooth-order) require_value "$@"; STATE_DISTANCE_SMOOTH_ORDER="$2"; shift 2 ;;
@@ -565,8 +533,6 @@ while [[ $# -gt 0 ]]; do
         --heatmap-min-frag) require_value "$@"; HEATMAP_MIN_FRAG="$2"; shift 2 ;;
         --heatmap-max-frag) require_value "$@"; HEATMAP_MAX_FRAG="$2"; shift 2 ;;
         --heatmap-normalization) require_value "$@"; HEATMAP_NORMALIZATION="$2"; shift 2 ;;
-        --skip-bam-dcc) SKIP_BAM_DCC=1; shift ;;
-        --skip-end-dcc) SKIP_END_DCC=1; shift ;;
         --skip-nrl) SKIP_NRL=1; shift ;;
         --skip-region-extract) SKIP_REGION_EXTRACT=1; shift ;;
         --skip-fragment-heatmap) SKIP_FRAGMENT_HEATMAP=1; shift ;;
@@ -649,17 +615,11 @@ fi
 BLACKLIST_ARGS=()
 [[ -n "$BLACKLIST_BED" ]] && BLACKLIST_ARGS=(--blacklist-bed "$BLACKLIST_BED")
 ANALYSIS_INPUT_ARGS=()
-DCC_INPUT_A=()
-DCC_INPUT_B=()
 SOURCE_REFERENCE_ARGS=()
 if [[ "$INPUT_MODE" == "bam" ]]; then
     ANALYSIS_INPUT_ARGS=(-b "${BAMS[@]}")
-    DCC_INPUT_A=(--bam-a "${BAMS[@]}")
-    DCC_INPUT_B=(--bam-b "${BAMS[@]}")
 else
     ANALYSIS_INPUT_ARGS=(--fragments "${FRAGMENTS[@]}")
-    DCC_INPUT_A=(--fragments-a "${FRAGMENTS[@]}")
-    DCC_INPUT_B=(--fragments-b "${FRAGMENTS[@]}")
     SOURCE_REFERENCE_ARGS=(--fasta "$FASTA")
 fi
 SOURCE_INPUT_MODE="$INPUT_MODE"
@@ -706,15 +666,13 @@ derive_sample_name
 
 for pair in \
     "--pns-frag-lower:$PNS_FRAG_LOWER" "--pns-frag-upper:$PNS_FRAG_UPPER" \
-    "--wps-frag-lower:$WPS_FRAG_LOWER" "--wps-frag-upper:$WPS_FRAG_UPPER" \
     "--pns-mode-length:$PNS_MODE_LENGTH" "--fine-frag-lower:$FINE_FRAG_LOWER" \
-    "--fine-frag-upper:$FINE_FRAG_UPPER" "--exact-size-a:$EXACT_SIZE_A" \
-    "--exact-size-b:$EXACT_SIZE_B" \
-    "--wps-protection:$WPS_PROTECTION" "--dac-dmax:$DAC_DMAX" \
+    "--fine-frag-upper:$FINE_FRAG_UPPER" "--exact-size:$EXACT_SIZE" \
+    "--dac-dmax:$DAC_DMAX" \
     "--nrl-min-distance:$NRL_MIN_DISTANCE" "--nrl-max-distance:$NRL_MAX_DISTANCE" \
     "--nrl-peak-resolution:$NRL_PEAK_RESOLUTION" \
     "--short-periodicity-min:$SHORT_PERIODICITY_MIN" "--short-periodicity-max:$SHORT_PERIODICITY_MAX" \
-    "--nucleosome-periodicity-min:$NUCLEOSOME_PERIODICITY_MIN" "--nucleosome-periodicity-max:$NUCLEOSOME_PERIODICITY_MAX" \
+    "--intermediate-periodicity-min:$INTERMEDIATE_PERIODICITY_MIN" "--intermediate-periodicity-max:$INTERMEDIATE_PERIODICITY_MAX" "--intermediate-periodicity-resolution:$INTERMEDIATE_PERIODICITY_RESOLUTION" \
     "--aggregate-window-half:$AGGREGATE_WINDOW_HALF" "--state-distance-max:$STATE_DISTANCE_MAX" \
     "--state-distance-smooth-window:$STATE_DISTANCE_SMOOTH_WINDOW" "--position-percentile-interval:$POSITION_PERCENTILE_INTERVAL" \
     "--gene-fft-window:$GENE_FFT_WINDOW" \
@@ -742,7 +700,6 @@ if [[ "$PEAK_SMOOTH_WINDOW" -gt 0 ]]; then
     (( PEAK_SMOOTH_ORDER < PEAK_SMOOTH_WINDOW )) || fatal "--peak-smooth-order must be smaller than --peak-smooth-window"
 fi
 (( PNS_FRAG_LOWER <= PNS_FRAG_UPPER )) || fatal "PNS fragment lower exceeds upper"
-(( WPS_FRAG_LOWER <= WPS_FRAG_UPPER )) || fatal "WPS fragment lower exceeds upper"
 (( FINE_FRAG_LOWER <= FINE_FRAG_UPPER )) || fatal "fine fragment lower exceeds upper"
 (( FRAG_COUNT_MIN <= FRAG_COUNT_MAX )) || fatal "fragment count minimum exceeds maximum"
 (( FRAG_PLOT_MIN <= FRAG_PLOT_MAX )) || fatal "fragment plot minimum exceeds maximum"
@@ -751,7 +708,7 @@ fi
 [[ -z "$DISTANCE_X_MAJOR_TICK" ]] || check_pos_number "--distance-x-major-tick" "$DISTANCE_X_MAJOR_TICK"
 [[ -z "$DISTANCE_X_MINOR_TICK" ]] || check_pos_number "--distance-x-minor-tick" "$DISTANCE_X_MINOR_TICK"
 (( SHORT_PERIODICITY_MIN < SHORT_PERIODICITY_MAX )) || fatal "short-periodicity minimum must be less than maximum"
-(( NUCLEOSOME_PERIODICITY_MIN < NUCLEOSOME_PERIODICITY_MAX )) || fatal "nucleosome-periodicity minimum must be less than maximum"
+(( INTERMEDIATE_PERIODICITY_MIN < INTERMEDIATE_PERIODICITY_MAX )) || fatal "intermediate-periodicity minimum must be less than maximum"
 (( GENE_FFT_PERIOD_MIN < GENE_FFT_PERIOD_MAX )) || fatal "gene FFT minimum period must be less than maximum"
 (( STATE_DISTANCE_SMOOTH_WINDOW % 2 == 1 )) || fatal "--state-distance-smooth-window must be odd"
 check_uint "--state-distance-smooth-order" "$STATE_DISTANCE_SMOOTH_ORDER"
@@ -771,7 +728,7 @@ if [[ "$POSITIVE_RUNS_MAX_LENGTH" -gt 0 && "$POSITIVE_RUNS_MAX_LENGTH" -lt "$POS
 if [[ "$SKIP_NRL" -eq 0 ]]; then
     required_dac_distance=$NRL_MAX_DISTANCE
     (( SHORT_PERIODICITY_MAX > required_dac_distance )) && required_dac_distance=$SHORT_PERIODICITY_MAX
-    (( NUCLEOSOME_PERIODICITY_MAX > required_dac_distance )) && required_dac_distance=$NUCLEOSOME_PERIODICITY_MAX
+    (( INTERMEDIATE_PERIODICITY_MAX > required_dac_distance )) && required_dac_distance=$INTERMEDIATE_PERIODICITY_MAX
     (( DAC_DMAX >= required_dac_distance )) || fatal "--dac-dmax must be at least ${required_dac_distance} for the requested NRL analyses"
 fi
 [[ "$MAX_DUPLICATES" =~ ^[0-9]+$ ]] || fatal "--max-duplicates must be a non-negative integer"
@@ -779,7 +736,6 @@ fi
 [[ "$DEDUP_SCOPE" == "all_bams" || "$DEDUP_SCOPE" == "per_bam" ]] || fatal "invalid --dedup-scope"
 [[ "$EVEN_DYAD" == "split" || "$EVEN_DYAD" == "left" || "$EVEN_DYAD" == "right" ]] || fatal "invalid --even-dyad"
 [[ "$DAC_ALGORITHM" == "auto" || "$DAC_ALGORITHM" == "sparse" || "$DAC_ALGORITHM" == "fft" ]] || fatal "invalid --dac-algorithm"
-[[ "$DCC_ALGORITHM" == "auto" || "$DCC_ALGORITHM" == "sparse" || "$DCC_ALGORITHM" == "fft" ]] || fatal "invalid --dcc-algorithm"
 [[ "$RANDOMIZE_FALLBACK" == "uniform" || "$RANDOMIZE_FALLBACK" == "skip" ]] || fatal "invalid --randomize-fallback"
 check_uint "--randomize-seed" "$RANDOMIZE_SEED"
 check_posint "--states-label-column" "$STATES_LABEL_COLUMN"
@@ -809,7 +765,6 @@ fi
 [[ -z "$EXPRESSION" || -f "$EXPRESSION" ]] || fatal "expression TSV not found: $EXPRESSION"
 [[ -f "$TSS_EXPRESSION_RESOURCE" ]] || fatal "TSS expression resource not found: $TSS_EXPRESSION_RESOURCE"
 [[ "$TSS_EXPRESSION_WINDOW" =~ ^[1-9][0-9]*$ ]] || fatal "--tss-expression-window must be a positive integer"
-[[ "$GENE_EXPRESSION_SIGNALS" =~ ^(pns|wps|both)$ ]] || fatal "--gene-expression-signals must be pns, wps or both"
 if [[ -n "$GENE_SET_CONFIG" && ( -z "$GENES_BED" || -z "$STATES_BED" ) ]]; then fatal "--gene-set-config requires both --genes-bed and --states-bed"; fi
 if [[ -n "$STATES_BED" && -n "$GENES_BED" && -z "$GENE_SET_CONFIG" ]]; then
     GENE_SET_CONFIG="$($NUCLEOSUITE_BIN resources path default-gene-sets)"
@@ -827,7 +782,7 @@ if [[ "$VALIDATE_ONLY" -eq 1 || "$DRY_RUN" -eq 1 ]]; then
   if [[ "$DRY_RUN" -eq 1 ]]; then
     printf 'NucleoSuite MNase suite dry run\nmode\t%s\noutdir\t%s\nblacklist\t%s\n' \
       "$RUN_MODE" "$OUTDIR" "${BLACKLIST_BED:-auto-if-hg19}"
-    printf 'stages\tsetup,tracks,dac,dcc,nrl,aggregates,distances,region-extract,fragment-lengths,heatmaps,gene-expression,positive-runs,peak-analysis\n'
+    printf 'stages\tsetup,tracks,dac,nrl,scaling,aggregates,distances,region-extract,fragment-lengths,heatmaps,gene-expression,positive-runs,peak-analysis\n'
   fi
   exit 0
 fi
@@ -848,14 +803,12 @@ SETUP_DIR="$OUTDIR/00_setup"
 GENE_SET_DIR="$OUTDIR/00_gene_sets"
 COMBINED_TRACK_DIR="$OUTDIR/01_combined_tracks"
 PNS_DIR="$COMBINED_TRACK_DIR/pns"
-WPS_DIR="$COMBINED_TRACK_DIR/wps"
 DYAD_EXACT_DIR="$COMBINED_TRACK_DIR/dyads/exact"
 DYAD_RANGE_DIR="$COMBINED_TRACK_DIR/dyads/ranges"
 ENDS_EXACT_DIR="$COMBINED_TRACK_DIR/fragment_ends/exact"
 ENDS_RANGE_DIR="$COMBINED_TRACK_DIR/fragment_ends/ranges"
 SEQUENCE_DIR="$COMBINED_TRACK_DIR/sequence"
 DAC_DIR="$OUTDIR/02_dac"
-DCC_DIR="$OUTDIR/03_dcc"
 NRL_DIR="$OUTDIR/04_nrl"
 CTCF_AGG_DIR="$OUTDIR/05_ctcf_aggregation"
 TSS_AGG_DIR="$OUTDIR/06_tss_aggregation"
@@ -867,15 +820,15 @@ HEATMAP_DIR="$OUTDIR/10_fragment_heatmaps"
 GENE_EXPRESSION_DIR="$OUTDIR/11_gene_expression"
 POSITIVE_RUNS_DIR="$OUTDIR/12_positive_runs"
 PEAK_ANALYSIS_DIR="$OUTDIR/13_peak_analysis"
-COMPARE_DIR="$PEAK_ANALYSIS_DIR/pns_vs_wps"
 PEAK_SCORE_DIR="$PEAK_ANALYSIS_DIR/score_frequencies"
+SCALED_DIR="$COMBINED_TRACK_DIR/scaled"
 LOG_DIR="$OUTDIR/logs"
 DONE_DIR="$OUTDIR/.done"
-mkdir -p "$SETUP_DIR" "$GENE_SET_DIR" "$COMBINED_TRACK_DIR" "$PNS_DIR" "$WPS_DIR" \
+mkdir -p "$SETUP_DIR" "$GENE_SET_DIR" "$COMBINED_TRACK_DIR" "$PNS_DIR" "$SCALED_DIR" \
     "$DYAD_EXACT_DIR" "$DYAD_RANGE_DIR" "$ENDS_EXACT_DIR" "$ENDS_RANGE_DIR" "$SEQUENCE_DIR" \
-    "$DAC_DIR" "$DCC_DIR" "$NRL_DIR" "$CTCF_AGG_DIR" "$TSS_AGG_DIR" "$DIST_DIR" "$REGION_DIR" \
+    "$DAC_DIR" "$NRL_DIR" "$CTCF_AGG_DIR" "$TSS_AGG_DIR" "$DIST_DIR" "$REGION_DIR" \
     "$FRAG_DIR" "$HEATMAP_DIR" "$GENE_EXPRESSION_DIR" "$POSITIVE_RUNS_DIR" "$PEAK_ANALYSIS_DIR" \
-    "$COMPARE_DIR" "$PEAK_SCORE_DIR" "$LOG_DIR" "$DONE_DIR"
+    "$PEAK_SCORE_DIR" "$LOG_DIR" "$DONE_DIR"
 
 materialize_bigbed_input() {
     local source="$1" label="$2"
@@ -896,20 +849,19 @@ INTERVAL_EXT="bed"
 PARAMETERS="$SETUP_DIR/${SUPPORT_PREFIX}run_parameters.tsv"
 {
     echo -e "parameter\tvalue"
-    for name in SAMPLE_NAME RUN_MODE FASTA BLACKLIST_BED NO_BLACKLIST CTCF_BED STATES_BED GENES_BED GENE_SET_CONFIG EXPRESSION EXPRESSION_VALUE_COLUMN EXPRESSION_GENE_COLUMN EXPRESSION_NAME_COLUMN EXPRESSION_PROFILE_COLUMN GENE_EXPRESSION_SIGNALS TSS_EXPRESSION_RESOURCE TSS_EXPRESSION_TISSUE TSS_EXPRESSION_WINDOW RESOURCE_SET VENN_SETS OUTDIR INTERVAL_FORMAT \
-        PNS_FRAG_LOWER PNS_FRAG_UPPER WPS_FRAG_LOWER WPS_FRAG_UPPER PNS_MODE_LENGTH FINE_FRAG_LOWER FINE_FRAG_UPPER \
-        EXACT_SIZE_A EXACT_SIZE_B MAX_DUPLICATES MAX_PER_COORDINATE DEDUP_SCOPE EVEN_DYAD PNS_SMOOTH_WINDOW \
-        PNS_SMOOTH_ORDER PNS_MAX_NEG_RUN WPS_PROTECTION WPS_BASELINE_WINDOW WPS_SG_WINDOW WPS_SG_ORDER \
+    for name in SAMPLE_NAME RUN_MODE FASTA BLACKLIST_BED NO_BLACKLIST CTCF_BED STATES_BED GENES_BED GENE_SET_CONFIG EXPRESSION EXPRESSION_VALUE_COLUMN EXPRESSION_GENE_COLUMN EXPRESSION_NAME_COLUMN EXPRESSION_PROFILE_COLUMN TSS_EXPRESSION_RESOURCE TSS_EXPRESSION_TISSUE TSS_EXPRESSION_WINDOW RESOURCE_SET VENN_SETS OUTDIR INTERVAL_FORMAT \
+        PNS_FRAG_LOWER PNS_FRAG_UPPER PNS_MODE_LENGTH FINE_FRAG_LOWER FINE_FRAG_UPPER \
+        EXACT_SIZE DINUC_EXACT_A DINUC_EXACT_B MAX_DUPLICATES MAX_PER_COORDINATE DEDUP_SCOPE EVEN_DYAD PNS_SMOOTH_WINDOW \
+        PNS_SMOOTH_ORDER PNS_MAX_NEG_RUN \
         PEAK_SMOOTH_WINDOW PEAK_SMOOTH_ORDER CTCF_FLANK AGGREGATE_WINDOW_HALF \
         REGION_PEAK_FLANK STATES_LABEL_COLUMN DAC_DMAX DAC_WINDOW_SIZE \
         DAC_ALGORITHM NRL_MIN_DISTANCE NRL_MAX_DISTANCE NRL_PEAK_RESOLUTION \
-        SHORT_PERIODICITY_MIN SHORT_PERIODICITY_MAX NUCLEOSOME_PERIODICITY_MIN NUCLEOSOME_PERIODICITY_MAX \
-        DCC_DMAX DCC_WINDOW_SIZE DCC_SUMMARY_LAG_WINDOW \
-        DCC_ALGORITHM DISTANCE_MAX DISTANCE_MAX_ORDER STATE_DISTANCE_MAX STATE_DISTANCE_SMOOTH_WINDOW STATE_DISTANCE_SMOOTH_ORDER POSITION_PERCENTILE_INTERVAL SCORE_Z_LIMIT DISTANCE_HISTOGRAM_X_MAX PERCENTILE_BOXPLOT_Y_MAX \
+        SHORT_PERIODICITY_MIN SHORT_PERIODICITY_MAX INTERMEDIATE_PERIODICITY_MIN INTERMEDIATE_PERIODICITY_MAX INTERMEDIATE_PERIODICITY_RESOLUTION \
+        DISTANCE_ADJACENT_MAX DISTANCE_LONG_MAX DISTANCE_LONG_MAX_ORDER STATE_DISTANCE_MAX STATE_DISTANCE_SMOOTH_WINDOW STATE_DISTANCE_SMOOTH_ORDER POSITION_PERCENTILE_INTERVAL SCORE_Z_LIMIT DISTANCE_HISTOGRAM_X_MAX PERCENTILE_BOXPLOT_Y_MAX \
         POSITIVE_RUNS_THRESHOLD POSITIVE_RUNS_CHUNK_SIZE POSITIVE_RUNS_MIN_LENGTH POSITIVE_RUNS_MAX_LENGTH POSITIVE_RUNS_PLOT_X_MAX POSITIVE_RUNS_NORMALIZATION \
         GENE_FFT_WINDOW GENE_FFT_PERIOD_MIN GENE_FFT_PERIOD_MAX GENE_FFT_RANKING_PERIODS RANDOMIZE_SEED RANDOMIZE_SEARCH_WINDOW RANDOMIZE_FALLBACK FRAG_COUNT_MIN FRAG_COUNT_MAX \
         FRAG_PLOT_MIN FRAG_PLOT_MAX HEATMAP_MIN_FRAG HEATMAP_MAX_FRAG HEATMAP_NORMALIZATION PEAK_SCORE_NORMALIZATION \
-        SKIP_BAM_DCC SKIP_END_DCC SKIP_NRL SKIP_FRAGMENT_HEATMAP SKIP_REGION_EXTRACT SKIP_GENE_EXPRESSION \
+        SKIP_NRL SKIP_FRAGMENT_HEATMAP SKIP_REGION_EXTRACT SKIP_GENE_EXPRESSION \
         SKIP_TSS_EXPRESSION_QUINTILES SKIP_POSITIVE_RUNS SKIP_PEAK_SCORE_FREQUENCY COMBINE_PREREQUISITES_ONLY; do
         printf '%s\t%s\n' "$name" "${!name}"
     done
@@ -1164,8 +1116,7 @@ queue_memory_step() {
 
 run_step "00_cli_registry" "$SETUP_DIR/${SUPPORT_PREFIX}nucleosuite_version.txt" bash -c '
 set -euo pipefail; bin="$1"; out="$2"; "$bin" --version | tee "$out"
-for cmd in tracks pns wps coverage dyads fragment-ends dinuc-profile ww-types call-peaks compare-positions fragments randomize-fragments merge-bams fragment-lengths fragment-heatmap gene-sets gene-expression tss-expression-quintiles aggregate dac dcc nrl plot positive-runs peak-score-frequency distances region-extract resources validate-inputs mnase-suite; do "$bin" "$cmd" --help >/dev/null; done
-"$bin" dcc bigwig --help >/dev/null; "$bin" dcc bam --help >/dev/null
+for cmd in tracks pns coverage dyads fragment-ends dinuc-profile ww-types call-peaks fragments randomize-fragments merge-bams fragment-lengths fragment-heatmap gene-sets gene-expression tss-expression-quintiles aggregate dac nrl plot positive-runs peak-score-frequency distances region-extract resources validate-inputs mnase-suite; do "$bin" "$cmd" --help >/dev/null; done
 ' _ "$NUCLEOSUITE_BIN" "$SETUP_DIR/${SUPPORT_PREFIX}nucleosuite_version.txt"
 
 run_step "00_python_dependencies" "$SETUP_DIR/${SUPPORT_PREFIX}python_dependencies.txt" "$PYTHON_BIN" - "$SETUP_DIR/${SUPPORT_PREFIX}python_dependencies.txt" <<'PY'
@@ -1203,50 +1154,49 @@ PY
 PNS_BASE="$PNS_DIR/${SAMPLE}_PNS"
 PNS_PREFIX="${PNS_BASE}_methodpns_mode${PNS_MODE_LENGTH}_lower${PNS_FRAG_LOWER}_upper${PNS_FRAG_UPPER}_smooth${PNS_SMOOTH_WINDOW}x${PNS_SMOOTH_ORDER}"
 PNS_BW="${PNS_PREFIX}_pns.bw"
-PNS_ANALYSIS_BW="$PNS_BW"
 PNS_TRACK_LIST="pns,posPNS,coverage,dyad,fragment_ends,fragment_left_ends,fragment_right_ends,pns_peaks"
 if [[ "$PNS_SMOOTH_WINDOW" -gt 0 ]]; then
-    PNS_ANALYSIS_BW="${PNS_PREFIX}_pns_smoothed.bw"
+    PNS_BW="${PNS_PREFIX}_pns_smoothed.bw"
     PNS_TRACK_LIST="pns_smoothed,${PNS_TRACK_LIST}"
 fi
 PNS_COVERAGE_BW="${PNS_PREFIX}_coverage.bw"
-
-WPS_BASE="$WPS_DIR/${SAMPLE}_WPS"
-WPS_PREFIX="${WPS_BASE}_prot${WPS_PROTECTION}_lower${WPS_FRAG_LOWER}_upper${WPS_FRAG_UPPER}_baseline${WPS_BASELINE_WINDOW}_sg${WPS_SG_WINDOW}x${WPS_SG_ORDER}_callerwps"
-WPS_BW="${WPS_PREFIX}_wps.bw"
-WPS_SMOOTH_BW="${WPS_PREFIX}_sm_mWPS.bw"
+PNS_POS_BW="${PNS_PREFIX}_posPNS.bw"
+PNS_SCALED_BW="$SCALED_DIR/${SAMPLE}_PNS_scaled_to_mean_nucleosome_peak_score.bw"
+PNS_POS_SCALED_BW="$SCALED_DIR/${SAMPLE}_posPNS_mean_scaled.bw"
+PNS_COVERAGE_SCALED_BW="$SCALED_DIR/${SAMPLE}_coverage_mean_scaled.bw"
+PNS_ANALYSIS_BW="$PNS_BW"
 
 FINE_RANGE_LABEL="${FINE_FRAG_LOWER}-${FINE_FRAG_UPPER}"
 DYAD_RANGE_FOLDER="$DYAD_RANGE_DIR/$FINE_RANGE_LABEL"
 DYAD_RANGE_BASE="$DYAD_RANGE_FOLDER/${SAMPLE}_${FINE_FRAG_LOWER}_${FINE_FRAG_UPPER}"
 DYAD_RANGE_PREFIX="${DYAD_RANGE_BASE}_dyads_lower${FINE_FRAG_LOWER}_upper${FINE_FRAG_UPPER}"
 DYAD_RANGE_BW="${DYAD_RANGE_PREFIX}_dyad.bw"
-DYAD_A_FOLDER="$DYAD_EXACT_DIR/$EXACT_SIZE_A"
-DYAD_A_BASE="$DYAD_A_FOLDER/${SAMPLE}_${EXACT_SIZE_A}"
-DYAD_A_PREFIX="${DYAD_A_BASE}_dyads_lower${EXACT_SIZE_A}_upper${EXACT_SIZE_A}"
-DYAD_A_BW="${DYAD_A_PREFIX}_dyad.bw"
-DYAD_B_FOLDER="$DYAD_EXACT_DIR/$EXACT_SIZE_B"
-DYAD_B_BASE="$DYAD_B_FOLDER/${SAMPLE}_${EXACT_SIZE_B}"
-DYAD_B_PREFIX="${DYAD_B_BASE}_dyads_lower${EXACT_SIZE_B}_upper${EXACT_SIZE_B}"
-DYAD_B_BW="${DYAD_B_PREFIX}_dyad.bw"
+DYAD_EXACT_FOLDER="$DYAD_EXACT_DIR/$EXACT_SIZE"
+DYAD_EXACT_BASE="$DYAD_EXACT_FOLDER/${SAMPLE}_${EXACT_SIZE}"
+DYAD_EXACT_PREFIX="${DYAD_EXACT_BASE}_dyads_lower${EXACT_SIZE}_upper${EXACT_SIZE}"
+DYAD_EXACT_BW="${DYAD_EXACT_PREFIX}_dyad.bw"
 ENDS_RANGE_FOLDER="$ENDS_RANGE_DIR/$FINE_RANGE_LABEL"
 ENDS_BASE="$ENDS_RANGE_FOLDER/${SAMPLE}_${FINE_FRAG_LOWER}_${FINE_FRAG_UPPER}"
 ENDS_PREFIX="${ENDS_BASE}_fragment_ends_lower${FINE_FRAG_LOWER}_upper${FINE_FRAG_UPPER}"
 ENDS_LEFT_BW="${ENDS_PREFIX}_fragment_left_ends.bw"
 ENDS_RIGHT_BW="${ENDS_PREFIX}_fragment_right_ends.bw"
+ENDS_EXACT_FOLDER="$ENDS_EXACT_DIR/$EXACT_SIZE"
+ENDS_EXACT_PREFIX="$ENDS_EXACT_FOLDER/${SAMPLE}_${EXACT_SIZE}_fragment_ends_lower${EXACT_SIZE}_upper${EXACT_SIZE}"
+ENDS_EXACT_LEFT_BW="${ENDS_EXACT_PREFIX}_fragment_left_ends.bw"
+ENDS_EXACT_RIGHT_BW="${ENDS_EXACT_PREFIX}_fragment_right_ends.bw"
 
 OBS_TRACK_SPEC="$COMBINED_TRACK_DIR/${SUPPORT_PREFIX}manifest.tsv"
 printf 'fragment_range\toutput_prefix\ttracks\tbasic_scope\n' > "$OBS_TRACK_SPEC"
 printf '%s-%s\t%s\t%s\trange\n' "$PNS_FRAG_LOWER" "$PNS_FRAG_UPPER" "$PNS_PREFIX" "$PNS_TRACK_LIST" >> "$OBS_TRACK_SPEC"
-printf '%s-%s\t%s\t%s\trange\n' "$WPS_FRAG_LOWER" "$WPS_FRAG_UPPER" "$WPS_PREFIX" \
-    'coverage,sm_mWPS,wps,wps_smoothed,mWPS,dyad,wps_peaks' >> "$OBS_TRACK_SPEC"
 printf '%s-%s\t%s\tdyad\trange\n' "$FINE_FRAG_LOWER" "$FINE_FRAG_UPPER" "$DYAD_RANGE_PREFIX" >> "$OBS_TRACK_SPEC"
-printf '%s\t%s\tdyad\trange\n' "$EXACT_SIZE_A" "$DYAD_A_PREFIX" >> "$OBS_TRACK_SPEC"
-printf '%s\t%s\tdyad\trange\n' "$EXACT_SIZE_B" "$DYAD_B_PREFIX" >> "$OBS_TRACK_SPEC"
+printf '%s\t%s\tdyad\trange\n' "$EXACT_SIZE" "$DYAD_EXACT_PREFIX" >> "$OBS_TRACK_SPEC"
 printf '%s-%s\t%s\tfragment_ends,fragment_left_ends,fragment_right_ends\trange\n' \
     "$FINE_FRAG_LOWER" "$FINE_FRAG_UPPER" "$ENDS_PREFIX" >> "$OBS_TRACK_SPEC"
+printf '%s\t%s\tfragment_left_ends,fragment_right_ends\trange\n' \
+    "$EXACT_SIZE" "$ENDS_EXACT_PREFIX" >> "$OBS_TRACK_SPEC"
 
-for spec in "range:$FINE_FRAG_LOWER:$FINE_FRAG_UPPER" "exact:$EXACT_SIZE_A:$EXACT_SIZE_A" "exact:$EXACT_SIZE_B:$EXACT_SIZE_B"; do
+# MNase dinucleotide profiles retain exact 145 and 147 bp in addition to the 146-148 range.
+for spec in "range:$FINE_FRAG_LOWER:$FINE_FRAG_UPPER" "exact:$DINUC_EXACT_A:$DINUC_EXACT_A" "exact:$DINUC_EXACT_B:$DINUC_EXACT_B"; do
     IFS=: read -r class lo hi <<< "$spec"
     label="$lo-$hi"
     [[ "$lo" == "$hi" ]] && label="$lo"
@@ -1367,14 +1317,12 @@ if [[ "$RUN_MODE" == "randomized" ]]; then
     else
         RANDOM_LOWER="$PNS_FRAG_LOWER"
         RANDOM_UPPER="$PNS_FRAG_UPPER"
-        (( WPS_FRAG_LOWER < RANDOM_LOWER )) && RANDOM_LOWER="$WPS_FRAG_LOWER"
-        (( WPS_FRAG_UPPER > RANDOM_UPPER )) && RANDOM_UPPER="$WPS_FRAG_UPPER"
         (( FINE_FRAG_LOWER < RANDOM_LOWER )) && RANDOM_LOWER="$FINE_FRAG_LOWER"
         (( FINE_FRAG_UPPER > RANDOM_UPPER )) && RANDOM_UPPER="$FINE_FRAG_UPPER"
-        (( EXACT_SIZE_A < RANDOM_LOWER )) && RANDOM_LOWER="$EXACT_SIZE_A"
-        (( EXACT_SIZE_B < RANDOM_LOWER )) && RANDOM_LOWER="$EXACT_SIZE_B"
-        (( EXACT_SIZE_A > RANDOM_UPPER )) && RANDOM_UPPER="$EXACT_SIZE_A"
-        (( EXACT_SIZE_B > RANDOM_UPPER )) && RANDOM_UPPER="$EXACT_SIZE_B"
+        (( EXACT_SIZE < RANDOM_LOWER )) && RANDOM_LOWER="$EXACT_SIZE"
+        (( EXACT_SIZE > RANDOM_UPPER )) && RANDOM_UPPER="$EXACT_SIZE"
+        (( DINUC_EXACT_A < RANDOM_LOWER )) && RANDOM_LOWER="$DINUC_EXACT_A"
+        (( DINUC_EXACT_B > RANDOM_UPPER )) && RANDOM_UPPER="$DINUC_EXACT_B"
         (( FRAG_COUNT_MIN < RANDOM_LOWER )) && RANDOM_LOWER="$FRAG_COUNT_MIN"
         (( FRAG_COUNT_MAX > RANDOM_UPPER )) && RANDOM_UPPER="$FRAG_COUNT_MAX"
         (( HEATMAP_MIN_FRAG < RANDOM_LOWER )) && RANDOM_LOWER="$HEATMAP_MIN_FRAG"
@@ -1390,8 +1338,6 @@ if [[ "$RUN_MODE" == "randomized" ]]; then
         [[ -f "$RANDOM_MARKER" && -s "$RANDOM_BED" ]] || fatal "Randomized fragment generation failed; downstream analysis was not started"
     fi
     ANALYSIS_INPUT_ARGS=(--fragments "$RANDOM_BED")
-    DCC_INPUT_A=(--fragments-a "$RANDOM_BED")
-    DCC_INPUT_B=(--fragments-b "$RANDOM_BED")
     SOURCE_REFERENCE_ARGS=(--fasta "$FASTA")
     FRAGMENTS=("$RANDOM_BED")
     INPUT_MODE="fragments"
@@ -1523,9 +1469,7 @@ run_step "01_combined_tracks" "$OBS_TRACK_REPORT" "$NUCLEOSUITE_BIN" tracks \
     --max-per-coordinate "$MAX_PER_COORDINATE" --dedup-scope "$DEDUP_SCOPE" \
     --even-dyad "$EVEN_DYAD" --pns-mode-length "$PNS_MODE_LENGTH" --bigbed-score-scale "$BIGBED_SCORE_SCALE" \
     --pns-smooth-window "$PNS_SMOOTH_WINDOW" --pns-smooth-order "$PNS_SMOOTH_ORDER" \
-    --pns-max-neg-run "$PNS_MAX_NEG_RUN" --wps-protection "$WPS_PROTECTION" \
-    --wps-baseline-window "$WPS_BASELINE_WINDOW" --wps-sg-window "$WPS_SG_WINDOW" \
-    --wps-sg-order "$WPS_SG_ORDER" --interval-format "$INTERVAL_FORMAT" --output-format bigwig \
+    --pns-max-neg-run "$PNS_MAX_NEG_RUN" --interval-format "$INTERVAL_FORMAT" --output-format bigwig \
     --report "$OBS_TRACK_REPORT"
 
 
@@ -1536,15 +1480,20 @@ run_step "01_combined_tracks" "$OBS_TRACK_REPORT" "$NUCLEOSUITE_BIN" tracks \
 PNS_CALL_PREFIX="$PNS_PREFIX"
 PNS_CALL_NUC="${PNS_PREFIX}_nucleosome_regions.${INTERVAL_EXT}"
 PNS_CALL_BRK="${PNS_PREFIX}_breakpoint_peaks.${INTERVAL_EXT}"
-WPS_CALL_PREFIX="$WPS_PREFIX"
-WPS_CALL_NUC="${WPS_PREFIX}_nucleosome_regions.${INTERVAL_EXT}"
-WPS_CALL_BRK="${WPS_PREFIX}_breakpoint_peaks.${INTERVAL_EXT}"
 [[ -s "$PNS_CALL_NUC" ]] || die "PNS nucleosome peak file was not created: $PNS_CALL_NUC"
 [[ -s "$PNS_CALL_BRK" ]] || die "PNS breakpoint peak file was not created: $PNS_CALL_BRK"
-[[ -s "$WPS_CALL_NUC" ]] || die "WPS nucleosome peak file was not created: $WPS_CALL_NUC"
-[[ -s "$WPS_CALL_BRK" ]] || die "WPS breakpoint peak file was not created: $WPS_CALL_BRK"
 
 if [[ "$COMBINE_PREREQUISITES_ONLY" -eq 0 ]]; then
+
+# Scaling is deliberately post-combine so all selected chromosomes share one reference.
+mkdir -p "$SCALED_DIR"
+run_step "01_scale_coverage" "$PNS_COVERAGE_SCALED_BW" "$NUCLEOSUITE_BIN" mean-scale \
+    --bigwig "$PNS_COVERAGE_BW" --scale 100 --output "$PNS_COVERAGE_SCALED_BW"
+run_step "01_scale_pospns" "$PNS_POS_SCALED_BW" "$NUCLEOSUITE_BIN" mean-scale \
+    --bigwig "$PNS_POS_BW" --scale 100 --output "$PNS_POS_SCALED_BW"
+run_step "01_scale_pns_peak_mean" "$PNS_SCALED_BW" "$NUCLEOSUITE_BIN" mean-scale \
+    --bigwig "$PNS_BW" --regions "$PNS_CALL_NUC" --score-column 5 --scale 100 --output "$PNS_SCALED_BW"
+PNS_ANALYSIS_BW="$PNS_SCALED_BW"
 
 DISTANCE_COMPARE_TICK_ARGS=(
     --score-z-limit "$SCORE_Z_LIMIT"
@@ -1564,7 +1513,7 @@ if [[ -n "$DISTANCE_X_MINOR_TICK" ]]; then
     DISTANCE_STATE_TICK_ARGS+=(--state-overlay-x-minor-tick "$DISTANCE_X_MINOR_TICK")
 fi
 
-# 02_dac: DAC is calculated only from dyad tracks.
+# 02_dac: DAC is calculated only from the ranged 146-148 bp dyad track.
 run_dac_scope() {
     local step="$1" track="$2" output_dir="$3" prefix="$4" regions="${5:-}" state="${6:-Combined chromosomes}"
     mkdir -p "$output_dir"
@@ -1580,25 +1529,14 @@ run_dac_scope() {
             --output-dir "$output_dir" --progress-every 100
     fi
 }
-run_all_dac_scopes() {
-    local step_label="$1" track="$2" base_dir="$3" prefix="$4"
-    run_dac_scope "02_dac_${step_label}_combined_chromosomes" "$track" "$base_dir/combined_chromosomes" "${prefix}_combined_chromosomes"
-    if [[ -n "$GENE_STATE_INTERVAL" && -f "$GENE_STATE_INTERVAL" ]]; then
-        run_dac_scope "02_dac_${step_label}_gene_sets" "$track" "$base_dir/gene_sets" \
-            "${prefix}_gene_sets" "$GENE_STATE_INTERVAL" gene_sets
-    fi
-}
-run_all_dac_scopes "dyad_range_${FINE_FRAG_LOWER}_${FINE_FRAG_UPPER}" "$DYAD_RANGE_BW" \
-    "$DAC_DIR/dyads/ranges/$FINE_RANGE_LABEL" "${SAMPLE}_dyad_${FINE_FRAG_LOWER}_${FINE_FRAG_UPPER}"
-run_all_dac_scopes "dyad_exact_${EXACT_SIZE_A}" "$DYAD_A_BW" \
-    "$DAC_DIR/dyads/exact/$EXACT_SIZE_A" "${SAMPLE}_dyad_${EXACT_SIZE_A}"
-run_all_dac_scopes "dyad_exact_${EXACT_SIZE_B}" "$DYAD_B_BW" \
-    "$DAC_DIR/dyads/exact/$EXACT_SIZE_B" "${SAMPLE}_dyad_${EXACT_SIZE_B}"
-for idx in 1 2 3 4; do
-    run_all_dac_scopes "type_dyad_${idx}" "${WW_TYPE_TRACKS[$((idx-1))]}" \
-        "$DAC_DIR/type_dyads/ranges/$FINE_RANGE_LABEL/type${idx}" "${SAMPLE}_type${idx}_dyad"
-done
-
+DAC_RANGE_DIR="$DAC_DIR/dyads/ranges/$FINE_RANGE_LABEL"
+run_dac_scope "02_dac_dyad_range_${FINE_FRAG_LOWER}_${FINE_FRAG_UPPER}_combined_chromosomes" "$DYAD_RANGE_BW" \
+    "$DAC_RANGE_DIR/combined_chromosomes" "${SAMPLE}_dyad_${FINE_FRAG_LOWER}_${FINE_FRAG_UPPER}_combined_chromosomes"
+if [[ -n "$GENE_STATE_INTERVAL" && -f "$GENE_STATE_INTERVAL" ]]; then
+    run_dac_scope "02_dac_dyad_range_${FINE_FRAG_LOWER}_${FINE_FRAG_UPPER}_gene_sets" "$DYAD_RANGE_BW" \
+        "$DAC_RANGE_DIR/gene_sets" "${SAMPLE}_dyad_${FINE_FRAG_LOWER}_${FINE_FRAG_UPPER}_gene_sets" \
+        "$GENE_STATE_INTERVAL" gene_sets
+fi
 wait_queued_steps
 
 DAC_VALIDATION_DIR="$DAC_DIR/validation"
@@ -1617,77 +1555,33 @@ out.write_text('file\tstatus\tmissing_columns\n'+''.join(f'{p}\t{s}\t{m}\n' for 
 if any(s=='FAIL' for _,s,_ in rows): raise SystemExit('One or more DAC files lack required columns')
 PYDAC
 
-# 03_dcc: DCC is organised by the two dyad or fragment-end tracks compared.
-DCC_EXACT_DIR="$DCC_DIR/dyad_vs_dyad/exact/${EXACT_SIZE_A}_vs_${EXACT_SIZE_B}"
-mkdir -p "$DCC_EXACT_DIR"
-queue_memory_step "03_dcc_dyad_exact_${EXACT_SIZE_A}_vs_${EXACT_SIZE_B}" \
-    "$DCC_EXACT_DIR/${SAMPLE}_${EXACT_SIZE_A}_vs_${EXACT_SIZE_B}*_DCC*.tsv" \
-    "$NUCLEOSUITE_BIN" dcc bigwig "${BLACKLIST_ARGS[@]}" --bigwig-a "$DYAD_A_BW" --bigwig-b "$DYAD_B_BW" \
-    --chrom-sizes "$CHROM_SIZES" --scope combined_chromosomes --window-size "$DCC_WINDOW_SIZE" --signed-lags \
-    --dmax "$DCC_DMAX" --summary-lag-window "$DCC_SUMMARY_LAG_WINDOW" --algorithm "$DCC_ALGORITHM" \
-    --label-a "${EXACT_SIZE_A}bp_dyad" --label-b "${EXACT_SIZE_B}bp_dyad" \
-    --out-prefix "${SAMPLE}_${EXACT_SIZE_A}_vs_${EXACT_SIZE_B}" --output-dir "$DCC_EXACT_DIR" --progress-every 100
-if [[ "$SKIP_BAM_DCC" -eq 0 ]]; then
-    DCC_BAM_DIR="$DCC_EXACT_DIR/bam_based"; mkdir -p "$DCC_BAM_DIR"
-    queue_memory_step "03_dcc_bam_dyad_exact_${EXACT_SIZE_A}_vs_${EXACT_SIZE_B}" \
-        "$DCC_BAM_DIR/${SAMPLE}_${EXACT_SIZE_A}_vs_${EXACT_SIZE_B}_bam*_DCC*.tsv" \
-        "$NUCLEOSUITE_BIN" dcc bam "${BLACKLIST_ARGS[@]}" "${DCC_INPUT_A[@]}" --length-a "$EXACT_SIZE_A" --position-a dyad \
-        "${DCC_INPUT_B[@]}" --length-b "$EXACT_SIZE_B" --position-b dyad --chrom-sizes "$CHROM_SIZES" \
-        --scope combined_chromosomes --window-size "$DCC_WINDOW_SIZE" --signed-lags --dmax "$DCC_DMAX" \
-        --summary-lag-window "$DCC_SUMMARY_LAG_WINDOW" --max-duplicates "$ACTIVE_MAX_DUPLICATES" \
-        --label-a "${EXACT_SIZE_A}bp_dyad" --label-b "${EXACT_SIZE_B}bp_dyad" \
-        --out-prefix "${SAMPLE}_${EXACT_SIZE_A}_vs_${EXACT_SIZE_B}_bam" --output-dir "$DCC_BAM_DIR" --progress-every 100
-fi
-if [[ "$SKIP_END_DCC" -eq 0 ]]; then
-    for signal_type in dyad left_end right_end; do
-        track="$DYAD_RANGE_BW"; family="dyad_vs_dyad"
-        [[ "$signal_type" == left_end ]] && { track="$ENDS_LEFT_BW"; family="left_end_vs_left_end"; }
-        [[ "$signal_type" == right_end ]] && { track="$ENDS_RIGHT_BW"; family="right_end_vs_right_end"; }
-        target="$DCC_DIR/$family/ranges/${FINE_RANGE_LABEL}_vs_${FINE_RANGE_LABEL}"; mkdir -p "$target"
-        queue_memory_step "03_dcc_${signal_type}_range_self" "$target/${SAMPLE}_${signal_type}_vs_${signal_type}*_DCC*.tsv" \
-            "$NUCLEOSUITE_BIN" dcc bigwig "${BLACKLIST_ARGS[@]}" --bigwig-a "$track" --bigwig-b "$track" \
-            --chrom-sizes "$CHROM_SIZES" --scope combined_chromosomes --window-size "$DCC_WINDOW_SIZE" --signed-lags \
-            --dmax "$DCC_DMAX" --algorithm "$DCC_ALGORITHM" \
-            --label-a "${signal_type}${FINE_FRAG_LOWER}_${FINE_FRAG_UPPER}" \
-            --label-b "${signal_type}${FINE_FRAG_LOWER}_${FINE_FRAG_UPPER}" \
-            --out-prefix "${SAMPLE}_${signal_type}_vs_${signal_type}" --output-dir "$target" --progress-every 100
-    done
-fi
-
-wait_queued_steps
-
-# 04_nrl: estimate NRL and short/long periodicities from both DAC and DCC curves.
+# 04_nrl: three periodicity windows from the ranged-dyad DAC curves.
 run_nrl_analysis() {
-    local input_tsv="$1" output_dir="$2" analysis_label="$3" min_distance="$4" max_distance="$5" peak_resolution="$6"
+    local input_tsv="$1" output_dir="$2" analysis_label="$3" min_distance="$4" max_distance="$5" peak_resolution="$6" skip_first="${7:-0}"
     local input_stem safe_stem output_prefix parameter_prefix step_name
     mkdir -p "$output_dir"
     input_stem="$(basename "$input_tsv" .tsv)"; safe_stem="${input_stem//[^A-Za-z0-9._-]/_}"
     output_prefix="$output_dir/${input_stem}_${analysis_label}"
-    parameter_prefix="${output_prefix}_peakres${peak_resolution}_min${min_distance}_max${max_distance}"
+    parameter_prefix="${output_prefix}_peakres${peak_resolution}_min${min_distance}_max${max_distance}_skipfirst${skip_first}"
     step_name="04_nrl_${safe_stem}_${analysis_label}"
     queue_step "$step_name" "${parameter_prefix}_regression.tsv" "$NUCLEOSUITE_BIN" nrl "$input_tsv" \
         --min-distance "$min_distance" --max-distance "$max_distance" --peak-resolution "$peak_resolution" \
-        "${DISTANCE_NRL_TICK_ARGS[@]}" \
+        --skip-first-peaks "$skip_first" "${DISTANCE_NRL_TICK_ARGS[@]}" \
         --output-prefix "$output_prefix" --title "$input_stem"
 }
-run_nrl_tree() {
-    local source_root="$1" target_root="$2" token="$3"
+if [[ "$SKIP_NRL" -eq 0 ]]; then
     while IFS= read -r -d '' input_tsv; do
         [[ "$input_tsv" == *_summary.tsv ]] && continue
         [[ "$(basename "$input_tsv")" == *DAC_COLUMN_VALIDATION.tsv ]] && continue
-        relative="${input_tsv#"$source_root"/}"; parent="$(dirname "$relative")"
-        outdir="$target_root/$parent"
+        relative="${input_tsv#"$DAC_RANGE_DIR"/}"; parent="$(dirname "$relative")"
+        outdir="$NRL_DIR/from_dac/dyads/ranges/$FINE_RANGE_LABEL/$parent"
         run_nrl_analysis "$input_tsv" "$outdir" "nrl_${NRL_MIN_DISTANCE}_${NRL_MAX_DISTANCE}" \
-            "$NRL_MIN_DISTANCE" "$NRL_MAX_DISTANCE" "$NRL_PEAK_RESOLUTION"
+            "$NRL_MIN_DISTANCE" "$NRL_MAX_DISTANCE" "$NRL_PEAK_RESOLUTION" 1
         run_nrl_analysis "$input_tsv" "$outdir" "periodicity_${SHORT_PERIODICITY_MIN}_${SHORT_PERIODICITY_MAX}" \
-            "$SHORT_PERIODICITY_MIN" "$SHORT_PERIODICITY_MAX" 0
-        run_nrl_analysis "$input_tsv" "$outdir" "periodicity_${NUCLEOSOME_PERIODICITY_MIN}_${NUCLEOSOME_PERIODICITY_MAX}" \
-            "$NUCLEOSOME_PERIODICITY_MIN" "$NUCLEOSOME_PERIODICITY_MAX" 0
-    done < <(find "$source_root" -type f -name "*$token*.tsv" -print0 | sort -z)
-}
-if [[ "$SKIP_NRL" -eq 0 ]]; then
-    run_nrl_tree "$DAC_DIR" "$NRL_DIR/from_dac" DAC
-    run_nrl_tree "$DCC_DIR" "$NRL_DIR/from_dcc" DCC
+            "$SHORT_PERIODICITY_MIN" "$SHORT_PERIODICITY_MAX" 1 0
+        run_nrl_analysis "$input_tsv" "$outdir" "periodicity_${INTERMEDIATE_PERIODICITY_MIN}_${INTERMEDIATE_PERIODICITY_MAX}" \
+            "$INTERMEDIATE_PERIODICITY_MIN" "$INTERMEDIATE_PERIODICITY_MAX" "$INTERMEDIATE_PERIODICITY_RESOLUTION" 0
+    done < <(find "$DAC_RANGE_DIR" -type f -name "*DAC*.tsv" -print0 | sort -z)
 fi
 wait_queued_steps
 
@@ -1702,13 +1596,10 @@ aggregate_track() {
         --colorbar-label "$colour" --mean-ylabel "$ylabel"
 }
 aggregate_track "05_ctcf_pns" "$PNS_ANALYSIS_BW" "$CTCF_AGG_DIR/pns" "${SAMPLE}_CTCF_PNS" PNS "Mean PNS"
-aggregate_track "05_ctcf_wps" "$WPS_SMOOTH_BW" "$CTCF_AGG_DIR/wps" "${SAMPLE}_CTCF_WPS" WPS "Mean WPS"
 aggregate_track "05_ctcf_dyad_range" "$DYAD_RANGE_BW" "$CTCF_AGG_DIR/dyads/ranges/$FINE_RANGE_LABEL" \
     "${SAMPLE}_CTCF_dyad_${FINE_FRAG_LOWER}_${FINE_FRAG_UPPER}" Dyad "Mean dyad signal"
-aggregate_track "05_ctcf_dyad_exact_a" "$DYAD_A_BW" "$CTCF_AGG_DIR/dyads/exact/$EXACT_SIZE_A" \
-    "${SAMPLE}_CTCF_dyad_${EXACT_SIZE_A}" Dyad "Mean ${EXACT_SIZE_A} bp dyad signal"
-aggregate_track "05_ctcf_dyad_exact_b" "$DYAD_B_BW" "$CTCF_AGG_DIR/dyads/exact/$EXACT_SIZE_B" \
-    "${SAMPLE}_CTCF_dyad_${EXACT_SIZE_B}" Dyad "Mean ${EXACT_SIZE_B} bp dyad signal"
+aggregate_track "05_ctcf_dyad_exact" "$DYAD_EXACT_BW" "$CTCF_AGG_DIR/dyads/exact/$EXACT_SIZE" \
+    "${SAMPLE}_CTCF_dyad_${EXACT_SIZE}" Dyad "Mean ${EXACT_SIZE} bp dyad signal"
 for idx in 1 2 3 4; do
     aggregate_track "05_ctcf_type_dyad_${idx}" "${WW_TYPE_TRACKS[$((idx-1))]}" \
         "$CTCF_AGG_DIR/type_dyads/ranges/$FINE_RANGE_LABEL/type${idx}" \
@@ -1766,10 +1657,8 @@ PYTSSPLOT
     fi
 }
 tss_aggregate_track pns "$PNS_ANALYSIS_BW" "$TSS_AGG_DIR/pns" "Mean PNS"
-tss_aggregate_track wps "$WPS_SMOOTH_BW" "$TSS_AGG_DIR/wps" "Mean WPS"
 tss_aggregate_track "dyad_range_${FINE_RANGE_LABEL}" "$DYAD_RANGE_BW" "$TSS_AGG_DIR/dyads/ranges/$FINE_RANGE_LABEL" "Mean dyad signal"
-tss_aggregate_track "dyad_exact_${EXACT_SIZE_A}" "$DYAD_A_BW" "$TSS_AGG_DIR/dyads/exact/$EXACT_SIZE_A" "Mean ${EXACT_SIZE_A} bp dyad signal"
-tss_aggregate_track "dyad_exact_${EXACT_SIZE_B}" "$DYAD_B_BW" "$TSS_AGG_DIR/dyads/exact/$EXACT_SIZE_B" "Mean ${EXACT_SIZE_B} bp dyad signal"
+tss_aggregate_track "dyad_exact_${EXACT_SIZE}" "$DYAD_EXACT_BW" "$TSS_AGG_DIR/dyads/exact/$EXACT_SIZE" "Mean ${EXACT_SIZE} bp dyad signal"
 for idx in 1 2 3 4; do
     tss_aggregate_track "type${idx}_dyad" "${WW_TYPE_TRACKS[$((idx-1))]}" \
         "$TSS_AGG_DIR/type_dyads/ranges/$FINE_RANGE_LABEL/type${idx}" "Mean type ${idx} dyad signal"
@@ -1791,34 +1680,34 @@ if [[ "$SKIP_TSS_EXPRESSION_QUINTILES" -eq 0 ]]; then
             --genes-bed "$GENES_BED" --window "$TSS_EXPRESSION_WINDOW" --output-prefix "$prefix"
     }
     run_tss_expression_quintiles PNS "$PNS_ANALYSIS_BW" "$TSS_EXPRESSION_DIR/$TSS_TISSUE_KEY/pns"
-    run_tss_expression_quintiles WPS "$WPS_SMOOTH_BW" "$TSS_EXPRESSION_DIR/$TSS_TISSUE_KEY/wps"
 fi
 
 wait_queued_steps
 
-# 07_distances: peak-distance outputs are grouped by peak source.
-DIST_STATE_ARGS=(); [[ -z "$STATES_BED" ]] || DIST_STATE_ARGS=(--state-bed "$STATES_FILTERED" --state-label-column "$STATES_LABEL_COLUMN")
-for kind in PNS WPS; do
-    peaks="$PNS_CALL_NUC"; source_dir="$DIST_DIR/pns_peaks"
-    [[ "$kind" == WPS ]] && { peaks="$WPS_CALL_NUC"; source_dir="$DIST_DIR/wps_peaks"; }
-    mkdir -p "$source_dir/combined_chromosomes"
-    prefix="$source_dir/combined_chromosomes/${SAMPLE}_${kind}_peak_distances"
-    queue_memory_step "07_distances_${kind,,}" "${prefix}*.tsv" "$NUCLEOSUITE_BIN" distances "$peaks" \
-        "${BLACKLIST_ARGS[@]}" --position-column 7 --score-column 5 --score-percentile 0 --min-distance 1 --max-distance "$DISTANCE_MAX" \
-        --max-order "$DISTANCE_MAX_ORDER" --scope combined_chromosomes --write-filtered-bed --interval-format "$INTERVAL_FORMAT" \
-        --interval-chrom-sizes "$CHROM_SIZES" --output-prefix "$prefix" "${DIST_STATE_ARGS[@]}"
-    if [[ -n "$STATES_BED" ]]; then
-        mkdir -p "$source_dir/chromhmm_states"
-        state_prefix="$source_dir/chromhmm_states/${SAMPLE}_${kind}_ChromHMM_peak_distances"
-        queue_memory_step "07_state_distances_${kind,,}" "${state_prefix}_scorepct0_state_relative_percent.${PLOT_EXT}" \
-            "$NUCLEOSUITE_BIN" distances "$peaks" --position-column 7 --score-column 5 --score-percentile 0 \
-            "${BLACKLIST_ARGS[@]}" --min-distance 1 --max-distance "$STATE_DISTANCE_MAX" --max-order 1 --scope combined_chromosomes \
-            --state-bed "$STATES_FILTERED" --state-label-column "$STATES_LABEL_COLUMN" --state-color-column 9 \
-            --state-overlay-plot --state-overlay-smooth-window "$STATE_DISTANCE_SMOOTH_WINDOW" \
-            --state-overlay-smooth-polyorder "$STATE_DISTANCE_SMOOTH_ORDER" "${DISTANCE_STATE_TICK_ARGS[@]}" \
-            --state-overlay-title "${SAMPLE} ${kind}: adjacent peak distances by ChromHMM state" --output-prefix "$state_prefix"
-    fi
-done
+# 07_distances: adjacent spacing plus 1-7 order NRL regression from PNS nucleosome calls.
+source_dir="$DIST_DIR/pns_peaks"
+mkdir -p "$source_dir/combined_chromosomes"
+adjacent_prefix="$source_dir/combined_chromosomes/${SAMPLE}_PNS_peak_distances_adjacent"
+queue_memory_step "07_distances_pns_adjacent" "${adjacent_prefix}*.tsv" "$NUCLEOSUITE_BIN" distances "$PNS_CALL_NUC" \
+    "${BLACKLIST_ARGS[@]}" --position-column 7 --score-column 5 --score-percentile 0 --min-distance 1 --max-distance "$DISTANCE_ADJACENT_MAX" \
+    --max-order 1 --scope combined_chromosomes --write-filtered-bed --interval-format "$INTERVAL_FORMAT" \
+    --interval-chrom-sizes "$CHROM_SIZES" --output-prefix "$adjacent_prefix"
+long_prefix="$source_dir/combined_chromosomes/${SAMPLE}_PNS_peak_distances_orders1-${DISTANCE_LONG_MAX_ORDER}"
+queue_memory_step "07_distances_pns_nrl" "${long_prefix}*.tsv" "$NUCLEOSUITE_BIN" distances "$PNS_CALL_NUC" \
+    "${BLACKLIST_ARGS[@]}" --position-column 7 --score-column 5 --score-percentile 0 --min-distance 1 --max-distance "$DISTANCE_LONG_MAX" \
+    --max-order "$DISTANCE_LONG_MAX_ORDER" --scope combined_chromosomes --regression-scope combined \
+    --write-filtered-bed --interval-format "$INTERVAL_FORMAT" --interval-chrom-sizes "$CHROM_SIZES" --output-prefix "$long_prefix"
+if [[ -n "$STATES_BED" ]]; then
+    mkdir -p "$source_dir/chromhmm_states"
+    state_prefix="$source_dir/chromhmm_states/${SAMPLE}_PNS_ChromHMM_peak_distances"
+    queue_memory_step "07_state_distances_pns" "${state_prefix}_scorepct0_state_relative_percent.${PLOT_EXT}" \
+        "$NUCLEOSUITE_BIN" distances "$PNS_CALL_NUC" --position-column 7 --score-column 5 --score-percentile 0 \
+        "${BLACKLIST_ARGS[@]}" --min-distance 1 --max-distance "$STATE_DISTANCE_MAX" --max-order 1 --scope combined_chromosomes \
+        --state-bed "$STATES_FILTERED" --state-label-column "$STATES_LABEL_COLUMN" --state-color-column 9 \
+        --state-overlay-plot --state-overlay-smooth-window "$STATE_DISTANCE_SMOOTH_WINDOW" \
+        --state-overlay-smooth-polyorder "$STATE_DISTANCE_SMOOTH_ORDER" "${DISTANCE_STATE_TICK_ARGS[@]}" \
+        --state-overlay-title "${SAMPLE} PNS: adjacent peak distances by ChromHMM state" --output-prefix "$state_prefix"
+fi
 wait_queued_steps
 
 # 08_region_extract: CTCF extractions are grouped by signal track.
@@ -1826,17 +1715,10 @@ if [[ "$SKIP_REGION_EXTRACT" -eq 0 ]]; then
     PNS_REGION_DIR="$REGION_DIR/ctcf/pns"; mkdir -p "$PNS_REGION_DIR"
     PNS_REGION_PREFIX="$PNS_REGION_DIR/${SAMPLE}_CTCF_PNS"
     queue_step "08_region_extract_pns" "${PNS_REGION_PREFIX}_pns_signal.tsv" "$NUCLEOSUITE_BIN" region-extract \
-        "${BLACKLIST_ARGS[@]}" --bed "$CTCF_EXPANDED" --coverage-bw "$PNS_COVERAGE_BW" --pns-bw "$PNS_ANALYSIS_BW" \
+        "${BLACKLIST_ARGS[@]}" --bed "$CTCF_EXPANDED" --coverage-bw "$PNS_COVERAGE_SCALED_BW" --pns-bw "$PNS_ANALYSIS_BW" \
         --nucleosome-peaks "$PNS_CALL_NUC" --breakpoint-peaks "$PNS_CALL_BRK" --peak-flank-bp "$REGION_PEAK_FLANK" \
         --peak-center-column 7 --peak-score-column 5 --out-prefix "$PNS_REGION_PREFIX" --chrom-mode auto \
         --missing-chrom error --progress-every 100 --overwrite
-    WPS_REGION_DIR="$REGION_DIR/ctcf/wps"; mkdir -p "$WPS_REGION_DIR"
-    WPS_REGION_PREFIX="$WPS_REGION_DIR/${SAMPLE}_CTCF_WPS"
-    queue_step "08_region_extract_wps" "${WPS_REGION_PREFIX}_WPS_signal.tsv" "$NUCLEOSUITE_BIN" region-extract \
-        "${BLACKLIST_ARGS[@]}" --bed "$CTCF_EXPANDED" --signal-track "WPS=$WPS_SMOOTH_BW" --nucleosome-peaks "$WPS_CALL_NUC" \
-        --breakpoint-peaks "$WPS_CALL_BRK" --peak-flank-bp "$REGION_PEAK_FLANK" --peak-center-column 7 \
-        --peak-score-column 5 --out-prefix "$WPS_REGION_PREFIX" --chrom-mode auto --missing-chrom error \
-        --progress-every 100 --overwrite
 fi
 wait_queued_steps
 
@@ -1882,7 +1764,7 @@ if [[ "$SKIP_FRAGMENT_HEATMAP" -eq 0 ]]; then
     fi
 fi
 
-# 11_gene_expression: organised by the PNS or WPS signal used.
+# 11_gene_expression: PNS-only gene-expression analysis.
 if [[ -n "$EXPRESSION" && "$SKIP_GENE_EXPRESSION" -eq 0 ]]; then
     FOCUS_PROFILE_ARGS=(); for profile in "${EXPRESSION_FOCUS_PROFILES[@]}"; do FOCUS_PROFILE_ARGS+=(--focus-profile "$profile"); done
     run_gene_expression() {
@@ -1897,56 +1779,25 @@ if [[ -n "$EXPRESSION" && "$SKIP_GENE_EXPRESSION" -eq 0 ]]; then
             --fft-window "$GENE_FFT_WINDOW" --fft-period-min "$GENE_FFT_PERIOD_MIN" --fft-period-max "$GENE_FFT_PERIOD_MAX" \
             --fft-ranking-periods "$GENE_FFT_RANKING_PERIODS" "${FOCUS_PROFILE_ARGS[@]}"
     }
-    if [[ "$GENE_EXPRESSION_SIGNALS" == pns || "$GENE_EXPRESSION_SIGNALS" == both ]]; then
-        run_gene_expression PNS pns "$PNS_CALL_NUC" "$PNS_ANALYSIS_BW" "$GENE_EXPRESSION_DIR/pns"
-    fi
-    if [[ "$GENE_EXPRESSION_SIGNALS" == wps || "$GENE_EXPRESSION_SIGNALS" == both ]]; then
-        run_gene_expression WPS wps "$WPS_CALL_NUC" "$WPS_SMOOTH_BW" "$GENE_EXPRESSION_DIR/wps"
-    fi
+    run_gene_expression PNS pns "$PNS_CALL_NUC" "$PNS_ANALYSIS_BW" "$GENE_EXPRESSION_DIR/pns"
 fi
 wait_queued_steps
 
 # 12_positive_runs: the active suite input (observed or randomized-only).
 if [[ "$COMBINE_PREREQUISITES_ONLY" -eq 0 && "$SKIP_POSITIVE_RUNS" -eq 0 ]]; then
-    PNS_POSITIVE_DIR="$POSITIVE_RUNS_DIR/pns"; WPS_POSITIVE_DIR="$POSITIVE_RUNS_DIR/wps"
-    mkdir -p "$PNS_POSITIVE_DIR" "$WPS_POSITIVE_DIR"
+    PNS_POSITIVE_DIR="$POSITIVE_RUNS_DIR/pns"
+    mkdir -p "$PNS_POSITIVE_DIR"
     PNS_POSITIVE_PREFIX="$PNS_POSITIVE_DIR/${SAMPLE}_PNS_positive_runs"
-    WPS_POSITIVE_PREFIX="$WPS_POSITIVE_DIR/${SAMPLE}_sm_mWPS_positive_runs"
     queue_step "12_positive_runs_pns" "${PNS_POSITIVE_PREFIX}_threshold*_summary.tsv" "$NUCLEOSUITE_BIN" positive-runs \
         "${BLACKLIST_ARGS[@]}" --bigwig "$PNS_ANALYSIS_BW" --output-prefix "$PNS_POSITIVE_PREFIX" --contigs "${CONTIGS[@]}" \
         --threshold "$POSITIVE_RUNS_THRESHOLD" --chunk-size "$POSITIVE_RUNS_CHUNK_SIZE" \
         --min-run-length "$POSITIVE_RUNS_MIN_LENGTH" --max-run-length "$POSITIVE_RUNS_MAX_LENGTH" \
         --plot-x-max "$POSITIVE_RUNS_PLOT_X_MAX" --normalization "$POSITIVE_RUNS_NORMALIZATION" \
         --title "${SAMPLE}: PNS positive run lengths"
-    queue_step "12_positive_runs_wps" "${WPS_POSITIVE_PREFIX}_threshold*_summary.tsv" "$NUCLEOSUITE_BIN" positive-runs \
-        "${BLACKLIST_ARGS[@]}" --bigwig "$WPS_SMOOTH_BW" --output-prefix "$WPS_POSITIVE_PREFIX" --contigs "${CONTIGS[@]}" \
-        --threshold "$POSITIVE_RUNS_THRESHOLD" --chunk-size "$POSITIVE_RUNS_CHUNK_SIZE" \
-        --min-run-length "$POSITIVE_RUNS_MIN_LENGTH" --max-run-length "$POSITIVE_RUNS_MAX_LENGTH" \
-        --plot-x-max "$POSITIVE_RUNS_PLOT_X_MAX" --normalization "$POSITIVE_RUNS_NORMALIZATION" \
-        --title "${SAMPLE}: sm_mWPS positive run lengths"
 fi
 wait_queued_steps
 
-# 13_peak_analysis: PNS/WPS position comparisons and active-mode score distributions.
-COMPARE_PREFIX="$COMPARE_DIR/${SAMPLE}_PNS_vs_WPS"
-COMPARE_COMPLETE="${COMPARE_PREFIX}_directional_percentile_outputs.tsv"
-run_step "13_compare_positions_pns_vs_wps" "$COMPARE_COMPLETE" bash -c '
-set -euo pipefail
-bin="$1"; pns="$2"; wps="$3"; interval="$4"; prefix="$5"; complete="$6"; shift 6
-"$bin" compare-positions --bed-a "$pns" --bed-b "$wps" --summit-column-a 7 --summit-column-b 7 \
-    --score-column-a 5 --score-column-b 5 --label-a PNS --label-b WPS --matching many-to-one \
-    --percentile-interval "$interval" "$@" --output-prefix "$prefix"
-analysis_prefix="${prefix}_matchmany-to-one_maxdistnone_scorenormzscore"
-outputs=("${analysis_prefix}_A_percentiles_vs_all_B_distances.tsv" "${analysis_prefix}_A_percentiles_vs_all_B_summary.tsv" \
-    "${analysis_prefix}_A_percentiles_vs_all_B_boxplot.${PLOT_EXT}" "${analysis_prefix}_B_percentiles_vs_all_A_distances.tsv" \
-    "${analysis_prefix}_B_percentiles_vs_all_A_summary.tsv" "${analysis_prefix}_B_percentiles_vs_all_A_boxplot.${PLOT_EXT}")
-for path in "${outputs[@]}"; do [[ -s "$path" ]] || exit 1; done
-printf "direction\tdistances_tsv\tsummary_tsv\tboxplot\n" > "$complete"
-printf "PNS_percentiles_vs_all_WPS\t%s\t%s\t%s\n" "${outputs[0]}" "${outputs[1]}" "${outputs[2]}" >> "$complete"
-printf "WPS_percentiles_vs_all_PNS\t%s\t%s\t%s\n" "${outputs[3]}" "${outputs[4]}" "${outputs[5]}" >> "$complete"
-' _ "$NUCLEOSUITE_BIN" "$PNS_CALL_NUC" "$WPS_CALL_NUC" "$POSITION_PERCENTILE_INTERVAL" \
-    "$COMPARE_PREFIX" "$COMPARE_COMPLETE" "${BLACKLIST_ARGS[@]}" "${DISTANCE_COMPARE_TICK_ARGS[@]}"
-
+# 13_peak_analysis: PNS peak-score distributions.
 run_peak_score_frequency() {
     local step="$1" output_dir="$2" label="$3" peaks="$4" title="$5"
     mkdir -p "$output_dir"
@@ -1961,8 +1812,6 @@ run_peak_score_frequency() {
 if [[ "$COMBINE_PREREQUISITES_ONLY" -eq 0 && "$SKIP_PEAK_SCORE_FREQUENCY" -eq 0 ]]; then
     run_peak_score_frequency "13_peak_scores_pns_nucleosome" "$PEAK_SCORE_DIR/pns" PNS_nucleosome "$PNS_CALL_NUC" "${SAMPLE}: PNS nucleosome-region scores"
     run_peak_score_frequency "13_peak_scores_pns_breakpoint" "$PEAK_SCORE_DIR/pns" PNS_breakpoint "$PNS_CALL_BRK" "${SAMPLE}: PNS breakpoint-peak scores"
-    run_peak_score_frequency "13_peak_scores_wps_nucleosome" "$PEAK_SCORE_DIR/wps" WPS_nucleosome "$WPS_CALL_NUC" "${SAMPLE}: WPS nucleosome-region scores"
-    run_peak_score_frequency "13_peak_scores_wps_breakpoint" "$PEAK_SCORE_DIR/wps" WPS_breakpoint "$WPS_CALL_BRK" "${SAMPLE}: WPS breakpoint-peak scores"
 fi
 wait_queued_steps
 
@@ -1991,7 +1840,7 @@ REPORT="$OUTDIR/${SUPPORT_PREFIX}NUCLEOSUITE_MNASE_SUITE_REPORT.tsv"
     [[ "$INPUT_MODE" == "bam" ]] || INPUT_COUNT=${#FRAGMENTS[@]}
     echo -e "metric\tvalue"; echo -e "sample\t$SAMPLE"; echo -e "input_mode\t$INPUT_MODE"; echo -e "input_count\t$INPUT_COUNT"; echo -e "run_mode\t$RUN_MODE"; echo -e "parameter_hash\t$PARAM_HASH"
     echo -e "blacklist_bed\t$BLACKLIST_BED"
-    echo -e "expression_table\t${EXPRESSION:-}"; echo -e "gene_expression_signals\t$GENE_EXPRESSION_SIGNALS"
+    echo -e "expression_table\t${EXPRESSION:-}"; echo -e "gene_expression_signals\tpns"
     if [[ "$COMBINE_PREREQUISITES_ONLY" -eq 1 ]]; then echo -e "execution_scope\tcombine_prerequisites_only"; else echo -e "execution_scope\tcombined_chromosomes_analysis"; fi
     echo -e "passed_steps\t$PASS_COUNT"
     echo -e "failed_steps\t$FAIL_COUNT"; echo -e "skipped_completed_steps\t$SKIP_COUNT"

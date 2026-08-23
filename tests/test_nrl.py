@@ -155,7 +155,7 @@ def test_nrl_command_writes_tables_and_plots_for_dac(tmp_path):
         ]
     )
     assert status == 0
-    prefix = Path(f"{prefix}_peakres0_min1_max300")
+    prefix = Path(f"{prefix}_peakres0_min1_max300_skipfirst0")
     for suffix in (
         "_profile.tsv",
         "_peaks.tsv",
@@ -194,5 +194,28 @@ def test_nrl_command_auto_detects_dcc_value(tmp_path):
         ]
     )
     assert status == 0
-    prefix = Path(f"{prefix}_peakres0_min1_max300")
+    prefix = Path(f"{prefix}_peakres0_min1_max300_skipfirst0")
     assert Path(f"{prefix}_regression.tsv").is_file()
+
+
+def test_nrl_skip_first_peak_keeps_called_peak_numbering(tmp_path):
+    input_path = tmp_path / "skip_DAC.tsv"
+    write_test_profile(input_path, "DAC Value")
+    prefix = tmp_path / "skip_nrl"
+    status = main([
+        str(input_path), "--min-distance", "1", "--max-distance", "300",
+        "--peak-resolution", "0", "--skip-first-peaks", "1",
+        "--output-prefix", str(prefix), "--quiet",
+    ])
+    assert status == 0
+    out = Path(f"{prefix}_peakres0_min1_max300_skipfirst1")
+    import csv
+    with open(f"{out}_peaks.tsv", encoding="utf-8") as handle:
+        peaks = list(csv.DictReader(handle, delimiter="\t"))
+    with open(f"{out}_regression.tsv", encoding="utf-8") as handle:
+        regression = next(csv.DictReader(handle, delimiter="\t"))
+    assert len(peaks) >= 2
+    assert [int(row["peak_number"]) for row in peaks][:2] == [1, 2]
+    assert int(regression["skip_first_peaks"]) == 1
+    assert int(regression["called_peak_count"]) == len(peaks)
+    assert int(regression["regression_peak_count"]) == len(peaks) - 1

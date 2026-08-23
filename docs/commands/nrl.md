@@ -98,3 +98,7 @@ The command writes:
 Retained periodic maxima are labelled by default. Labels show the peak distance or lag and are centred directly above the called peak. Use `--plot-label-points none` to hide them. See [Plot customization](../PLOTTING.md).
 
 [Back to the command reference](../COMMAND_REFERENCE.md)
+
+## Excluding early called peaks from regression
+
+`--skip-first-peaks N` leaves the first `N` called peaks in the profile and peak table, with their original labels, but excludes them from the NRL regression. For example, `--skip-first-peaks 1` keeps Peak 1 visible while the regression begins with Peak 2. The skip count is included in parameterized output names so fits with different regression subsets do not overwrite one another.

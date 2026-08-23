@@ -351,8 +351,6 @@ core options:
   --pns-frag-lower N            PNS lower fragment length (default: 137).
   --pns-frag-upper N            PNS upper fragment length (default: 197).
   --pns-mode-length N           PNS modal fragment length (default: 167).
-  --wps-frag-lower N            WPS lower fragment length (default: 120).
-  --wps-frag-upper N            WPS upper fragment length (default: 180).
   --max-duplicates N            Identical-fragment copy limit (default: 1).
   --blacklist-bed FILE          Override the assembly-specific blacklist.
   --no-blacklist                Disable blacklist filtering.
@@ -378,8 +376,8 @@ core options:
   --pns-frag-lower N            PNS lower fragment length (default: 120).
   --pns-frag-upper N            PNS upper fragment length (default: 180).
   --pns-mode-length N           PNS modal fragment length (default: 147).
-  --wps-frag-lower N            WPS lower fragment length (default: 120).
-  --wps-frag-upper N            WPS upper fragment length (default: 180).
+  --fine-frag-lower/upper N     Ranged dyad/WW class (default: 146-148).
+  --exact-size N                Exact dyad/fragment-end length (default: 147).
   --max-duplicates N            Identical-fragment copy limit.
   --blacklist-bed FILE          Override the assembly-specific blacklist.
   --no-blacklist                Disable blacklist filtering.

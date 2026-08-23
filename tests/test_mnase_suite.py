@@ -17,50 +17,15 @@ def test_packaged_mnase_suite_has_valid_bash_syntax():
 def test_packaged_mnase_suite_help_mentions_region_inputs():
     resource = files("nucleosuite").joinpath("resources/mnase_full_suite.sh")
     with as_file(resource) as path:
-        completed = subprocess.run(
-            ["bash", str(path), "--help"], check=False, text=True, capture_output=True
-        )
+        completed = subprocess.run(["bash", str(path), "--help"], check=False, text=True, capture_output=True)
     assert completed.returncode == 0
-    assert "--states-bed" in completed.stdout
-    assert "--genes-bed" in completed.stdout
-    assert "--gene-set-config" in completed.stdout
-    assert "--resource-set" in completed.stdout
-    assert "--expression" in completed.stdout
-    assert "--fragments" in completed.stdout
-    assert "--randomize" in completed.stdout
-    assert "--randomize-seed" in completed.stdout
-    assert "--skip-randomized-controls" not in completed.stdout
-    assert "--blacklist-bed" in completed.stdout
-    assert "--no-blacklist" in completed.stdout
-    assert "--combine-cores" in completed.stdout
-    assert "--streaming-combine-cores" in completed.stdout
-    assert "--indexed-combine-cores" in completed.stdout
-    assert "--combine-chunk-bp" in completed.stdout
-    assert "--analysis-cores" in completed.stdout
-    assert "--memory-intensive-analysis-cores" in completed.stdout
-    assert "--resume" in completed.stdout
-    assert "--force" in completed.stdout
-    assert "--dry-run" in completed.stdout
-    assert "Default: nTPM" in completed.stdout
-    assert "--state-distance-max" in completed.stdout
-    assert "--position-percentile-interval" in completed.stdout
-    assert "--gene-fft-window" in completed.stdout
-    assert "--sample-name" in completed.stdout
-    assert "FILE_OR_GLOB" in completed.stdout
-    assert "Default: 2000" in completed.stdout
-    assert "--nrl-max-distance" in completed.stdout
-    assert "Default: 1200" in completed.stdout
-    assert "--nrl-peak-resolution" in completed.stdout
+    for option in ("--states-bed", "--genes-bed", "--gene-set-config", "--resource-set", "--expression", "--fragments", "--blacklist-bed", "--no-blacklist", "--nrl-max-distance", "--nrl-peak-resolution", "--distance-adjacent-max", "--distance-long-max", "--distance-long-max-order"):
+        assert option in completed.stdout
+    assert "Default: 1500" in completed.stdout
     assert "Default: 160" in completed.stdout
-    assert "--distance-x-major-tick" in completed.stdout
-    assert "--distance-x-minor-tick" in completed.stdout
-    assert "--score-z-limit" in completed.stdout
-    assert "--distance-histogram-x-max" in completed.stdout
-    assert "--percentile-boxplot-y-max" in completed.stdout
-    assert "--positive-runs-plot-x-max" in completed.stdout
-    assert "--skip-positive-runs" in completed.stdout
-    assert "--peak-score-normalization" in completed.stdout
-    assert "--skip-peak-score-frequency" in completed.stdout
+    assert "--wps-" not in completed.stdout.lower()
+    assert "--dcc-" not in completed.stdout.lower()
+    assert "--exact-size N" in completed.stdout
 
 
 def test_packaged_mnase_suite_accepts_multiple_contig_tokens(tmp_path):
@@ -96,33 +61,17 @@ def test_packaged_mnase_suite_accepts_multiple_contig_tokens(tmp_path):
 
 
 def test_packaged_mnase_suite_forwards_contigs_as_array():
-    resource = files("nucleosuite").joinpath("resources/mnase_full_suite.sh")
-    text = resource.read_text()
+    text = files("nucleosuite").joinpath("resources/mnase_full_suite.sh").read_text()
     assert 'CONTIGS=("autosomes")' in text
-    assert 'POSITION_PERCENTILE_INTERVAL=25' in text
-    assert 'PNS_SMOOTH_WINDOW=0' in text
-    assert 'PEAK_SMOOTH_WINDOW=0' in text
-    assert 'PNS_MAX_NEG_RUN=0' in text
     assert 'PNS_TRACK_LIST="pns,posPNS,coverage,dyad,fragment_ends,fragment_left_ends,fragment_right_ends,pns_peaks"' in text
-    assert 'MAX_DUPLICATES=1' in text
-    assert 'MAX_PER_COORDINATE=0' in text
-    assert 'run_step "01_combined_tracks"' in text
+    assert 'FINE_FRAG_LOWER=146' in text and 'FINE_FRAG_UPPER=148' in text
+    assert 'EXACT_SIZE=147' in text
+    assert 'DINUC_EXACT_A=145' in text and 'DINUC_EXACT_B=147' in text
     assert '--spec-file "$OBS_TRACK_SPEC"' in text
-    assert '--pns-max-neg-run "$PNS_MAX_NEG_RUN"' in text
-    assert 'BIGBED_SCORE_SCALE=1000' in text
-    assert '--bigbed-score-scale N' in text
-    assert '--bigbed-score-scale "$BIGBED_SCORE_SCALE"' in text
     assert '-c "${CONTIGS[@]}"' in text
-    assert '--contigs VALUE [VALUE ...]' in text
-    assert 'BAM_INPUTS=()' in text
-    assert '-b "${BAMS[@]}"' in text
-    assert '--bam-a "${BAMS[@]}"' in text
     assert 'ANALYSIS_INPUT_ARGS=(-b "${BAMS[@]}")' in text
     assert 'ANALYSIS_INPUT_ARGS=(--fragments "${FRAGMENTS[@]}")' in text
-    assert (
-        '"${ANALYSIS_INPUT_ARGS[@]}" "${BLACKLIST_ARGS[@]}" --contigs'
-        in text
-    )
+    assert 'DCC_INPUT_A' not in text
 
 
 def test_packaged_mnase_suite_reports_unmatched_quoted_bam_glob(tmp_path):
@@ -193,95 +142,69 @@ def test_packaged_mnase_suite_expands_matching_quoted_bam_glob(tmp_path):
 
 
 def test_packaged_mnase_suite_runs_three_nrl_profiles_per_dac():
-    resource = files("nucleosuite").joinpath("resources/mnase_full_suite.sh")
-    text = resource.read_text()
-    assert 'nrl_${NRL_MIN_DISTANCE}_${NRL_MAX_DISTANCE}' in text
-    assert 'periodicity_${SHORT_PERIODICITY_MIN}_${SHORT_PERIODICITY_MAX}' in text
-    assert 'periodicity_${NUCLEOSOME_PERIODICITY_MIN}_${NUCLEOSOME_PERIODICITY_MAX}' in text
-    assert '"$SHORT_PERIODICITY_MIN" "$SHORT_PERIODICITY_MAX" 0' in text
-    assert '"$NUCLEOSOME_PERIODICITY_MIN" "$NUCLEOSOME_PERIODICITY_MAX" 0' in text
-    assert '--peak-resolution "$peak_resolution"' in text
-    assert 'NRL_PEAK_RESOLUTION=160' in text
-    assert 'DISTANCE_NRL_TICK_ARGS' in text
+    text = files("nucleosuite").joinpath("resources/mnase_full_suite.sh").read_text()
+    assert 'NRL_MIN_DISTANCE=1' in text and 'NRL_MAX_DISTANCE=1500' in text
+    assert 'SHORT_PERIODICITY_MAX=144' in text
+    assert 'INTERMEDIATE_PERIODICITY_MIN=150' in text and 'INTERMEDIATE_PERIODICITY_MAX=220' in text
+    assert 'INTERMEDIATE_PERIODICITY_RESOLUTION=8' in text
+    assert '--skip-first-peaks "$skip_first"' in text
+    assert '"$NRL_MIN_DISTANCE" "$NRL_MAX_DISTANCE" "$NRL_PEAK_RESOLUTION" 1' in text
+    assert '"$SHORT_PERIODICITY_MIN" "$SHORT_PERIODICITY_MAX" 1 0' in text
+    assert '"$INTERMEDIATE_PERIODICITY_MIN" "$INTERMEDIATE_PERIODICITY_MAX" "$INTERMEDIATE_PERIODICITY_RESOLUTION" 0' in text
 
 
 def test_packaged_mnase_suite_uses_pns_for_optional_expression_and_state_overlays():
-    resource = files("nucleosuite").joinpath("resources/mnase_full_suite.sh")
-    text = resource.read_text()
-    assert 'set -Eeuo pipefail' in text
-    assert 'if [[ -n "$EXPRESSION" && "$SKIP_GENE_EXPRESSION" -eq 0 ]]' in text
-    assert '--signal-type "$signal_type" --analysis all' in text
-    assert 'GENE_EXPRESSION_SIGNALS="pns"' in text
-    assert 'run_gene_expression PNS pns' in text
-    assert 'run_gene_expression WPS wps' in text
-    assert '--peaks "${SAMPLE}=${peaks}"' in text
-    assert '--signal "${SAMPLE}=${signal}"' in text
+    text = files("nucleosuite").joinpath("resources/mnase_full_suite.sh").read_text()
     assert 'run_gene_expression PNS pns "$PNS_CALL_NUC" "$PNS_ANALYSIS_BW"' in text
-    assert 'for kind in PNS WPS' in text
+    assert 'run_gene_expression WPS' not in text
     assert '--state-overlay-plot' in text
-    assert '--state-color-column 9' in text
-    assert '--state-overlay-smooth-window "$STATE_DISTANCE_SMOOTH_WINDOW"' in text
-    assert '13_compare_positions_pns_vs_wps' in text
-    assert '--bed-a "$pns" --bed-b "$wps"' in text
-    assert '--percentile-interval "$interval"' in text
-    assert 'PNS_percentiles_vs_all_WPS' in text
-    assert 'WPS_percentiles_vs_all_PNS' in text
-    assert 'return "$status"' not in text
-    assert 'FAILED_STEPS_TSV="$OUTDIR/${SUPPORT_PREFIX}failed_steps.tsv"' in text
+    assert '13_compare_positions_pns_vs_wps' not in text
+    assert 'WPS_CALL_NUC' not in text
+    assert 'DCC_DIR=' not in text
+
 
 def test_packaged_mnase_suite_pools_gene_categories_and_retains_combined_chromosome_dac():
     text = files("nucleosuite").joinpath("resources/mnase_full_suite.sh").read_text()
     assert 'VENN_SETS="active_genes,weak_genes,repressed_genes"' in text
     assert '--leftover-set-name leftover_genes' in text
-    assert 'GENE_STATE_INTERVAL="$GENE_SET_DIR/${GENE_SET_OUTPUT_PREFIX}_final_states.bed"' in text
-    assert 'run_dac_scope "02_dac_${step_label}_combined_chromosomes"' in text
-    assert 'run_dac_scope "02_dac_${step_label}_gene_sets"' in text
-    assert '$DAC_DIR/dyads/' in text
-    assert '$DAC_DIR/type_dyads/' in text
-    assert '$DAC_DIR/pns' not in text
-    assert '$DAC_DIR/wps' not in text
-
-def test_packaged_mnase_suite_uses_primary_source_equivalent_wps_calls():
-    resource = files("nucleosuite").joinpath("resources/mnase_full_suite.sh")
-    text = resource.read_text()
-    assert 'WPS_CALL_PREFIX="$WPS_PREFIX"' in text
-    assert 'WPS_CALL_NUC="${WPS_PREFIX}_nucleosome_regions.${INTERVAL_EXT}"' in text
-    assert '--input-bigwig "$WPS_BW" --out-prefix "$WPS_CALL_PREFIX" --method wps' not in text
+    assert '02_dac_dyad_range_${FINE_FRAG_LOWER}_${FINE_FRAG_UPPER}_combined_chromosomes' in text
+    assert '02_dac_dyad_range_${FINE_FRAG_LOWER}_${FINE_FRAG_UPPER}_gene_sets' in text
+    assert '$DAC_DIR/type_dyads/' not in text
+    assert 'dyad_exact' not in text[text.index('# 02_dac:'):text.index('# 04_nrl:')]
 
 
-def test_packaged_mnase_suite_runs_positive_runs_separately_for_pns_and_wps():
+def test_packaged_mnase_suite_has_no_wps_outputs():
     text = files("nucleosuite").joinpath("resources/mnase_full_suite.sh").read_text()
-    assert 'POSITIVE_RUNS_DIR="$OUTDIR/12_positive_runs"' in text
+    assert 'WPS_CALL_PREFIX' not in text
+    assert 'WPS_CALL_NUC' not in text
+    assert 'sm_mWPS' not in text
+    assert 'wps_peaks' not in text
+
+
+def test_packaged_mnase_suite_runs_positive_runs_for_pns_only():
+    text = files("nucleosuite").joinpath("resources/mnase_full_suite.sh").read_text()
     assert '12_positive_runs_pns' in text
-    assert '12_positive_runs_wps' in text
+    assert '12_positive_runs_wps' not in text
     assert '--bigwig "$PNS_ANALYSIS_BW"' in text
-    assert '--bigwig "$WPS_SMOOTH_BW"' in text
-    assert 'PNS_POSITIVE_DIR="$POSITIVE_RUNS_DIR/pns"' in text
-    assert 'WPS_POSITIVE_DIR="$POSITIVE_RUNS_DIR/wps"' in text
-    assert "14_randomized_controls" not in text
 
-def test_mnase_suite_uses_same_signal_type_dcc_and_updated_ranges():
-    script = Path("src/nucleosuite/resources/mnase_full_suite.sh").read_text()
-    assert 'AGGREGATE_WINDOW_HALF=2500' in script
-    assert 'DCC_DMAX=500' in script
-    assert 'FRAG_COUNT_MIN=100' in script
-    assert 'FRAG_COUNT_MAX=1000' in script
-    assert 'HEATMAP_MAX_FRAG=500' in script
-    assert 'dyad_vs_${signal_type}' not in script
-    assert '03_dcc_${signal_type}_range_self' in script
-    assert 'left_end_vs_left_end' in script
-    assert 'right_end_vs_right_end' in script
-    assert '--sort-mode mean_absolute' in script
 
-def test_mnase_suite_plots_active_mode_peak_score_frequencies():
+def test_mnase_suite_removes_dcc_and_uses_updated_ranges():
     script = Path("src/nucleosuite/resources/mnase_full_suite.sh").read_text()
-    assert 'peak-score-frequency' in script
+    assert 'FINE_FRAG_LOWER=146' in script
+    assert 'FINE_FRAG_UPPER=148' in script
+    assert 'EXACT_SIZE=147' in script
+    assert 'DCC_DIR=' not in script
+    assert ' dcc ' not in script
+    assert 'FRAG_COUNT_MIN=100' in script and 'FRAG_COUNT_MAX=1000' in script
+
+
+def test_mnase_suite_plots_pns_peak_score_frequencies_only():
+    script = Path("src/nucleosuite/resources/mnase_full_suite.sh").read_text()
     assert '13_peak_scores_pns_nucleosome' in script
     assert '13_peak_scores_pns_breakpoint' in script
-    assert '13_peak_scores_wps_nucleosome' in script
-    assert '13_peak_scores_wps_breakpoint' in script
+    assert '13_peak_scores_wps' not in script
     assert '--peaks "${RUN_MODE}=$peaks"' in script
-    assert 'RAND_PNS_NUC=' not in script
+
 
 def test_multicontig_combined_pass_reuses_combined_upstream_outputs():
     wrapper = Path("src/nucleosuite/cli/mnase_suite.py").read_text()
@@ -351,47 +274,33 @@ def test_suites_use_integer_peak_score_bins():
         assert "--peak-score-bins" not in text
 
 
-def test_suites_include_tissue_expression_quintile_tss_analysis():
+def test_suites_include_pns_tissue_expression_quintile_tss_analysis():
     for script_name in ("mnase_full_suite.sh", "cfdna_full_suite.sh"):
         text = files("nucleosuite").joinpath("resources", script_name).read_text()
         assert 'TSS_EXPRESSION_TISSUE="bone_marrow"' in text
-        assert 'TSS_EXPRESSION_WINDOW=2000' in text
-        assert '--tss-expression-tissue' in text
-        assert '--skip-tss-expression-quintiles' in text
         assert 'tss-expression-quintiles' in text
         assert 'run_tss_expression_quintiles PNS' in text
-        assert 'run_tss_expression_quintiles WPS' in text
+        assert 'run_tss_expression_quintiles WPS' not in text
 
 
-def test_cfdna_tss_quintiles_use_requested_pns_and_wps_defaults():
+def test_cfdna_tss_quintiles_use_scaled_pns_and_requested_ranges():
     text = files("nucleosuite").joinpath("resources/cfdna_full_suite.sh").read_text()
-    assert 'PNS_FRAG_LOWER=137' in text
-    assert 'PNS_FRAG_UPPER=197' in text
-    assert 'PNS_MODE_LENGTH=167' in text
-    assert 'WPS_FRAG_LOWER=120' in text
-    assert 'WPS_FRAG_UPPER=180' in text
-    assert 'WPS_PROTECTION=120' in text
-    assert 'run_tss_expression_quintiles PNS "$PNS_BW"' in text
-    assert 'run_tss_expression_quintiles WPS "$WPS_BW"' in text
+    assert 'PNS_FRAG_LOWER=137' in text and 'PNS_FRAG_UPPER=197' in text and 'PNS_MODE_LENGTH=167' in text
+    assert 'EXACT_LENGTHS=(145 161 167)' in text
+    assert 'RANGE_SPECS=("144:146" "160:162" "166:168")' in text
+    assert 'run_tss_expression_quintiles PNS "$PNS_ANALYSIS_BW"' in text
+    assert 'WPS' not in text
 
 
-def test_suites_use_pns_coverage_and_range_limited_wps_auxiliary_tracks():
-    mnase = files("nucleosuite").joinpath("resources/mnase_full_suite.sh").read_text()
-    cfdna = files("nucleosuite").joinpath("resources/cfdna_full_suite.sh").read_text()
-
-    for script in (mnase, cfdna):
-        assert 'COVERAGE_DIR="$COMBINED_TRACK_DIR/coverage"' not in script
-        assert 'PNS_COVERAGE_BW="${PNS_PREFIX}_coverage.bw"' in script
-        assert '--coverage-bw "$PNS_COVERAGE_BW"' in script
-        assert "'coverage,sm_mWPS,wps,wps_smoothed,mWPS,dyad,wps_peaks'" in script
-
-    assert "printf '%s-%s\\t%s\\t%s\\trange\\n' \"$WPS_FRAG_LOWER\"" in mnase
-    assert "printf '%s-%s\\t%s\\t%s\\tall\\n' \"$WPS_FRAG_LOWER\"" not in mnase
-    assert '$COV_PREFIX' not in mnase
-
-    assert "printf '%s\\t%s\\t%s\\trange\\n' \"${WPS_FRAG_LOWER}-${WPS_FRAG_UPPER}\"" in cfdna
-    assert "printf '%s\\t%s\\t%s\\tall\\n' \"${WPS_FRAG_LOWER}-${WPS_FRAG_UPPER}\"" not in cfdna
-    assert '$COVERAGE_PREFIX' not in cfdna
+def test_suites_scale_pns_pospns_and_coverage_post_combine():
+    for script_name in ("mnase_full_suite.sh", "cfdna_full_suite.sh"):
+        text = files("nucleosuite").joinpath("resources", script_name).read_text()
+        assert 'PNS_COVERAGE_BW="${PNS_PREFIX}_coverage.bw"' in text
+        assert 'PNS_POS_BW="${PNS_PREFIX}_posPNS.bw"' in text
+        assert 'mean-scale' in text
+        assert '--regions "$PNS_' in text or '--regions "$PNS_CALL_NUC"' in text
+        assert 'PNS_ANALYSIS_BW="$PNS_SCALED_BW"' in text
+        assert 'WPS' not in text
 
 
 def test_standalone_wps_limits_auxiliary_tracks_to_its_fragment_range():

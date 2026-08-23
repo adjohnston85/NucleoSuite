@@ -11,7 +11,7 @@ def test_nrl_explicit_prefix_is_a_parameterized_base() -> None:
         140,
         1,
         base="Gaffney32_145_147_NRL",
-    ) == Path("Gaffney32_145_147_NRL_peakres1_min2_max140")
+    ) == Path("Gaffney32_145_147_NRL_peakres1_min2_max140_skipfirst0")
 
 
 def test_parameter_tokens_are_safe_and_idempotent() -> None:

@@ -6,7 +6,7 @@ NucleoSuite is a command-line toolkit that converts paired-end alignments or fra
   <img src="docs/images/PNS_example_tracks.png" alt="Example NucleoSuite genomic track outputs displayed in IGV" width="100%">
 </p>
 
-*Example NucleoSuite track outputs displayed in Integrative Genomics Viewer (IGV) v2.19.8, including coverage, positive PNS, PNS, nucleosome and breakpoint calls, fragment dyads, and fragment-end tracks [1].*
+*Example NucleoSuite track outputs generated from the BH01 plasma cfDNA sample from Snyder et al. (2016) and displayed in Integrative Genomics Viewer (IGV) v2.19.8, including coverage, positive PNS, PNS, nucleosome and breakpoint calls, fragment dyads, and fragment-end tracks.*
 
 ```bash
 nucleosuite COMMAND [options]
@@ -184,3 +184,4 @@ nucleosuite COMMAND --help-plotting
 
 1. Robinson JT, Thorvaldsdóttir H, Winckler W, Guttman M, Lander ES, Getz G, Mesirov JP. Integrative genomics viewer. *Nature Biotechnology*. 2011;29:24–26. [doi:10.1038/nbt.1754](https://doi.org/10.1038/nbt.1754).
 
+2. Snyder MW, Kircher M, Hill AJ, Daza RM, Shendure J. Cell-free DNA comprises an in vivo nucleosome footprint that informs its tissues-of-origin. *Cell*. 2016;164(1–2):57–68. [doi:10.1016/j.cell.2015.11.050](https://doi.org/10.1016/j.cell.2015.11.050).

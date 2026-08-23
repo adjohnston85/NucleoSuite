@@ -35,7 +35,6 @@ def test_randomized_full_tree_includes_downstream_scientific_stages():
         script = _suite(name)
         for token in (
             'DAC_DIR="$OUTDIR/02_dac"',
-            'DCC_DIR="$OUTDIR/03_dcc"',
             'NRL_DIR="$OUTDIR/04_nrl"',
             'DIST_DIR="$OUTDIR/07_distances"',
             'GENE_EXPRESSION_DIR="$OUTDIR/11_gene_expression"',
@@ -45,7 +44,7 @@ def test_randomized_full_tree_includes_downstream_scientific_stages():
             assert token in script
 
 
-def test_scientific_defaults_and_cfdna_dcc_scope():
+def test_scientific_defaults_and_suite_ranges_without_wps_or_dcc():
     mnase = _suite("mnase_full_suite.sh")
     cfdna = _suite("cfdna_full_suite.sh")
     assert 'PNS_FRAG_LOWER=120' in mnase
@@ -54,16 +53,17 @@ def test_scientific_defaults_and_cfdna_dcc_scope():
     assert 'PNS_FRAG_LOWER=137' in cfdna
     assert 'PNS_FRAG_UPPER=197' in cfdna
     for script in (mnase, cfdna):
-        assert 'WPS_FRAG_LOWER=120' in script
-        assert 'WPS_FRAG_UPPER=180' in script
-        assert 'WPS_PROTECTION=120' in script
+        assert 'WPS_FRAG_LOWER' not in script
+        assert 'DCC_DIR=' not in script
         assert '_maxdup' not in script
         assert '(( FRAG_COUNT_MIN < RANDOM_LOWER ))' in script
         assert '(( FRAG_COUNT_MAX > RANDOM_UPPER ))' in script
         assert '(( HEATMAP_MIN_FRAG < RANDOM_LOWER ))' in script
         assert '(( HEATMAP_MAX_FRAG > RANDOM_UPPER ))' in script
     assert 'PNS_MODE_LENGTH=167' in cfdna
-    assert 'RANGE_SPECS=("145:147" "160:162" "166:168")' in cfdna
+    assert 'RANGE_SPECS=("144:146" "160:162" "166:168")' in cfdna
+    assert 'FINE_FRAG_LOWER=146' in mnase and 'FINE_FRAG_UPPER=148' in mnase
+    assert 'EXACT_SIZE=147' in mnase
     assert 'dyad_vs_left' not in cfdna
     assert 'dyad_vs_right' not in cfdna
 

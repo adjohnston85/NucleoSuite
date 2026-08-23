@@ -11,7 +11,6 @@ def test_both_suites_use_the_same_numbered_tree_without_random_tail():
         'GENE_SET_DIR="$OUTDIR/00_gene_sets"',
         'COMBINED_TRACK_DIR="$OUTDIR/01_combined_tracks"',
         'DAC_DIR="$OUTDIR/02_dac"',
-        'DCC_DIR="$OUTDIR/03_dcc"',
         'NRL_DIR="$OUTDIR/04_nrl"',
         'TSS_AGG_DIR="$OUTDIR/06_tss_aggregation"',
         'DIST_DIR="$OUTDIR/07_distances"',

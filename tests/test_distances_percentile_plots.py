@@ -387,8 +387,9 @@ def test_distance_peak_loader_reports_each_contig_once(tmp_path):
     assert "records read" not in output
 
 
-def test_packaged_suites_use_many_to_one_position_matching():
+def test_packaged_suites_do_not_run_pns_vs_wps_position_matching():
     package_root = Path(__file__).resolve().parents[1] / "src" / "nucleosuite" / "resources"
     for script_name in ("mnase_full_suite.sh", "cfdna_full_suite.sh"):
         script = (package_root / script_name).read_text(encoding="utf-8")
-        assert "--matching many-to-one" in script
+        assert "compare-positions" not in script
+        assert "PNS_vs_WPS" not in script
