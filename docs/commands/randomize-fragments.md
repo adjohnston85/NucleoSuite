@@ -88,4 +88,8 @@ Outputs include:
 
 Relocation-distance figures use the shared options in [Plot customization](../PLOTTING.md).
 
+## Automatic output naming
+
+If `--output-prefix` is omitted, NucleoSuite derives the randomized-output prefix from the primary input basename in the current directory. An explicit `--output-prefix` overrides this default.
+
 [Back to the command reference](../COMMAND_REFERENCE.md)

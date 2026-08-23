@@ -25,7 +25,7 @@ def test_peak_score_frequency_overlays_observed_and_randomized(tmp_path: Path):
         "--output-prefix", str(prefix),
         "--bins", "4",
     ]) == 0
-    prefix = Path(f"{prefix}_bins4_scorescaleauto_scoreminnone")
+    prefix = Path(f"{prefix}_bins4_scorescale1_scoreminnone")
 
     with open(f"{prefix}_score_frequency.tsv", "rt", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle, delimiter="\t"))
@@ -47,7 +47,7 @@ def test_peak_score_frequency_defaults_to_integer_score_bins(tmp_path: Path):
         "--peaks", f"observed={observed}",
         "--output-prefix", str(prefix),
     ]) == 0
-    prefix = Path(f"{prefix}_binsinteger_scorescaleauto_scoreminnone")
+    prefix = Path(f"{prefix}_binsinteger_scorescale1_scoreminnone")
 
     with open(f"{prefix}_score_frequency.tsv", "rt", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle, delimiter="\t"))
@@ -56,7 +56,7 @@ def test_peak_score_frequency_defaults_to_integer_score_bins(tmp_path: Path):
         "cumulative_count", "cumulative_fraction", "cumulative_percent",
     ]
     observed_rows = {int(row["score"]): int(row["count"]) for row in rows if int(row["count"]) > 0}
-    assert observed_rows == {200: 1, 500: 1, 1490: 1, 1500: 1, 3600: 1}
+    assert observed_rows == {0: 1, 1: 2, 2: 1, 4: 1}
     assert int(rows[-1]["cumulative_count"]) == 5
 
 
@@ -69,7 +69,7 @@ def test_peak_score_frequency_individual_scores_are_opt_in(tmp_path: Path):
         "--output-prefix", str(prefix),
         "--write-detail-tables",
     ]) == 0
-    prefix = Path(f"{prefix}_binsinteger_scorescaleauto_scoreminnone")
+    prefix = Path(f"{prefix}_binsinteger_scorescale1_scoreminnone")
     assert Path(f"{prefix}_scores.tsv.gz").is_file()
 
 
@@ -96,15 +96,24 @@ def test_peak_score_frequency_score_scale_applies_before_integer_binning(tmp_pat
 
     metadata = Path(f"{prefix}_score_frequency_metadata.tsv").read_text()
     assert "score_scale\t100.0" in metadata
-    assert "x_label\tPeak score (×100)" in metadata
+    assert "x_label\tPeak score ×100" in metadata
 
 
-def test_peak_score_frequency_auto_scale_is_input_format_aware(tmp_path: Path):
+def test_peak_score_frequency_default_scale_is_one_for_all_input_formats(tmp_path: Path):
     import numpy as np
     from nucleosuite.peak_score_frequency import PeakScoreSet, _effective_score_scale
     def ds(path):
         return PeakScoreSet("test", path, np.array([], dtype=float), [])
-    assert _effective_score_scale(ds(tmp_path / "peaks.bed"), None) == 1000.0
-    assert _effective_score_scale(ds(tmp_path / "peaks.bed.gz"), None) == 1000.0
+    assert _effective_score_scale(ds(tmp_path / "peaks.bed"), None) == 1.0
+    assert _effective_score_scale(ds(tmp_path / "peaks.bed.gz"), None) == 1.0
     assert _effective_score_scale(ds(tmp_path / "peaks.bb"), None) == 1.0
     assert _effective_score_scale(ds(tmp_path / "peaks.bigBed"), 5.0) == 5.0
+
+
+def test_peak_score_frequency_default_output_prefix_uses_input_basename(tmp_path: Path, monkeypatch):
+    observed = tmp_path / "sample_nucleosome_regions.bed"
+    _write_bed(observed, [0.1, 0.2, 0.3])
+    monkeypatch.chdir(tmp_path)
+    assert main(["--peaks", str(observed)]) == 0
+    expected = tmp_path / "sample_nucleosome_regions_peak_score_frequency_binsinteger_scorescale1_scoreminnone_score_frequency.tsv"
+    assert expected.is_file()

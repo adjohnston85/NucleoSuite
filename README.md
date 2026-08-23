@@ -3,7 +3,7 @@
 NucleoSuite is a command-line toolkit that converts paired-end alignments or fragment intervals into nucleosome-positioning signals, cfDNA and MNase-seq fragmentomic analyses, peak calls, chromatin-state profiles, sequence profiles, spacing measurements, and coordinated workflows.
 
 <p align="center">
-  <img src="docs/images/PNS_example_tracks.png" alt="Example NucleoSuite genomic track outputs displayed in IGV" width="100%">
+  <img src="docs/images/PNS_example_tracks_BH01.png" alt="Example NucleoSuite genomic track outputs displayed in IGV" width="100%">
 </p>
 
 *Example NucleoSuite track outputs generated from the BH01 plasma cfDNA sample from Snyder et al. (2016) and displayed in Integrative Genomics Viewer (IGV) v2.19.8, including coverage, positive PNS, PNS, nucleosome and breakpoint calls, fragment dyads, and fragment-end tracks.*
@@ -18,6 +18,8 @@ Verify an installation with:
 nucleosuite --version
 nucleosuite --help
 ```
+
+Analysis commands derive output filenames or prefixes from the primary input basename by default. Explicit output options remain available when a specific destination or prefix is required.
 
 ## Commands
 
@@ -39,7 +41,7 @@ nucleosuite --help
 | [`pns`](docs/commands/pns.md) | Calculate PNS, BNS or TNS nucleosome score tracks and shared peak calls. |
 | [`wps`](docs/commands/wps.md) | Calculate window protection score tracks and WPS peak calls. |
 | [`coverage`](docs/commands/coverage.md) | Calculate per-base fragment coverage. |
-| [`mean-scale`](docs/commands/mean-scale.md) | Scale a BigWig relative to a supplied, region-derived, or non-zero-signal reference mean. |
+| [`mean-scale`](docs/commands/mean-scale.md) | Mean-normalize BigWig signal or BED-family scores relative to a calculated or supplied reference mean. |
 | [`dyads`](docs/commands/dyads.md) | Generate fragment-centre tracks. |
 | [`fragment-ends`](docs/commands/fragment-ends.md) | Generate combined, left-end, and right-end tracks. |
 | [`dinuc-profile`](docs/commands/dinuc-profile.md) | Calculate positional dinucleotide profiles. |

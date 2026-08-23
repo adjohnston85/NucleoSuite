@@ -8,7 +8,9 @@ from nucleosuite.mean_scale import (
     _default_output,
     _iter_scaled_intervals,
     _region_score_mean,
+    _write_scaled_intervals,
     build_parser,
+    main,
 )
 
 
@@ -95,3 +97,65 @@ def test_mean_scale_parser_supports_reference_mean_alias_and_region_mode():
         parser.parse_args([
             "signal.bw", "--reference-mean", "16.7644", "--regions", "peaks.bed"
         ])
+
+
+def test_mean_scale_bed_defaults_to_own_score_mean_and_same_format(tmp_path: Path):
+    bed = tmp_path / "peaks.bed"
+    bed.write_text(
+        "chr1\t0\t10\tp1\t1\t+\n"
+        "chr1\t20\t30\tp2\t3\t-\n",
+        encoding="utf-8",
+    )
+    assert main([str(bed), "--scale", "100"]) == 0
+    output = tmp_path / "peaks_meanscale_scores-col5_x100.bed"
+    assert output.is_file()
+    rows = [line.split("\t") for line in output.read_text().splitlines()]
+    assert [float(row[4]) for row in rows] == pytest.approx([50.0, 150.0])
+    assert rows[0][:4] == ["chr1", "0", "10", "p1"]
+    assert rows[1][5] == "-"
+
+
+def test_mean_scale_bed_can_integer_round_and_clamp(tmp_path: Path):
+    bed = tmp_path / "scores.bed"
+    bed.write_text(
+        "chr1\t0\t10\ta\t-1\t.\n"
+        "chr1\t10\t20\tb\t1\t.\n"
+        "chr1\t20\t30\tc\t4\t.\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "scaled.bed"
+    assert main([
+        str(bed), "--reference-mean", "1", "--scale", "1000",
+        "--integer-scores", "--clamp-min", "0", "--clamp-max", "1000",
+        "--output", str(output),
+    ]) == 0
+    values = [int(line.split("\t")[4]) for line in output.read_text().splitlines()]
+    assert values == [0, 1000, 1000]
+
+
+def test_mean_scale_bigbed_controls_are_automatic():
+    from nucleosuite.mean_scale import _effective_interval_controls
+    integer, lower, upper = _effective_interval_controls(
+        output_format="bigbed", integer_scores=False, clamp_min=None, clamp_max=None
+    )
+    assert integer is True
+    assert lower == 0
+    assert upper == 1000
+    integer, lower, upper = _effective_interval_controls(
+        output_format="bigbed", integer_scores=False, clamp_min=100, clamp_max=900
+    )
+    assert integer is True
+    assert lower == 100
+    assert upper == 900
+
+
+def test_mean_scale_parser_exposes_interval_output_controls():
+    args = build_parser().parse_args([
+        "peaks.bed", "--integer-scores", "--clamp-min", "0", "--clamp-max", "1000",
+        "--output-format", "bed.gz",
+    ])
+    assert args.input == "peaks.bed"
+    assert args.integer_scores is True
+    assert args.clamp_min == 0
+    assert args.clamp_max == 1000
+    assert args.output_format == "bed.gz"

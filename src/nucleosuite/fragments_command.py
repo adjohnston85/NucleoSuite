@@ -152,7 +152,7 @@ def build_parser() -> argparse.ArgumentParser:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("-b", "--bam", "--bamfiles", dest="bamfiles", nargs="+", help="Coordinate-sorted paired-end BAM input(s).")
     group.add_argument("--fragments", "--fragment-bed", dest="fragment_files", nargs="+", help="BED, BED.gz, bigBed, or .bb fragment interval input(s).")
-    parser.add_argument("-o", "--output-prefix", required=True, help="Path prefix for fragment intervals and summary outputs.")
+    parser.add_argument("-o", "--output-prefix", help="Path prefix for fragment intervals and summary outputs. Default: primary input basename.")
     parser.add_argument("-c", "--contigs", nargs="+", default=["all"], help="Contigs to retain; supports names, comma lists, numeric ranges, autosomes, and all (default: all).")
     parser.add_argument("--frag-lower", type=int, default=1, help="Inclusive minimum fragment length in bp (default: 1).")
     parser.add_argument("--frag-upper", type=int, default=1000, help="Inclusive maximum fragment length in bp (default: 1000).")
@@ -193,8 +193,11 @@ def run(args: argparse.Namespace) -> int:
     if args.seed is not None:
         random.seed(args.seed)
 
-    from nucleosuite.output_naming import parameterized_prefix
+    from nucleosuite.output_naming import automatic_prefix, parameterized_prefix
 
+    if not args.output_prefix:
+        primary = (args.bamfiles or args.fragment_files)[0]
+        args.output_prefix = str(automatic_prefix(primary))
     args.output_prefix = str(
         parameterized_prefix(
             args.output_prefix,

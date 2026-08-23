@@ -16,7 +16,7 @@ Each command page describes the calculation, a typical invocation, analysis opti
 - [`pns`](commands/pns.md) — calculate PNS, BNS or TNS and call positive/negative regions.
 - [`wps`](commands/wps.md) — calculate WPS-family tracks and WPS peak calls.
 - [`coverage`](commands/coverage.md) — count fragment coverage per base.
-- [`mean-scale`](commands/mean-scale.md) — scale a BigWig relative to a supplied, region-score, or non-zero-signal reference mean.
+- [`mean-scale`](commands/mean-scale.md) — mean-normalize BigWig signal or BED-family scores relative to a calculated or supplied reference mean.
 - [`dyads`](commands/dyads.md) — place signal at fragment centres.
 - [`fragment-ends`](commands/fragment-ends.md) — place signal at fragment starts and ends.
 - [`dinuc-profile`](commands/dinuc-profile.md) — calculate dyad-aligned dinucleotide frequencies.

@@ -47,33 +47,34 @@ flowchart TB
 | Short periodicity | 1–144 bp, resolution 1 |
 | Intermediate periodicity | 150–220 bp, resolution 8 |
 
-WPS and DCC remain available as standalone NucleoSuite commands but are **not run by `mnase-suite`**.
 
 ## Post-combine normalization
 
-The raw combined PNS, posPNS and coverage BigWigs are retained. After combination the suite additionally creates:
+After chromosome combination, the suite retains the raw combined outputs and creates normalized analysis inputs:
 
 - coverage mean-scaled to 100;
 - posPNS mean-scaled to 100;
-- PNS scaled to 100 relative to the mean column-5 score of the combined PNS nucleosome calls.
+- PNS scaled to 100 relative to the mean column-5 score of the raw combined PNS nucleosome calls;
+- combined PNS nucleosome-region BED scores mean-scaled to 100;
+- combined PNS breakpoint-peak BED scores mean-scaled to 100.
 
-PNS aggregate analyses use the scaled PNS track. Regional extraction uses scaled PNS and scaled coverage.
+The mean-scaled nucleosome and breakpoint BEDs are used by downstream peak-based suite analyses. PNS aggregate analyses use the scaled PNS track. Regional extraction uses the mean-scaled peak BEDs together with scaled PNS and scaled coverage.
 
 ## DAC, NRL and spacing
 
 DAC is calculated only from the ranged 146–148 bp dyad track. Its DAC outputs feed:
 
-1. NRL at 1–1500 bp, resolution 160, with the first called peak retained in the profile but omitted from regression;
+1. NRL at 1–1500 bp, resolution 160, with the first called peak shown in the profile but omitted from regression;
 2. short periodicity at 1–144 bp, resolution 1;
 3. nucleosome-scale periodicity at 150–220 bp, resolution 8.
 
 The combined PNS nucleosome calls are analysed separately for adjacent spacing (order 1, 1–500 bp) and for orders 1–7 (1–1500 bp), with the latter performing combined NRL regression.
 
-## Other retained downstream analyses
+## Other downstream analyses
 
-The suite retains PNS peak calls, ChromHMM-stratified PNS spacing, CTCF/TSS aggregation, TSS expression quintiles, region extraction, fragment-length profiles and heatmaps, optional PNS gene-expression analysis, PNS positive runs, PNS peak-score-frequency analyses, dinucleotide profiles, WW/SS classification and WW/SS type-specific dyads.
+The suite performs PNS peak calls, ChromHMM-stratified PNS spacing, CTCF/TSS aggregation, TSS expression quintiles, region extraction, fragment-length profiles and heatmaps, optional PNS gene-expression analysis, PNS positive runs, PNS peak-score-frequency analyses, dinucleotide profiles, WW/SS classification and WW/SS type-specific dyads.
 
-`peak-score-frequency` automatically displays BED/BED.gz scores on a ×1000 scale; bigBed scores are already on the 0–1000 scale and are not multiplied again.
+`peak-score-frequency` uses the mean-scaled nucleosome and breakpoint BEDs directly with `--score-scale 1`; no additional display scaling is applied.
 
 See [Output layout](../OUTPUT_LAYOUT.md), [Workflows](../WORKFLOWS.md), and the command-line help for the complete accepted option set.
 

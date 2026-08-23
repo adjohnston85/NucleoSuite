@@ -1218,17 +1218,27 @@ TRACK_ARGS=(
 )
 run_step "01_combined_tracks" "$TRACK_REPORT" "$NUCLEOSUITE_BIN" tracks "${TRACK_ARGS[@]}"
 
-PNS_NUC="${PNS_PREFIX}_nucleosome_regions.${INTERVAL_EXT}"
-PNS_BRK="${PNS_PREFIX}_breakpoint_peaks.${INTERVAL_EXT}"
+PNS_NUC_RAW="${PNS_PREFIX}_nucleosome_regions.${INTERVAL_EXT}"
+PNS_BRK_RAW="${PNS_PREFIX}_breakpoint_peaks.${INTERVAL_EXT}"
+PNS_NUC_SCALED="$SCALED_DIR/$(basename "${PNS_PREFIX}")_nucleosome_regions_mean_scaled.${INTERVAL_EXT}"
+PNS_BRK_SCALED="$SCALED_DIR/$(basename "${PNS_PREFIX}")_breakpoint_peaks_mean_scaled.${INTERVAL_EXT}"
+PNS_NUC="$PNS_NUC_RAW"
+PNS_BRK="$PNS_BRK_RAW"
 
 if [[ "$COMBINE_PREREQUISITES_ONLY" -eq 0 ]]; then
   mkdir -p "$SCALED_DIR"
+  run_step "01_scale_nucleosome_peak_scores" "$PNS_NUC_SCALED" "$NUCLEOSUITE_BIN" mean-scale \
+    "$PNS_NUC_RAW" --score-column 5 --scale 100 --output "$PNS_NUC_SCALED"
+  run_step "01_scale_breakpoint_peak_scores" "$PNS_BRK_SCALED" "$NUCLEOSUITE_BIN" mean-scale \
+    "$PNS_BRK_RAW" --score-column 5 --scale 100 --output "$PNS_BRK_SCALED"
   run_step "01_scale_coverage" "$PNS_COVERAGE_SCALED_BW" "$NUCLEOSUITE_BIN" mean-scale \
     "$PNS_COVERAGE_BW" --scale 100 --output "$PNS_COVERAGE_SCALED_BW"
   run_step "01_scale_pospns" "$PNS_POS_SCALED_BW" "$NUCLEOSUITE_BIN" mean-scale \
     "$PNS_POS_BW" --scale 100 --output "$PNS_POS_SCALED_BW"
   run_step "01_scale_pns_to_peak_mean" "$PNS_SCALED_BW" "$NUCLEOSUITE_BIN" mean-scale \
-    "$PNS_BW" --regions "$PNS_NUC" --score-column 5 --scale 100 --output "$PNS_SCALED_BW"
+    "$PNS_BW" --regions "$PNS_NUC_RAW" --score-column 5 --scale 100 --output "$PNS_SCALED_BW"
+  PNS_NUC="$PNS_NUC_SCALED"
+  PNS_BRK="$PNS_BRK_SCALED"
   PNS_ANALYSIS_BW="$PNS_SCALED_BW"
 fi
 
@@ -1563,7 +1573,7 @@ run_peak_score_frequency() {
     output="${prefix}_bins*_score_frequency.tsv"
   local -a peak_args=(--peaks "${RUN_MODE}=$peaks")
   queue_memory_step "$step" "$output" "$NUCLEOSUITE_BIN" peak-score-frequency "${peak_args[@]}" \
-    "${BLACKLIST_ARGS[@]}" --output-prefix "$prefix" --score-column 5 --integer-bins \
+    "${BLACKLIST_ARGS[@]}" --output-prefix "$prefix" --score-column 5 --score-scale 1 --integer-bins \
     --normalization "$PEAK_SCORE_NORMALIZATION" --title "$title"
 }
 if [[ "$COMBINE_PREREQUISITES_ONLY" -eq 0 && "$SKIP_PEAK_SCORE_FREQUENCY" -eq 0 ]]; then

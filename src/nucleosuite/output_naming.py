@@ -68,3 +68,27 @@ def parameter_range(start: object, end: object) -> str:
     """Format a signed interval as one compact parameter value."""
 
     return f"{compact_parameter(start)}to{compact_parameter(end)}"
+
+
+def input_basename(path: str | Path) -> str:
+    """Return a filename-safe primary-input basename without common genomics suffixes."""
+    name = Path(path).name
+    lower = name.lower()
+    for suffix in (
+        ".bed.gz", ".tsv.gz", ".txt.gz", ".fastq.gz", ".fq.gz",
+        ".bigwig", ".bigbed", ".bedgraph", ".cram", ".bam", ".bed",
+        ".bw", ".bb", ".tsv", ".txt", ".fa", ".fasta", ".fq", ".fastq", ".gz",
+    ):
+        if lower.endswith(suffix):
+            name = name[: -len(suffix)]
+            break
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("_.-")
+    return safe or "output"
+
+
+def automatic_prefix(primary_input: str | Path, analysis: str | None = None) -> Path:
+    """Create a current-directory output prefix from a primary input basename."""
+    stem = input_basename(primary_input)
+    if analysis:
+        stem = f"{stem}_{compact_parameter(analysis).replace('-', '_')}"
+    return Path(stem)

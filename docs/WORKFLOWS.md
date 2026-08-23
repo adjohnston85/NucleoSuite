@@ -93,7 +93,7 @@ flowchart TB
     click N href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/nrl.md" "Open nrl documentation"
 ```
 
-[`mnase-suite`](commands/mnase-suite.md) applies MNase-oriented defaults and uses one retained fragment population across downstream outputs.
+[`mnase-suite`](commands/mnase-suite.md) applies MNase-oriented defaults and uses one filtered fragment population across downstream outputs.
 
 ```bash
 nucleosuite mnase-suite \

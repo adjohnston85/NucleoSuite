@@ -22,7 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=NucleoSuiteHelpFormatter,
     )
     parser.add_argument("--bam", "--alignment", dest="alignment", required=True, help="BAM or CRAM whose reference header supplies names, lengths, and order.")
-    parser.add_argument("--output", "-o", required=True, help="Destination two-column chromosome-size table.")
+    parser.add_argument("--output", "-o", help="Destination two-column chromosome-size table. Default: <alignment-basename>.chrom.sizes.")
     parser.add_argument(
         "--contigs",
         nargs="+",
@@ -39,6 +39,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if not args.output:
+        from nucleosuite.output_naming import automatic_prefix
+        args.output = str(automatic_prefix(args.alignment)) + ".chrom.sizes"
     reporter = ProgressReporter("chrom-sizes")
     reporter.stage(f"Reading reference header: {args.alignment}")
     rows = read_chrom_sizes_source(args.alignment, reference_fasta=args.fasta)

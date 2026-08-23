@@ -77,4 +77,8 @@ The normalized matrix remains a default output because it is the compact numeric
 
 Heatmaps retain their command-specific palette/normalization options and also accept the shared figure-size, format, title, label, tick, and transparency options in [Plot customization](../PLOTTING.md).
 
+## Automatic output naming
+
+If `--out-prefix` is omitted, NucleoSuite derives the prefix from the first input-table basename and appends `_fragment_heatmap`. An explicit prefix overrides the automatic name.
+
 [Back to the command reference](../COMMAND_REFERENCE.md)

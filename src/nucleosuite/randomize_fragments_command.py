@@ -137,7 +137,7 @@ def build_parser() -> argparse.ArgumentParser:
     group.add_argument("-b", "--bam", "--bamfiles", dest="bamfiles", nargs="+", help="Coordinate-sorted paired-end BAM input(s).")
     group.add_argument("--fragments", "--fragment-bed", dest="fragment_files", nargs="+", help="BED, BED.gz, bigBed, or .bb fragment interval input(s).")
     parser.add_argument("--fasta", required=True, help="Indexed reference FASTA used to validate placement and match terminal dinucleotides.")
-    parser.add_argument("-o", "--output-prefix", required=True, help="Path prefix for the randomized fragment set and QC outputs.")
+    parser.add_argument("-o", "--output-prefix", help="Path prefix for the randomized fragment set and QC outputs. Default: primary input basename.")
     parser.add_argument("-c", "--contigs", nargs="+", default=["all"], help="Contigs to randomize; supports names, comma lists, ranges, autosomes, and all (default: all).")
     parser.add_argument("--frag-lower", type=int, default=120, help="Inclusive minimum source-fragment length in bp (default: 120).")
     parser.add_argument("--frag-upper", type=int, default=180, help="Inclusive maximum source-fragment length in bp (default: 180).")
@@ -192,6 +192,10 @@ def _stable_seed(seed: int, contig: str) -> int:
 
 def _run_serial(args: argparse.Namespace, parser: argparse.ArgumentParser | None = None) -> int:
     parser = parser or build_parser()
+    if not args.output_prefix:
+        from nucleosuite.output_naming import automatic_prefix
+        primary = (args.bamfiles or args.fragment_files)[0]
+        args.output_prefix = str(automatic_prefix(primary))
     if pysam is None:
         parser.error("pysam is required for randomize-fragments")
     if args.frag_lower < 1 or args.frag_upper < args.frag_lower:

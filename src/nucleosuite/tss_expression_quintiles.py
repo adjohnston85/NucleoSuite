@@ -383,7 +383,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--gene-strand-column", type=int, default=6, help="One-based gene BED column containing + or - strand.")
     parser.add_argument("--window", type=int, default=2000, help="Bases on each side of the TSS.")
     parser.add_argument("--preserve-missing", action="store_true", help="Exclude missing BigWig bases rather than treating them as zero.")
-    parser.add_argument("--output-prefix", required=True, help="Path prefix for quintile profiles, summary, metadata, and plot.")
+    parser.add_argument("--output-prefix", help="Path prefix for quintile profiles, summary, metadata, and plot. Default: signal basename plus _tss_expression_quintiles.")
     from nucleosuite.plotting import add_plotting_arguments
     add_plotting_arguments(parser)
     return parser
@@ -395,6 +395,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.window < 1:
         raise ValueError("--window must be positive")
     signal_path = Path(args.signal)
+    if not args.output_prefix:
+        from nucleosuite.output_naming import automatic_prefix
+        args.output_prefix = str(automatic_prefix(signal_path, "tss_expression_quintiles"))
     if not signal_path.is_file():
         raise FileNotFoundError(f"Signal BigWig not found: {signal_path}")
 

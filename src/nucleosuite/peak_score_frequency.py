@@ -51,10 +51,29 @@ def _is_bigbed_path(path: Path) -> bool:
 
 
 def _effective_score_scale(dataset: PeakScoreSet, score_scale: float | None) -> float:
-    """Return explicit scale, or the default common 0-1000 display scale."""
-    if score_scale is not None:
-        return float(score_scale)
-    return 1.0 if _is_bigbed_path(dataset.path) else 1000.0
+    """Return the explicit display scale; standalone default is always 1."""
+    del dataset
+    return 1.0 if score_scale is None else float(score_scale)
+
+
+def _score_axis_label(score_scale: float | None) -> str:
+    scale = 1.0 if score_scale is None else float(score_scale)
+    if math.isclose(scale, 1.0):
+        return "Peak score"
+    return f"Peak score ×{scale:g}"
+
+
+def _default_output_prefix(peak_specs: Sequence[str]) -> Path:
+    if not peak_specs:
+        return Path("peak_score_frequency")
+    _label, path = _parse_labelled_path(peak_specs[0])
+    name = path.name
+    lower = name.lower()
+    for suffix in (".bed.gz", ".bigbed", ".bed", ".bb", ".gz"):
+        if lower.endswith(suffix):
+            name = name[: -len(suffix)]
+            break
+    return Path(f"{name}_peak_score_frequency")
 
 
 def _read_scores(
@@ -325,12 +344,7 @@ def _plot_frequency(
     for dataset in datasets:
         values = _normalised_values(histograms[dataset.label], edges, normalization)
         ax.step(midpoints, values, where="mid", linewidth=1.5, label=dataset.label)
-    if score_scale is None:
-        ax.set_xlabel("Peak score (0–1000 scale)")
-    elif math.isclose(score_scale, 1.0):
-        ax.set_xlabel("Peak score")
-    else:
-        ax.set_xlabel(f"Peak score (×{score_scale:g})")
+    ax.set_xlabel(_score_axis_label(score_scale))
     ylabel = {
         "count": "Frequency (count)",
         "fraction": "Frequency (fraction)",
@@ -376,19 +390,21 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="LABEL=FILE",
         help="Peak interval input. Repeat to overlay observed and control callsets.",
     )
-    parser.add_argument("--output-prefix", "-o", required=True, help="Path prefix for score tables, summaries, and plot output.")
+    parser.add_argument(
+        "--output-prefix", "-o",
+        help="Path prefix for score tables, summaries, and plot output. Default: first peak-input basename plus _peak_score_frequency.",
+    )
     parser.add_argument(
         "--blacklist-bed",
         help="BED blacklist; complete overlapping peak records are excluded.",
     )
     parser.add_argument("--score-column", type=int, default=5, help="1-based score column. Default: 5")
     parser.add_argument(
-        "--score-scale", type=float, default=None,
+        "--score-scale", type=float, default=1.0,
         help=(
-            "Override score scaling before histogram binning and plotting. By default, "
-            "BED/BED.gz scores are multiplied by 1000 and bigBed scores are used as "
-            "stored, placing both on the standard 0–1000 display scale. Raw score "
-            "summaries/detail tables remain unscaled."
+            "Multiply scores by this factor before histogram binning and plotting "
+            "(default: 1). Raw score summaries/detail tables remain unscaled. "
+            "When scaling is applied, the x-axis records the multiplier."
         ),
     )
     parser.add_argument(
@@ -440,6 +456,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _run_serial(args: argparse.Namespace) -> int:
+    if not args.output_prefix:
+        args.output_prefix = str(_default_output_prefix(args.peaks))
     if args.score_column < 1:
         raise ValueError("--score-column must be at least 1")
     if args.score_scale is not None and (
@@ -483,7 +501,7 @@ def _run_serial(args: argparse.Namespace) -> int:
         args.output_prefix,
         (
             bin_parameter,
-            ("scorescale", "auto" if args.score_scale is None else args.score_scale),
+            ("scorescale", args.score_scale),
             ("scoremin", args.score_min),
             ("scoremax", args.score_max),
             ("norm", args.normalization),
@@ -520,16 +538,12 @@ def _run_serial(args: argparse.Namespace) -> int:
         extra={
             "source_table": str(frequency_path),
             "detected_plot_type": "peak-score-frequency",
-            "score_scale": "auto" if args.score_scale is None else args.score_scale,
+            "score_scale": args.score_scale,
             "dataset_score_scales": ",".join(
                 f"{dataset.label}:{_effective_score_scale(dataset, args.score_scale):g}"
                 for dataset in datasets
             ),
-            "x_label": (
-                "Peak score (0–1000 scale)" if args.score_scale is None
-                else "Peak score" if math.isclose(args.score_scale, 1.0)
-                else f"Peak score (×{args.score_scale:g})"
-            ),
+            "x_label": _score_axis_label(args.score_scale),
         },
     )
     if args.write_detail_tables:
@@ -541,6 +555,9 @@ def _run_serial(args: argparse.Namespace) -> int:
 
 def run(args: argparse.Namespace) -> int:
     from nucleosuite.output_naming import parameterized_prefix
+
+    if not args.output_prefix:
+        args.output_prefix = str(_default_output_prefix(args.peaks))
 
     bin_parameter = (
         ("bins", args.bins)
@@ -554,7 +571,7 @@ def run(args: argparse.Namespace) -> int:
             args.output_prefix,
             (
                 bin_parameter,
-                ("scorescale", "auto" if args.score_scale is None else args.score_scale),
+                ("scorescale", args.score_scale),
                 ("scoremin", args.score_min),
                 ("scoremax", args.score_max),
                 ("norm", args.normalization),

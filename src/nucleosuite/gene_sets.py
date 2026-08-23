@@ -846,8 +846,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--interval-format", choices=INTERVAL_FORMATS, default="bed",
         help="Write gene-set intervals as BED, bigBed, or both.",
     )
-    parser.add_argument("--output-dir", required=True, help="Output directory.")
-    parser.add_argument("--output-prefix", default="gene_sets", help="Output-file prefix.")
+    parser.add_argument("--output-dir", default=".", help="Output directory (default: current directory).")
+    parser.add_argument("--output-prefix", help="Output-file prefix. Default: genes and states basenames plus _gene_sets.")
     parser.add_argument(
         "--prefix-member-files",
         action="store_true",
@@ -930,6 +930,9 @@ def _run_serial(args: argparse.Namespace) -> int:
 
 
 def run(args: argparse.Namespace) -> int:
+    if not args.output_prefix:
+        from nucleosuite.output_naming import input_basename
+        args.output_prefix = f"{input_basename(args.genes_bed)}_{input_basename(args.states_bed)}_gene_sets"
     return run_partitioned_command(
         "gene-sets",
         args,

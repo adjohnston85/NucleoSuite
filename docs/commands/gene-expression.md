@@ -113,6 +113,10 @@ A gene is excluded when its one-base TSS anchor overlaps the blacklist. Peak int
 
 Figures use the shared plotting options in [Plot customization](../PLOTTING.md).
 
+## Automatic output naming
+
+If `--output-prefix` is omitted, NucleoSuite derives the prefix from the primary signal input, then the primary peak input, or finally the expression-table basename, and appends `_gene_expression`.
+
 [Back to the command reference](../COMMAND_REFERENCE.md)
 
 ## References

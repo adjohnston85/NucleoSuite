@@ -76,6 +76,10 @@ TSS anchors overlapping the blacklist are skipped. Blacklisted bases inside reta
 
 Figures use the shared plotting interface described in [Plot customization](../PLOTTING.md).
 
+## Automatic output naming
+
+If `--output-prefix` is omitted, NucleoSuite derives the prefix from the signal-track basename and appends `_tss_expression_quintiles`.
+
 [Back to the command reference](../COMMAND_REFERENCE.md)
 
 ## References

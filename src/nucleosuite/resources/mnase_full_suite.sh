@@ -1478,21 +1478,31 @@ run_step "01_combined_tracks" "$OBS_TRACK_REPORT" "$NUCLEOSUITE_BIN" tracks \
 
 # Peak calls are outputs of 01_combined_tracks and are not recalled separately.
 PNS_CALL_PREFIX="$PNS_PREFIX"
-PNS_CALL_NUC="${PNS_PREFIX}_nucleosome_regions.${INTERVAL_EXT}"
-PNS_CALL_BRK="${PNS_PREFIX}_breakpoint_peaks.${INTERVAL_EXT}"
-[[ -s "$PNS_CALL_NUC" ]] || die "PNS nucleosome peak file was not created: $PNS_CALL_NUC"
-[[ -s "$PNS_CALL_BRK" ]] || die "PNS breakpoint peak file was not created: $PNS_CALL_BRK"
+PNS_CALL_NUC_RAW="${PNS_PREFIX}_nucleosome_regions.${INTERVAL_EXT}"
+PNS_CALL_BRK_RAW="${PNS_PREFIX}_breakpoint_peaks.${INTERVAL_EXT}"
+PNS_CALL_NUC_SCALED="$SCALED_DIR/$(basename "${PNS_PREFIX}")_nucleosome_regions_mean_scaled.${INTERVAL_EXT}"
+PNS_CALL_BRK_SCALED="$SCALED_DIR/$(basename "${PNS_PREFIX}")_breakpoint_peaks_mean_scaled.${INTERVAL_EXT}"
+PNS_CALL_NUC="$PNS_CALL_NUC_RAW"
+PNS_CALL_BRK="$PNS_CALL_BRK_RAW"
+[[ -s "$PNS_CALL_NUC_RAW" ]] || die "PNS nucleosome peak file was not created: $PNS_CALL_NUC_RAW"
+[[ -s "$PNS_CALL_BRK_RAW" ]] || die "PNS breakpoint peak file was not created: $PNS_CALL_BRK_RAW"
 
 if [[ "$COMBINE_PREREQUISITES_ONLY" -eq 0 ]]; then
 
 # Scaling is deliberately post-combine so all selected chromosomes share one reference.
 mkdir -p "$SCALED_DIR"
+run_step "01_scale_nucleosome_peak_scores" "$PNS_CALL_NUC_SCALED" "$NUCLEOSUITE_BIN" mean-scale \
+    "$PNS_CALL_NUC_RAW" --score-column 5 --scale 100 --output "$PNS_CALL_NUC_SCALED"
+run_step "01_scale_breakpoint_peak_scores" "$PNS_CALL_BRK_SCALED" "$NUCLEOSUITE_BIN" mean-scale \
+    "$PNS_CALL_BRK_RAW" --score-column 5 --scale 100 --output "$PNS_CALL_BRK_SCALED"
 run_step "01_scale_coverage" "$PNS_COVERAGE_SCALED_BW" "$NUCLEOSUITE_BIN" mean-scale \
-    --bigwig "$PNS_COVERAGE_BW" --scale 100 --output "$PNS_COVERAGE_SCALED_BW"
+    "$PNS_COVERAGE_BW" --scale 100 --output "$PNS_COVERAGE_SCALED_BW"
 run_step "01_scale_pospns" "$PNS_POS_SCALED_BW" "$NUCLEOSUITE_BIN" mean-scale \
-    --bigwig "$PNS_POS_BW" --scale 100 --output "$PNS_POS_SCALED_BW"
+    "$PNS_POS_BW" --scale 100 --output "$PNS_POS_SCALED_BW"
 run_step "01_scale_pns_peak_mean" "$PNS_SCALED_BW" "$NUCLEOSUITE_BIN" mean-scale \
-    --bigwig "$PNS_BW" --regions "$PNS_CALL_NUC" --score-column 5 --scale 100 --output "$PNS_SCALED_BW"
+    "$PNS_BW" --regions "$PNS_CALL_NUC_RAW" --score-column 5 --scale 100 --output "$PNS_SCALED_BW"
+PNS_CALL_NUC="$PNS_CALL_NUC_SCALED"
+PNS_CALL_BRK="$PNS_CALL_BRK_SCALED"
 PNS_ANALYSIS_BW="$PNS_SCALED_BW"
 
 DISTANCE_COMPARE_TICK_ARGS=(
@@ -1806,7 +1816,7 @@ run_peak_score_frequency() {
     output="${prefix}_bins*_score_frequency.tsv"
     local -a peak_args=(--peaks "${RUN_MODE}=$peaks")
     queue_memory_step "$step" "$output" "$NUCLEOSUITE_BIN" peak-score-frequency "${peak_args[@]}" \
-        "${BLACKLIST_ARGS[@]}" --output-prefix "$prefix" --score-column 5 --integer-bins \
+        "${BLACKLIST_ARGS[@]}" --output-prefix "$prefix" --score-column 5 --score-scale 1 --integer-bins \
         --normalization "$PEAK_SCORE_NORMALIZATION" --title "$title"
 }
 if [[ "$COMBINE_PREREQUISITES_ONLY" -eq 0 && "$SKIP_PEAK_SCORE_FREQUENCY" -eq 0 ]]; then

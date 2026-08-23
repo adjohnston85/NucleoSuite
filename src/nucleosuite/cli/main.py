@@ -182,7 +182,7 @@ def _region_extract_main(argv: Sequence[str] | None = None) -> int:
 DELEGATED_COMMANDS: dict[str, tuple[CommandMain, str]] = {
     "fragments": (_fragments_main, "Write paired-end fragments as BED intervals."),
     "merge-bams": (_merge_bams_main, "Combine BAM files while keeping full alignment records."),
-    "mean-scale": (_mean_scale_main, "Scale a BigWig relative to a supplied or calculated reference mean."),
+    "mean-scale": (_mean_scale_main, "Mean-normalize BigWig signal or BED-family scores."),
     "randomize-fragments": (_randomize_fragments_main, "Create a reproducible control fragment set for comparison."),
     "fragment-lengths": (_fragment_lengths_main, "Count how many fragments occur at each length."),
     "flank-spacing": (_flank_spacing_main, "Compare nucleosome spacing around categorized reference sites."),

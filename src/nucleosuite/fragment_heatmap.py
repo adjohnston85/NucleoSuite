@@ -768,7 +768,7 @@ def parse_exclusions(direct: Sequence[str], path: Optional[Path]) -> Set[str]:
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("-i", "--input", action="append", required=True, metavar="[NAME=]FILE", help="Input table; repeat for multiple files.")
-    parser.add_argument("-o", "--out-prefix", required=True, help="Output path prefix.")
+    parser.add_argument("-o", "--out-prefix", help="Output path prefix. Default: first input-table basename plus _fragment_heatmap.")
     parser.add_argument("--min-frag", type=int, default=1, help="Minimum fragment length. Default: 1")
     parser.add_argument("--max-frag", type=int, default=500, help="Maximum fragment length. Default: 500")
     parser.add_argument(
@@ -817,6 +817,10 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def run(args: argparse.Namespace) -> int:
+    if not args.out_prefix:
+        from nucleosuite.output_naming import automatic_prefix
+        first = args.input[0].split("=", 1)[1] if "=" in args.input[0] else args.input[0]
+        args.out_prefix = str(automatic_prefix(first, "fragment_heatmap"))
     if args.min_frag < 0 or args.max_frag < args.min_frag:
         raise SystemExit("Require 0 <= --min-frag <= --max-frag")
     if not 50 < args.colour_percentile <= 100:

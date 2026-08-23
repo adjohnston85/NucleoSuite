@@ -85,6 +85,10 @@ If `--blacklist-bed` is supplied, genes whose one-base TSS anchor overlaps the b
 
 Summary figures use the shared plotting interface described in [Plot customization](../PLOTTING.md).
 
+## Automatic output naming
+
+Outputs are written to the current directory by default. If `--output-prefix` is omitted, NucleoSuite combines the gene-annotation and state-annotation basenames and appends `_gene_sets`. `--output-dir` and `--output-prefix` can override these defaults.
+
 [Back to the command reference](../COMMAND_REFERENCE.md)
 
 ## References

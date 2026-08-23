@@ -22,4 +22,8 @@ The input BAMs should be compatible with the same reference assembly and contig 
 
 The primary output is the merged BAM. Follow ordinary BAM indexing requirements before using it with commands that require indexed random access.
 
+## Automatic output naming
+
+If no output is supplied, NucleoSuite derives the merged BAM name from the first input BAM basename. Non-split output defaults to `<first-input>_merged.bam`; `--split-contigs` uses `<first-input>_merged` as the output prefix.
+
 [Back to the command reference](../COMMAND_REFERENCE.md)

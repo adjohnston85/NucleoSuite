@@ -1377,7 +1377,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--signal", "--bigwig", action="append", default=[], metavar="NAME=BIGWIG", help="PNS/WPS BigWig for FFT analysis; repeat for multiple samples.")
     parser.add_argument("--signal-type", choices=("pns", "wps", "other"), default="pns", help="Signal label used in metadata and plot text.")
     parser.add_argument("--analysis", choices=("all", "spacing", "fft"), default="all", help="Run peak-spacing correlations, FFT correlations, or both.")
-    parser.add_argument("--output-prefix", "--out-prefix", required=True, help="Path prefix for analysis tables, metadata, and plots.")
+    parser.add_argument("--output-prefix", "--out-prefix", help="Path prefix for analysis tables, metadata, and plots. Default: primary signal/peak input basename, or expression-table basename, plus _gene_expression.")
     parser.add_argument(
         "--write-detail-tables", action="store_true",
         help=(
@@ -1653,8 +1653,12 @@ def _run_partitioned_with_genes(args: argparse.Namespace) -> int:
 
 
 def run(args: argparse.Namespace) -> int:
-    from nucleosuite.output_naming import parameter_range, parameterized_prefix
+    from nucleosuite.output_naming import automatic_prefix, parameter_range, parameterized_prefix
 
+    if not args.output_prefix:
+        specs = args.signal or args.peaks
+        primary = specs[0].split("=", 1)[1] if specs and "=" in specs[0] else (specs[0] if specs else args.expression)
+        args.output_prefix = str(automatic_prefix(primary, "gene_expression"))
     args.output_prefix = str(
         parameterized_prefix(
             args.output_prefix,

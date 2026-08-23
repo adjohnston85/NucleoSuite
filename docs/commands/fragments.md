@@ -80,4 +80,8 @@ Depending on `--output-format`, the command writes BED, BED.gz, and/or bigBed fr
 
 Use the resulting fragment file directly with commands such as `pns`, `wps`, `tracks`, `dyads`, `fragment-ends`, and `fragment-lengths`.
 
+## Automatic output naming
+
+If `--output-prefix` is omitted, NucleoSuite derives the output prefix from the primary BAM/CRAM or fragment-input basename in the current directory. An explicit `--output-prefix` overrides this default.
+
 [Back to the command reference](../COMMAND_REFERENCE.md)

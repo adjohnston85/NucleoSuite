@@ -65,7 +65,8 @@ CORE_DESTINATIONS: dict[str, set[str]] = {
         "frag_upper", "max_duplicates", "dedup_scope", "cores",
     },
     "mean-scale": {
-        "bigwig", "reference_mean", "regions", "score_column", "scale", "output",
+        "input", "reference_mean", "regions", "score_column", "scale",
+        "integer_scores", "clamp_min", "clamp_max", "output_format", "chrom_sizes", "output",
     },
     "randomize-fragments": {
         "bamfiles", "fragment_files", "fasta", "output_prefix", "contigs", "frag_lower",

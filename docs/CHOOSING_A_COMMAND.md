@@ -18,7 +18,7 @@ For a coordinated analysis with standard defaults, use [`cfdna-suite`](commands/
 
 ## I already have nucleosome or other peak calls
 
-Use [`mean-scale`](commands/mean-scale.md) when an existing BigWig should be expressed relative to a reference mean, including mean non-zero coverage, mean BED/bigBed region scores, or a supplied reference value.
+Use [`mean-scale`](commands/mean-scale.md) when BigWig signal or BED-family scores should be expressed relative to a reference mean, including non-zero BigWig signal, interval-score means, alternate region-score means, or a supplied reference value.
 
 Use [`filter-peaks`](commands/filter-peaks.md) to create a reusable peak subset by score, score percentile, interval length, BigWig coverage, or combinations of these filters. Use [`peak-score-frequency`](commands/peak-score-frequency.md) to compare peak-score distributions and [`peak-states`](commands/peak-states.md) to measure how peaks are distributed across chromatin states.
 

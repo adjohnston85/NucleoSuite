@@ -125,3 +125,14 @@ def test_required_external_tools_are_declared_in_environment_and_recipe():
     }
     assert required <= _environment_dependencies()
     assert required <= _recipe_run_dependencies()
+
+
+def test_conda_recipe_version_matches_package_version():
+    import re
+    import tomllib
+
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    recipe = (ROOT / "recipe" / "meta.yaml").read_text(encoding="utf-8")
+    match = re.search(r'\{% set version = "([^"]+)" %\}', recipe)
+    assert match is not None
+    assert match.group(1) == project["project"]["version"]

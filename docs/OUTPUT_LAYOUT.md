@@ -1,6 +1,6 @@
 # Full-suite output layout
 
-`mnase-suite` and `cfdna-suite` use the same numbered analysis tree. WPS and DCC are standalone analyses and are not part of the current automated suite trees.
+`mnase-suite` and `cfdna-suite` use the same numbered analysis tree for their coordinated track, periodicity, spacing, regional and summary analyses.
 
 ```text
 00_setup/
@@ -43,7 +43,7 @@ logs/
 └── completion_report.tsv
 ```
 
-Raw PNS, posPNS and coverage tracks are retained beneath `pns/`. Only after chromosome combination, `scaled/` receives mean-scaled coverage, mean-scaled posPNS, and PNS scaled relative to the mean combined nucleosome-peak score. PNS aggregate stages use the scaled PNS track.
+Raw PNS, posPNS, coverage, nucleosome-region and breakpoint-peak outputs are written beneath `pns/`. After chromosome combination, `scaled/` receives mean-scaled coverage, mean-scaled posPNS, PNS scaled relative to the mean raw combined nucleosome-peak score, and mean-scaled nucleosome-region and breakpoint-peak BEDs. Downstream peak-based suite analyses use the mean-scaled peak BEDs, while PNS aggregate stages use the scaled PNS track.
 
 MNase uses the 146–148 bp ranged class, exact 147 bp dyads/ends, and exact 145/147 bp dinucleotide profiles. cfDNA uses ranged classes 144–146, 160–162 and 166–168 bp plus exact 145, 161 and 167 bp dyads/ends.
 

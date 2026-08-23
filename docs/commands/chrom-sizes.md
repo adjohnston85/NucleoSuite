@@ -44,4 +44,8 @@ nucleosuite dac \
   --out-prefix sample_dac
 ```
 
+## Automatic output naming
+
+If `--output` is omitted, NucleoSuite writes `<alignment-basename>.chrom.sizes` in the current directory. An explicit `--output` overrides this default.
+
 [Back to the command reference](../COMMAND_REFERENCE.md)

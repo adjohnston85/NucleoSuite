@@ -145,7 +145,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("-b", "--bam", "--bamfiles", dest="bamfiles", nargs="+", required=True, help="Coordinate-sorted, indexed paired-end BAM input(s).")
     parser.add_argument("-o", "--output", help="Merged BAM path when not using --split-contigs.")
-    parser.add_argument("--output-prefix", help="Output prefix; required with --split-contigs.")
+    parser.add_argument("--output-prefix", help="Output prefix for --split-contigs; default is derived from the first BAM basename.")
     parser.add_argument("-c", "--contigs", nargs="+", default=["all"], help="Whole contigs to retain; supports names, comma lists, numeric ranges, autosomes, and all (default: all).")
     parser.add_argument("--split-contigs", action="store_true", help="Write one sorted and indexed BAM per selected contig.")
     parser.add_argument("--frag-lower", type=int, default=1, help="Inclusive minimum template length in bp (default: 1).")
@@ -180,9 +180,11 @@ def _run_serial(args: argparse.Namespace, parser: argparse.ArgumentParser | None
     if args.subsample is not None and not 0 <= args.subsample <= 1:
         parser.error("--subsample must be between 0 and 1")
     if args.split_contigs and not args.output_prefix:
-        parser.error("--split-contigs requires --output-prefix")
+        from nucleosuite.output_naming import automatic_prefix
+        args.output_prefix = str(automatic_prefix(args.bamfiles[0], "merged"))
     if not args.split_contigs and not args.output:
-        parser.error("Provide --output, or use --split-contigs with --output-prefix")
+        from nucleosuite.output_naming import automatic_prefix
+        args.output = str(automatic_prefix(args.bamfiles[0], "merged")) + ".bam"
     if args.seed is not None:
         import random
         random.seed(args.seed)
