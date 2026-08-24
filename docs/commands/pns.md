@@ -18,15 +18,11 @@ Each fragment end contributes a triangular dyad-support distribution with mass 0
 
 BNS uses the same scoring support as PNS for every accepted fragment length. Within that support, it builds a symmetric central boxcar with total mass 1 and zero outer flanks. The boxcar is mean-centred so that each fragment contributes a positive central region and negative flanks whose total contribution sums to zero. Discrete half-weight or zero transition positions are used where needed to keep odd and non-divisible support lengths symmetric.
 
-BNS kernels are precomputed for every accepted fragment length in the same way that PNS kernels are precomputed, then reused for all fragments of that length.
-
 ### TNS
 
 TNS uses the same fragment-length-dependent scoring support as PNS and BNS. It places one symmetric triangle across the entire support. The raw triangle begins at zero, rises toward the fragment centre, and returns to zero at the opposite boundary. Odd support lengths have one central maximum, while even support lengths have a two-base central plateau. The raw triangle is normalized to total mass 1 and then mean-centred so that each fragment contributes values that sum to zero.
 
 For fragments shorter than the selected mode, the support expands in the same way as PNS and BNS. With a 167 bp mode, for example, a 137 bp fragment uses a 197 bp triangle because it is 30 bp shorter than the mode. A 197 bp fragment also uses a 197 bp triangle because it is already longer than the mode.
-
-TNS kernels are precomputed for every accepted fragment length and reused for all fragments of that length.
 
 The complete PNS, BNS and TNS constructions are described in [Nucleosome scoring](../ALGORITHMS.md#probabilistic-nucleosome-scoring).
 

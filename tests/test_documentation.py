@@ -493,4 +493,5 @@ def test_tns_documentation_uses_renderer_safe_latex() -> None:
     text = (ROOT / "docs" / "ALGORITHMS.md").read_text()
     assert r"q_n(j)=\min\left(j,n-1-j\right)." in text
     assert r"u^{TNS}_{m,L}(j)=\frac" in text
-    assert r"\qquad(L\lt m)" in text
+    assert r"n(L,m)=\max(L,2m-L)." in text
+    assert "[support length $n(L,m)$](#combining-the-two-fragment-ends)" in text

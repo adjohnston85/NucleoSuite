@@ -2,34 +2,104 @@
 
 ## What this command does
 
-`chip-suite` compares a ChIP-seq, CUT&RUN or CUT&Tag target with its matched control using nucleosome-position score tracks. It generates target and control scores independently, scales each centred score track by the finite non-zero mean of its corresponding positive score track, calls peaks independently, and uses control peaks as empirical decoys for target peak and cluster FDR.
+`chip-suite` performs control-aware nucleosome-score analysis for ChIP-seq, CUT&RUN, or CUT&Tag. A run with condition 1 treatment and control BAMs performs Stage 1 only. Supplying all four condition groups performs Stage 1 independently for both conditions and then compares their enrichments in Stage 2.
 
-TNS is the default score. BNS and PNS are available with `--scoring-method bns` or `--scoring-method pns`.
+TNS is the default score over 120–500 bp fragments. Use `--scoring-method bns` or `--scoring-method pns` when another kernel is required.
 
 ## Why use it
 
-Use this workflow when target and control assays should be processed with identical fragment filters and score definitions, normalized without subtracting one track from the other, and evaluated with a control-derived empirical peak and cluster FDR.
+Use this workflow to distinguish antibody-target enrichment from a condition-matched control and, optionally, test whether that enrichment changes between conditions. TNS locates peaks by default. Every coverage BigWig is separately divided by its own finite non-zero mean and multiplied by 100 before peak strength is measured. The control is not globally subtracted from the treatment track.
 
-## Typical run
+## Stage 1: one condition
 
 ```bash
 nucleosuite chip-suite \
-  --target-bam H3K4me3.bam \
-  --control-bam H3_control.bam \
-  --outdir H3K4me3_chip_suite \
-  --sample-name H3K4me3 \
+  --treatment1-bam H3K4me3.bam \
+  --control1-bam H3.bam \
+  --condition1-name wild_type \
+  --outdir wild_type_stage1 \
   --cores 8
 ```
 
-The default accepted fragment range is 120–500 bp.
+The older names `--target-bam` and `--control-bam` remain aliases for `--treatment1-bam` and `--control1-bam`.
+
+Stage 1 generates the score, corresponding positive-score track, and raw coverage for each logical sample. It divides the centred score by its positive-score mean for peak discovery. It also writes a second coverage BigWig with non-zero mean 100:
+
+```math
+Cov_{100}(x)=100\frac{Cov(x)}{\mathrm{mean}(Cov(x)\mid Cov(x)>0)}.
+```
+
+With the default `--stage1-control-mode all-controls`, peaks are called only on the condition-mean treatment score track. Control peaks are not called. Every treatment candidate interval is then measured separately in every treatment and control replicate. Define
+
+```math
+T_i(R)=\max_{x\in R}Cov_{100,T_i}(x),
+\qquad
+C_j(R)=\max_{x\in R}Cov_{100,C_j}(x).
+```
+
+A treatment peak is taken forward only when
+
+```math
+\min_i T_i(R)>\max_j C_j(R).
+```
+
+This is an all-versus-all rule: every treatment score must exceed every control score, and input ordering does not affect the Stage 1 decision. A one-sided Welch test compares the complete treatment and control replicate vectors for every treatment candidate. Benjamini-Hochberg correction is applied across all treatment candidates, including candidates that fail the all-controls gate. A peak enters the significant BED only when it passes both the gate and `--peak-fdr`.
+
+The output BED preserves the TNS-defined coordinates and other fields, replaces column 5 with the maximum condition-mean treatment `Cov100` in the interval, and appends FDR. `target_peak_replicate_statistics.tsv` reports every replicate maximum, group means, the conservative `min(T)-max(C)` excess, gate result, p-value and FDR. At least two treatment and two control biological replicates are required for inferential p-values and FDR; otherwise the annotated BED contains `.` and no peak enters the FDR-filtered BED. `--stage1-control-mode condition-mean` remains as a legacy compatibility mode and retains the older control-peak empirical-decoy analysis.
+
+## Replicates and merged input
+
+Multiple BAMs in each group are independent biological replicates by default. Treatment and control groups may contain different numbers of BAMs. They are not paired by command-line order:
+
+```bash
+nucleosuite chip-suite \
+  --treatment1-bam wt_mark_r1.bam wt_mark_r2.bam wt_mark_r3.bam \
+  --control1-bam wt_H3_r1.bam wt_H3_r2.bam wt_H3_r3.bam \
+  --outdir wt_stage1
+```
+
+Each replicate is scored and normalized separately. The condition-mean treatment score BigWig is used for Stage 1 peak discovery. Replicate-specific scaled coverage supplies the all-controls gate and one-sided Welch test; condition-mean treatment coverage supplies the single reported BED score. All tracks are retained in `chip_stage1_manifest.json` for later differential inference.
+
+Use `--bam-mode merged` to pass every treatment BAM as one logical treatment sample and every control BAM as one logical control sample. This matches the usual NucleoSuite multi-BAM pooling behaviour. Merged mode provides Stage 2 effect sizes and gain/loss direction, but not biological-replicate p-values or FDR.
+
+## Stage 1 plus Stage 2
+
+Supply condition 2 as a complete treatment/control pair:
+
+```bash
+nucleosuite chip-suite \
+  --treatment1-bam wt_mark_r1.bam wt_mark_r2.bam \
+  --control1-bam wt_H3_r1.bam wt_H3_r2.bam \
+  --condition1-name wild_type \
+  --treatment2-bam mutant_mark_r1.bam mutant_mark_r2.bam \
+  --control2-bam mutant_H3_r1.bam mutant_H3_r2.bam \
+  --condition2-name mutant \
+  --outdir mutant_vs_wild_type \
+  --cores 8
+```
+
+The Stage 2 candidate set is the union of significant Stage 1 features from either condition. Overlapping peaks are represented by the union of their coordinates. A peak called in only one condition retains its Stage 1 interval and is still measured in every track from the other condition. `--peak-match-distance` can additionally combine nearby non-overlapping peaks.
+
+Every differential row includes `region_origin`: `overlap_union` for matched overlapping peaks, `proximity_union` for non-overlapping peaks joined by `--peak-match-distance`, `condition1_only`, or `condition2_only`. The same value is appended to directional gain/loss BED records.
+
+For every shared interval, Stage 2 retains four independent vectors of maximum scaled coverage: $T_1$, $C_1$, $T_2$ and $C_2$. The reported interaction is
+
+```math
+\Delta(R)=\left(\overline{T_2(R)}-\overline{C_2(R)}\right)
+-\left(\overline{T_1(R)}-\overline{C_1(R)}\right).
+```
+
+A Welch-style difference-of-differences test uses the variance and sample size of all four groups without pairing treatment and control BAMs. Benjamini-Hochberg correction is applied across all Stage 2 regions. At least two replicates in each of the four groups are required for inferential FDR. Peaks use maximum BigWig values; clusters use positive base-wise area.
+
+Stage 2 never returns to the BAM files. TNS or the selected alternative score defines candidate locations; mean-scaled coverage defines their measured strength.
 
 ## Automatic fragment mode
 
-`--mode auto` is the default. Target and control modes are estimated independently by visiting indexed genomic blocks from the selected analysis contigs in seeded random order, accumulating accepted fragment lengths, and bootstrapping a lightly smoothed 120–250-bp length histogram. Sampling stops when the mode is stable across three checkpoints and the bootstrap 95% interval is no wider than 4 bp, or after the maximum sample size is reached.
+`--mode auto` visits indexed genomic blocks in seeded random order, accumulates accepted fragment lengths, and bootstraps a lightly smoothed 120–250 bp histogram until its mode stabilizes or the maximum sample size is reached. In a two-condition run, mode estimates are pooled across corresponding groups so both Stage 1 analyses use compatible scoring geometry.
 
-The default `--mode-strategy pooled` gives target and control histograms equal weight and uses one pooled analysis mode for both score tracks. Independent estimates remain in the QC report. Other strategies are `separate`, `target` and `control`.
+The default `--mode-strategy pooled` gives the group histograms equal weight and uses one mode for every treatment and control. `separate` uses one pooled treatment mode and one pooled control mode; `target` and `control` apply the selected group mode to both.
 
-Automatic estimation can be bypassed completely:
+Automatic estimation can be bypassed:
 
 ```bash
 nucleosuite chip-suite \
@@ -39,38 +109,21 @@ nucleosuite chip-suite \
   --mode 167
 ```
 
-An integer `--mode` is used exactly for both samples and the report records `mode_source=explicit`.
-
-## Score-matched normalization
-
-For default TNS scoring:
-
-```math
-T_{scaled}(x)=\frac{TNS_T(x)}{mean(posTNS_T)}
-```
-
-```math
-C_{scaled}(x)=\frac{TNS_C(x)}{mean(posTNS_C)}
-```
-
-BNS uses mean posBNS and PNS uses mean posPNS. The mean is calculated across finite, non-zero bases in the corresponding positive-score BigWig. The control is not subtracted from the target. Peaks are called independently on the two normalized tracks, preserving their native peak shapes.
-
-## Peak competition and FDR
-
-Nearby target and control summits are matched one-to-one within half the analysis mode by default. The higher normalized summit score wins; ties conservatively belong to the control. Unmatched peaks remain target or control wins. Control winners act as decoys when cumulative target FDR is calculated. Target-winning peaks receive monotonic empirical q-values and are retained at `--peak-fdr 0.05` by default.
-
-## Clusters
-
-Significant target-winning peaks are clustered within each contig. A cluster ends after five consecutive nonsignificant candidate peaks or when significant summits are separated by more than 1000 bp. At least two significant peaks are required. Control-winning peaks are clustered with the same rules, and their cluster-score distribution supplies the empirical cluster FDR. The default cluster cutoff is `--cluster-fdr 0.05`.
+For Stage 1 analyses that will later be compared with `chip-compare`, using the same explicit mode is the simplest way to guarantee compatibility.
 
 ## Output layout
 
-- `00_setup/`: mode estimates and normalization QC;
-- `01_score_tracks/`: raw target and control score/positive-score tracks;
-- `02_mean_scaled_tracks/`: score divided by matching positive-score mean;
-- `03_peak_calls/`: independent target and control peak calls;
-- `04_peak_fdr/`: all target peaks with appended empirical FDR, significant peaks, cluster tables and significant clusters.
+A one-condition run writes:
 
-When `--cores` processes more than one contig, the native parallel commands retain per-contig files under `*_multicontig/per_contig` and place their final combined tracks or peak BEDs under `*_multicontig/combined`. `chip-suite` reads each multicontig manifest and automatically continues with those combined outputs. With one core or one selected contig, outputs remain directly under the stage directory.
+- `00_setup/`: mode and normalization reports;
+- `01_score_tracks/`: score, positive-score, and unscaled raw coverage BigWigs;
+- `02_mean_scaled_tracks/`: positive-score-normalized discovery tracks plus replicate and condition-mean coverage scaled to 100;
+- `03_peak_calls/`: treatment candidates, plus control candidates only in legacy condition-mean mode;
+- `04_peak_fdr/`: replicate statistics, annotated/significant peaks, and clusters;
+- `chip_stage1_manifest.json`: reusable Stage 1 metadata and scaled-track paths.
+
+A two-condition run writes the two Stage 1 trees under `01_condition1_stage1/` and `02_condition2_stage1/`, then writes differential peak and cluster tables under `03_condition_comparison/`.
+
+When contigs run in parallel, `chip-suite` follows each native multicontig manifest to its combined BigWig or BED output before continuing.
 
 [Back to the command reference](../COMMAND_REFERENCE.md)

@@ -7,8 +7,8 @@ OUTDIR=${3:?usage: chip_suite.sh TARGET.bam CONTROL.bam OUTDIR [MODE]}
 MODE=${4:-auto}
 
 nucleosuite chip-suite \
-  --target-bam "$TARGET_BAM" \
-  --control-bam "$CONTROL_BAM" \
+  --treatment1-bam "$TARGET_BAM" \
+  --control1-bam "$CONTROL_BAM" \
   --outdir "$OUTDIR" \
   --scoring-method tns \
   --mode "$MODE" \

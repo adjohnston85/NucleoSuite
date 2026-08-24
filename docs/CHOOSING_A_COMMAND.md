@@ -16,7 +16,9 @@ For nucleosome-oriented signal:
 
 For a coordinated analysis with standard defaults, use [`cfdna-suite`](commands/cfdna-suite.md) or [`mnase-suite`](commands/mnase-suite.md).
 
-For a ChIP-seq, CUT&RUN, or CUT&Tag target plus matched control, use [`chip-suite`](commands/chip-suite.md). It defaults to TNS, estimates the target and control fragment modes by bootstrap-stabilized random sampling, scales each score by its matching positive-score mean, and estimates peak and cluster FDR from the control. Supply an integer such as `--mode 167` when the analysis mode is already known.
+For a ChIP-seq, CUT&RUN, or CUT&Tag treatment plus control, use [`chip-suite`](commands/chip-suite.md). It defaults to TNS peak discovery on the average treatment track, estimates fragment modes by bootstrap-stabilized random sampling, and writes raw coverage. Coverage is independently scaled to a non-zero mean of 100. Replicate maxima over each treatment candidate supply an all-treatment versus all-control gate and a one-sided Welch/BH Stage 1 test; control peaks are not required. Replicate groups are independent and may differ in size unless `--bam-mode merged` is selected. Four supplied groups also run a difference-of-differences Stage 2 comparison. Supply an integer such as `--mode 167` when the analysis mode is already known.
+
+Use [`chip-compare`](commands/chip-compare.md) when two conditions already have completed Stage 1 manifests. It compares the saved mean-scaled coverage BigWigs and does not read the BAMs again.
 
 ## I already have nucleosome or other peak calls
 

@@ -1,5 +1,5 @@
 {% set name = "nucleosuite" %}
-{% set version = "0.10.1" %}
+{% set version = "0.10.6" %}
 
 package:
   name: {{ name|lower }}
@@ -74,6 +74,7 @@ test:
     - nucleosuite mnase-suite --help-plotting
     - nucleosuite cfdna-suite --help
     - nucleosuite chip-suite --help
+    - nucleosuite chip-compare --help
     - nucleosuite chrom-sizes --help
     - nucleosuite validate-inputs --help
 

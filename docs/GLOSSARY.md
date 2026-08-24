@@ -46,7 +46,7 @@ Dinucleotide profiles do not split even-length fragments between alternative cen
 
 ## Empirical FDR
 
-An estimate of the fraction of retained discoveries expected under a matched null or decoy process. `pns-peak-fdr` uses peak-score counts from fragment-randomized runs. `chip-suite` uses control-winning peaks and control-derived clusters as decoys. NucleoSuite reports monotonic empirical q-values in the appended `empirical_fdr` field.
+An estimate of the fraction of retained discoveries expected to be false. `pns-peak-fdr` uses peak-score counts from fragment-randomized runs and reports monotonic empirical q-values. Default `chip-suite` Stage 1 uses one-sided Welch p-values from replicate maximum scaled coverage followed by Benjamini-Hochberg correction across all treatment candidates. `chip-compare` applies BH correction to four-group interaction tests. The legacy CHIP condition-mean mode retains the earlier empirical control-decoy calculation.
 
 ## Flanking spacing
 
@@ -70,7 +70,7 @@ Subtraction of a vector's arithmetic mean from every value. PNS, BNS and TNS mea
 
 ## Mode estimation
 
-Estimation of the dominant accepted fragment length used to set the PNS, BNS, or TNS scoring geometry. `chip-suite` samples fragments from indexed genomic blocks, bootstraps a smoothed length histogram until the mode stabilizes, and uses an equal-weight pooled target/control mode by default. An integer `--mode` bypasses estimation.
+Estimation of the dominant accepted fragment length used to set the PNS, BNS, or TNS scoring geometry. `chip-suite` samples fragments from indexed genomic blocks, bootstraps a smoothed length histogram until the mode stabilizes, and uses an equal-weight pooled treatment/control mode by default. An integer `--mode` bypasses estimation.
 
 ## NRL
 

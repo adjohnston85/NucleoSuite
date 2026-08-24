@@ -81,6 +81,7 @@ Analysis commands derive output filenames or prefixes from the primary input bas
 | [`mnase-suite`](docs/commands/mnase-suite.md) | Run the coordinated MNase-seq workflow. |
 | [`cfdna-suite`](docs/commands/cfdna-suite.md) | Run the coordinated cfDNA fragmentomics workflow. |
 | [`chip-suite`](docs/commands/chip-suite.md) | Run matched target-control ChIP-seq/CUT&RUN/CUT&Tag TNS, BNS or PNS analysis. |
+| [`chip-compare`](docs/commands/chip-compare.md) | Compare two completed chip-suite Stage 1 analyses from their scaled coverage BigWigs. |
 | [`combine`](docs/commands/combine.md) | Combine outputs from an existing chromosome-wise run. |
 | [`chrom-sizes`](docs/commands/chrom-sizes.md) | Write chromosome names and lengths from a BAM or CRAM header. |
 | [`resources`](docs/commands/resources.md) | List, locate, validate, or copy bundled resources. |
@@ -107,13 +108,15 @@ A default TNS target/control analysis with automatic bootstrap fragment-mode est
 
 ```bash
 nucleosuite chip-suite \
-  --target-bam target.bam \
-  --control-bam control.bam \
+  --treatment1-bam target.bam \
+  --control1-bam control.bam \
   --outdir target_chip_suite \
   --cores 8
 ```
 
 Use `--mode 167` to bypass mode estimation and apply that exact mode to both samples.
+
+Multiple BAMs are treated as independent biological replicates by default; treatment and control counts may differ, and `--bam-mode merged` pools each group as one logical sample. TNS calls candidates only on the average normalized treatment track. The workflow retains raw coverage and scales every treatment and control coverage track independently to a non-zero mean of 100. A candidate is retained only when every treatment maximum exceeds every control maximum and its one-sided Welch test passes BH FDR. Control peaks are not called in the default mode. Add `--treatment2-bam` and `--control2-bam` to test the four-group interaction $(T_2-C_2)-(T_1-C_1)$, or run [`chip-compare`](docs/commands/chip-compare.md) later from two Stage 1 manifests.
 
 Detailed command behaviour, advanced options, output layouts, resource handling, and workflow examples are documented in the pages linked above and in the guides below.
 

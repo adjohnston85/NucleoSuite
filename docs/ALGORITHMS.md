@@ -14,6 +14,10 @@ BAM-derived fragments are filtered using the selected pairing, alignment, mappin
 
 If a fragment overlaps any selected blacklist base, that complete fragment is excluded before fragment-derived signals or sequence profiles are calculated.
 
+### BigWig missing values and masks
+
+Unless a command-specific section states otherwise, signal comparisons treat missing or non-finite BigWig values as zero while still counting those genomic positions as available comparisons. Blacklisted bases are excluded from both signal calculations and opportunity counts.
+
 ## Probabilistic nucleosome scoring
 
 Probabilistic nucleosome scoring (PNS) converts the boundaries of each accepted nucleosome-protected DNA fragment into a score for the nucleosome dyad: the central position of the nucleosome-bound DNA. In cfDNA, cleavage occurs more readily in exposed DNA than in DNA protected by a nucleosome or chromatosome. Fragment boundaries can therefore be treated as possible nucleosome entry or exit sites and used to predict where the dyad lies.
@@ -63,19 +67,17 @@ p_{167}(83)=\frac{1}{166}.
 
 Let $n(L,m)$ be the number of genomic positions covered by the combined endpoint distribution for a fragment of length $L$ and a selected modal protected-DNA length $m$.
 
-When the fragment length is at least the selected mode, this interval contains $L$ positions:
-
 ```math
-n(L,m)=L\qquad(L\ge m).
+n(L,m)=\max(L,2m-L).
 ```
 
-When the fragment is shorter than the selected mode, the endpoint distributions extend beyond the fragment and together cover $2m-L$ positions:
+For a fragment $[s,e)$, the left and right endpoint triangles occupy $[s,s+m)$ and $[e-m,e)$, respectively. Their combined scoring interval is
 
 ```math
-n(L,m)=2m-L\qquad(L\lt m).
+I_{L,m}=\left[\min(s,e-m),\max(e,s+m)\right).
 ```
 
-For a fragment $[s,e)$, the left-end distribution occupies $[s,s+m)$ and rises inward from $s$. The right-end distribution occupies $[e-m,e)$ and rises inward from $e$. When $L\ge m$, their combined distribution is placed over the fragment interval $[s,e)$. When $L\lt m$, the two distributions extend beyond opposite fragment ends and cover $[e-m,s+m)$, an interval of length $2m-L$ centred on the central base or bases of the fragment.
+Thus, only the short-fragment case extends outside the observed fragment, symmetrically about its centre.
 
 Number the positions in this scoring interval from $j=0$ to $j=n(L,m)-1$. The left fragment end contributes $p_m(j)$. The right fragment end contributes $p_m(n(L,m)-1-j)$, which reverses the triangle so that it rises inward from the right boundary. Adding these contributions gives the endpoint distribution for the fragment:
 
@@ -90,7 +92,7 @@ Because each endpoint contributes 0.5,
 \sum_j u_{m,L}(j)=1.
 ```
 
-When $L=m$, the dyad predicted from the left fragment end and the dyad predicted from the right fragment end coincide. When $L$ differs from $m$ in either direction, the two predicted dyads are separated. For an odd value of $m$, the distance between their maxima is $|L-m|$ bases.
+For odd $m$, the distance between the two endpoint-derived maxima is $|L-m|$ bases.
 
 #### Example PNS distributions
 
@@ -98,9 +100,7 @@ The figure below shows the endpoint-derived distributions for 120 bp, 167 bp, an
 
 ![PNS example distributions](images/pns_kernels_120_167_180_multipanel_single_legend.png)
 
-The x axis is measured from the fragment start, which is 0 bp. Grey shading marks the fragment interval from 0 to $L$ bp. For the 120 bp fragment, the 214 bp scoring support spans the coordinate interval from -47 to 167 bp and therefore extends 47 bp beyond both fragment boundaries.
-
-For the 167 bp fragment, both endpoint-derived dyad distributions coincide. For the 120 bp and 180 bp fragments, their maxima are separated because each fragment length differs from the 167 bp mode. The separation is larger for the 120 bp fragment because its length differs further from the selected mode.
+All nucleosome-score kernel figures below measure the x axis from the fragment start at 0 bp and use grey shading for $[0,L)$. In this figure, the 120 bp fragment has a 214 bp scoring support spanning $[-47,167)$.
 
 ### Mean centring
 
@@ -144,19 +144,7 @@ Because each fragment contributes total mass 1, `posPNS` reports the accumulated
 
 ## Boxcar nucleosome scoring
 
-Boxcar nucleosome scoring (BNS) uses the same accepted fragments and the same scoring support length as PNS, but replaces the two endpoint triangles with one symmetric central boxcar. The uncentred boxcar has total mass 1 and zero outer flanks. Mean centring produces a positive central contribution and negative flanks whose total contribution sums to zero for every fragment.
-
-For fragment length $L$ and modal protected-DNA length $m$, BNS uses the same support length $n(L,m)$ defined above:
-
-```math
-n(L,m)=L\qquad(L\ge m),
-```
-
-and
-
-```math
-n(L,m)=2m-L\qquad(L\lt m).
-```
+Boxcar nucleosome scoring (BNS) uses the same accepted fragments and [support length $n(L,m)$](#combining-the-two-fragment-ends) as PNS, but replaces the two endpoint triangles with one symmetric central boxcar. The uncentred boxcar has total mass 1 and zero outer flanks. Mean centring produces a positive central contribution and negative flanks whose total contribution sums to zero for every fragment.
 
 The ideal centred BNS kernel assigns equal-magnitude positive values to the central half of this support and negative values to the two outer quarters. Because genomic positions are discrete, not every support length divides exactly into four equal blocks. NucleoSuite uses symmetric half-weight or zero transition positions so that the positive and negative contributions remain balanced and the kernel stays centred.
 
@@ -213,25 +201,9 @@ The figure below shows the uncentred unit-mass boxcar and the resulting mean-cen
 
 ![BNS example distributions](images/bns_kernels_120_167_180_mode167.png)
 
-The x axis is measured from the fragment start, and grey shading marks the fragment interval. All three panels use the same x-axis limits so their kernel positions and widths can be compared directly.
-
-BNS kernels are precomputed for every accepted fragment length and reused during genome-wide scoring, just as PNS kernels are.
-
 ## Triangular nucleosome scoring
 
-Triangular nucleosome scoring (TNS) uses the same accepted fragments and the same fragment-length-dependent scoring support as PNS and BNS, but represents each fragment with one symmetric triangle centred on the fragment. The raw triangle has total mass 1 before mean centring.
-
-For fragment length $L$ and modal protected-DNA length $m$, the support length is
-
-```math
-n(L,m)=L\qquad(L\ge m),
-```
-
-and
-
-```math
-n(L,m)=2m-L\qquad(L\lt m).
-```
+Triangular nucleosome scoring (TNS) uses the same accepted fragments and [support length $n(L,m)$](#combining-the-two-fragment-ends) as PNS and BNS, but represents each fragment with one symmetric triangle centred on the fragment. The raw triangle has total mass 1 before mean centring.
 
 A fragment shorter than the mode therefore receives a wider scoring support. For example, with $m=167$ bp, a 137 bp fragment is 30 bp shorter than the mode and uses a 197 bp support. A 197 bp fragment also uses a 197 bp support because it is longer than the mode. The two fragments therefore use the same precomputed TNS kernel shape.
 
@@ -279,15 +251,11 @@ while `posTNS` retains the non-negative unit-mass triangles before mean subtract
 posTNS_m(x)=\sum_i u^{TNS}_{m,L_i}(x).
 ```
 
-TNS kernels are precomputed for every accepted fragment length and reused during genome-wide scoring.
-
 #### Example TNS distributions
 
-The figure below shows the uncentred unit-mass triangle and the resulting mean-centred TNS kernel for 120 bp, 167 bp, and 180 bp fragments using $m=167$ bp. The 120 bp fragment uses a 214 bp support, the 167 bp fragment uses a 167 bp support, and the 180 bp fragment uses a 180 bp support.
+The figure below shows the uncentred unit-mass triangle and the resulting mean-centred TNS kernel for 120 bp, 167 bp, and 180 bp fragments using $m=167$ bp.
 
 ![TNS example distributions](images/tns_kernels_120_167_180_mode167.png)
-
-The x axis is measured from the fragment start, and grey shading marks the fragment interval. All three panels use the same x-axis limits.
 
 ### PNS peak calling
 
@@ -309,7 +277,7 @@ Standalone `pns` uses PNS by default. Select `--scoring-method bns` for BNS or `
 
 ## Bootstrap-stabilized fragment-mode estimation
 
-`chip-suite --mode auto` estimates target and control fragment modes separately. Indexed genomic blocks from the selected analysis contigs are visited in seeded random order. Accepted paired fragments must satisfy the suite fragment-length, duplicate, alignment, and blacklist filters. A histogram is accumulated over the mode-search range, 120–250 bp by default.
+`chip-suite --mode auto` estimates each treatment and control group separately. Indexed genomic blocks from the selected analysis contigs are visited in seeded random order. Accepted paired fragments must satisfy the suite fragment-length, duplicate, alignment, and blacklist filters. A histogram is accumulated over the mode-search range, 120–250 bp by default.
 
 The histogram is lightly smoothed with normalized weights proportional to `1, 4, 6, 4, 1`. The point estimate is the integer length with the largest smoothed count. At each checkpoint, multinomial bootstrap samples are drawn from the current empirical length distribution and the smoothed mode is recalculated. Sampling stops when the recent point modes differ by no more than the selected tolerance and the bootstrap 95% interval is sufficiently narrow, or when the maximum sample size is reached.
 
@@ -319,7 +287,7 @@ The default pooled strategy normalizes the target and control histograms separat
 p_{pool}(L)=\frac{1}{2}\left(\frac{n_T(L)}{\sum_j n_T(j)}+\frac{n_C(L)}{\sum_j n_C(j)}\right).
 ```
 
-This prevents a deeper library from determining the shared mode solely through read count. `--mode INT` bypasses sampling and uses the supplied integer exactly for both tracks.
+This prevents a deeper library from determining the shared mode solely through read count. With two conditions, corresponding group estimates are pooled so both conditions use compatible scoring geometry. `--mode INT` bypasses sampling and uses the supplied integer exactly.
 
 ## Positive-score mean normalization
 
@@ -331,6 +299,14 @@ Z_{scaled}(x)=\frac{Z(x)}{\mathrm{mean}\!\left(Z^+(x)\right)}.
 
 TNS uses `posTNS`, BNS uses `posBNS`, and PNS uses `posPNS`. Target and control are normalized independently. No control subtraction is performed; both normalized tracks retain their peak structure and are called separately.
 
+Peak strength is then measured from coverage, not from the discovery-score height. Treatment and control coverage are independently scaled to a finite non-zero mean of 100:
+
+```math
+Cov_{100}(x)=100\frac{Cov(x)}{\mathrm{mean}(Cov(x)\mid Cov(x)>0)}.
+```
+
+The raw coverage BigWigs are retained separately.
+
 ## Empirical peak FDR
 
 Let $S(s)$ be the number of observed peaks with score at least $s$, and let $R_b(s)$ be the corresponding count in randomized callset $b$. With $B$ randomized callsets, `pns-peak-fdr` estimates:
@@ -341,9 +317,19 @@ Let $S(s)$ be the number of observed peaks with score at least $s$, and let $R_b
 
 The pseudocount prevents a zero estimate above every randomized peak. Scores are evaluated at the distinct observed thresholds. Each observed peak receives the smallest estimated FDR among thresholds that retain that peak, producing a monotonic empirical q-value. Coordinates are not matched because coordinate-randomized peaks define a positional null distribution.
 
-In `chip-suite`, nearby target and control summits are first matched one-to-one. The higher normalized score wins, with ties assigned to the control. Unmatched peaks remain winners for their source. Control winners then replace randomized peaks as the empirical decoy distribution in the same cumulative calculation.
+In default `chip-suite` Stage 1, TNS defines candidate peak intervals from the average normalized treatment TNS track. Control peaks are not called. Coverage is independently scaled to a non-zero mean of 100 in every replicate. For treatment replicate $i$, control replicate $j$, and treatment peak interval $R$, define
 
-Significant target winners are clustered within contigs. A cluster ends after the configured number of consecutive nonsignificant calls or when successive significant summits exceed the maximum gap. The cluster score is the sum of each member's score excess above the significant-peak threshold. Control winners are clustered with identical rules, and their cluster scores supply the cluster-level empirical FDR.
+```math
+T_i(R)=\max_{x\in R}Cov_{100,T_i}(x),
+\qquad
+C_j(R)=\max_{x\in R}Cov_{100,C_j}(x).
+```
+
+The all-controls gate retains a target candidate only if $\min_i T_i(R)>\max_j C_j(R)$. This is equivalent to requiring every treatment replicate to exceed every control replicate, without input-order pairing. A one-sided Welch test of treatment versus control maxima is calculated for every treatment candidate when both groups contain at least two replicates. Benjamini-Hochberg correction is applied across all treatment candidates before the gate and FDR cutoff are jointly applied. The compatibility mode `--stage1-control-mode condition-mean` retains the earlier control-peak empirical-decoy analysis.
+
+Significant target peaks are clustered within contigs. A cluster ends after the configured number of consecutive nonsignificant calls or when successive significant summits exceed the maximum gap. The cluster score is the sum of member conservative excesses, and `maximum_member_fdr` is used as a conservative cluster annotation and cutoff.
+
+For Stage 2, `chip-compare` forms the union of significant Stage 1 features from both conditions and measures all replicate-scaled coverage tracks over common intervals. Overlapping peaks use their coordinate union; condition-specific peaks retain their interval and are still measured in the other condition. Each interval records `region_origin` as `overlap_union`, `proximity_union`, `condition1_only`, or `condition2_only`. Peaks use maximum coverage and clusters use positive coverage area. Four independent replicate groups are retained, and the tested interaction is $\Delta=(\bar T_2-\bar C_2)-(\bar T_1-\bar C_1)$. A Welch-style standard error is $\sqrt{s^2_{T1}/n_{T1}+s^2_{C1}/n_{C1}+s^2_{T2}/n_{T2}+s^2_{C2}/n_{C2}}$, with Satterthwaite degrees of freedom. BH correction is applied across regions. Fewer than two replicates in any group produces descriptive effects without inferential FDR.
 
 ## Windowed protection score
 
@@ -379,27 +365,7 @@ For a fragment of length $L_i\ge k$, the single-fragment kernel therefore has a 
 L_i-k+1.
 ```
 
-For example, with a 120 bp protection window:
-
-```math
-120-120+1=1,
-```
-
-so a 120 bp fragment has one central +1 position.
-
-A 167 bp fragment has
-
-```math
-167-120+1=48
-```
-
-positive positions, and a 180 bp fragment has
-
-```math
-180-120+1=61
-```
-
-positive positions.
+With the default 120 bp window, fragments of 120, 167, and 180 bp therefore have 1, 48, and 61 positive positions, respectively.
 
 If $L_i<k$, no complete $k$-base protection window fits inside the fragment, so the effective kernel contains only negative contributions.
 
@@ -568,11 +534,7 @@ The left-end track adds 1 at $l_i$, the right-end track adds 1 at $r_i$, and the
 
 ### Dinucleotide profiles
 
-Dinucleotide profiles align fragments by their right-hand central base:
-
-```math
-d_i=s_i+\left\lfloor\frac{L_i}{2}\right\rfloor.
-```
+Dinucleotide profiles align fragments by the right-hand central coordinate $d_i$ [defined for the dyad track](#dyads).
 
 If a dinucleotide begins at sequence index $a$ within the fragment, its relative coordinate is
 
@@ -635,13 +597,7 @@ When contig-level results are combined, type percentages are recalculated from t
 
 ### Fragment-length counts
 
-Fragment length is
-
-```math
-L_i=e_i-s_i.
-```
-
-`fragment-lengths` counts how many accepted fragments occur at each integer length.
+`fragment-lengths` counts how many accepted fragments occur at each integer [fragment length $L_i$](#fragment-coordinates-and-filtering).
 
 When regions are supplied, a fragment is assigned using its midpoint
 
@@ -927,7 +883,7 @@ DAC_{per\ million}(d)=\frac{DAC_{raw}(d)}{T^2}\times10^6.
 
 Sparse calculation enumerates non-zero signal pairs directly. FFT calculation evaluates the same autocorrelation from dense arrays. `--algorithm auto` chooses between them from signal density.
 
-Missing or non-finite BigWig values are treated as zero signal but are still included when counting the genomic positions available for comparison. Blacklisted bases are excluded entirely from both the signal calculation and the number of available comparisons.
+BigWig inputs follow the [shared missing-value and blacklist convention](#bigwig-missing-values-and-masks).
 
 When chromosome-level DAC results are combined, raw DAC and opportunities are summed first. Normalized DAC, percentages, and depth-scaled values are then recalculated from those combined quantities.
 
@@ -989,7 +945,7 @@ DCC_{raw}(\ell)=\sum_rDCC_r(\ell).
 
 In BigWig mode, all A BigWigs are first added base-by-base within a region to form one A signal, and all B BigWigs are added in the same way to form one B signal. DCC is then calculated between those two combined signals. Because the signals are combined before multiplication, multiple A or B tracks can contribute cross-terms.
 
-Missing or non-finite BigWig values are treated as zero signal but are still included when counting the genomic positions available for comparison. Blacklisted bases are excluded entirely from both the signal calculation and the number of available comparisons.
+BigWig inputs follow the [shared missing-value and blacklist convention](#bigwig-missing-values-and-masks).
 
 ### Correct for the number of possible pairs
 
@@ -1079,16 +1035,8 @@ R=160\ \mathrm{bp}.
 
 The same resolution determines two smoothing widths. Before smoothing, each requested width is rounded downward to the permitted series 11, 21, 31, 41, 51 bp, and so on. A value below 11 bp means no smoothing. Define
 
-For values below 11 bp,
-
 ```math
-Q(t)=1,\qquad t<11.
-```
-
-For values of at least 11 bp,
-
-```math
-Q(t)=10\left\lfloor\frac{t-1}{10}\right\rfloor+1,\qquad t\ge 11.
+Q(t)=10\left\lfloor\frac{\max(t-1,0)}{10}\right\rfloor+1.
 ```
 
 Here $Q=1$ represents no smoothing. The broad detection window is

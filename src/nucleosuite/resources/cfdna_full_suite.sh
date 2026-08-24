@@ -942,6 +942,7 @@ PY
     fi
     BLACKLIST_ARGS=()
     [[ -n "$BLACKLIST_BED" ]] && BLACKLIST_ARGS=(--blacklist-bed "$BLACKLIST_BED")
+    return 0
 }
 resolve_effective_blacklist
 {

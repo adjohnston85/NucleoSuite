@@ -91,17 +91,16 @@ nucleosuite distances sample_methodpns_mode167_lower137_upper197_smooth0x2_nucle
 
 ```mermaid
 flowchart TB
-    A[Target BAM] --> C[chip-suite]
-    B[Control BAM] --> C
-    C --> D[Bootstrap fragment modes]
-    D --> E[TNS, BNS, or PNS tracks]
-    E --> F[Positive-score mean scaling]
-    F --> G[Independent peak calls]
-    G --> H[Peak competition and FDR]
-    H --> I[Cluster FDR]
+    A[Condition 1 treatment/control BAMs] --> B[chip-suite Stage 1]
+    B --> C[Scaled BigWigs and significant features]
+    D[Condition 2 treatment/control BAMs] --> E[chip-suite Stage 1]
+    E --> F[Scaled BigWigs and significant features]
+    C --> G[chip-compare Stage 2]
+    F --> G
+    G --> H[Differential peaks and clusters]
 ```
 
-[`chip-suite`](commands/chip-suite.md) defaults to TNS and 120–500 bp fragments. Target and control tracks are divided by their respective mean `posTNS` values; the control is not subtracted. An explicit mode bypasses automatic mode estimation:
+[`chip-suite`](commands/chip-suite.md) defaults to TNS and 120–500 bp fragments. Each score track is divided by its own mean `posTNS`; treatment tracks are then averaged for peak discovery. Default Stage 1 does not call control peaks. Raw coverage BigWigs are retained, and separate coverage BigWigs are scaled to a non-zero mean of 100 for peak measurement. At each treatment candidate, every replicate maximum is retained, every treatment must exceed every control, and a one-sided Welch test receives BH correction across all candidates. Treatment and control groups are independent and may differ in size; `--bam-mode merged` pools each group. An explicit mode bypasses automatic mode estimation:
 
 ```bash
 nucleosuite chip-suite \
@@ -109,6 +108,15 @@ nucleosuite chip-suite \
   --control-bam control.bam \
   --outdir target_chip_suite \
   --mode 167
+```
+
+Provide all four treatment/control groups to run both stages together. Alternatively, run each Stage 1 independently and compare its manifest later:
+
+```bash
+nucleosuite chip-compare \
+  --condition1-results wild_type_stage1 \
+  --condition2-results mutant_stage1 \
+  --outdir mutant_vs_wild_type
 ```
 
 ## MNase-seq: from protected fragments to nucleosome organization

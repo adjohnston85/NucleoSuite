@@ -1119,7 +1119,7 @@ queue_memory_step() {
 
 run_step "00_cli_registry" "$SETUP_DIR/${SUPPORT_PREFIX}nucleosuite_version.txt" bash -c '
 set -euo pipefail; bin="$1"; out="$2"; "$bin" --version | tee "$out"
-for cmd in tracks pns coverage dyads fragment-ends dinuc-profile ww-types call-peaks pns-peak-fdr fragments randomize-fragments merge-bams fragment-lengths fragment-heatmap gene-sets gene-expression tss-expression-quintiles aggregate dac nrl plot positive-runs peak-score-frequency distances region-extract resources validate-inputs mnase-suite chip-suite; do "$bin" "$cmd" --help >/dev/null; done
+for cmd in tracks pns coverage dyads fragment-ends dinuc-profile ww-types call-peaks pns-peak-fdr fragments randomize-fragments merge-bams fragment-lengths fragment-heatmap gene-sets gene-expression tss-expression-quintiles aggregate dac nrl plot positive-runs peak-score-frequency distances region-extract resources validate-inputs mnase-suite chip-suite chip-compare; do "$bin" "$cmd" --help >/dev/null; done
 ' _ "$NUCLEOSUITE_BIN" "$SETUP_DIR/${SUPPORT_PREFIX}nucleosuite_version.txt"
 
 run_step "00_python_dependencies" "$SETUP_DIR/${SUPPORT_PREFIX}python_dependencies.txt" "$PYTHON_BIN" - "$SETUP_DIR/${SUPPORT_PREFIX}python_dependencies.txt" <<'PY'
@@ -1296,6 +1296,7 @@ PY
     fi
     BLACKLIST_ARGS=()
     [[ -n "$BLACKLIST_BED" ]] && BLACKLIST_ARGS=(--blacklist-bed "$BLACKLIST_BED")
+    return 0
 }
 resolve_effective_blacklist
 {

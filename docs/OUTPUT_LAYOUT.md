@@ -89,11 +89,14 @@ If the suite is not using the multicontig wrapper layout, the same directory is 
 
 ```text
 00_setup/                 fragment-mode and score-scaling reports
-01_score_tracks/          target/control TNS, BNS, or PNS plus positive tracks
-02_mean_scaled_tracks/    centred score divided by matching positive-score mean
-03_peak_calls/            independently called target and control peaks
-04_peak_fdr/              annotated/significant peaks and cluster FDR outputs
+01_score_tracks/          target/control score, positive-score, and raw coverage tracks
+02_mean_scaled_tracks/    discovery-score normalization and coverage scaled to mean 100
+03_peak_calls/            treatment candidates; legacy mode may also call control peaks
+04_peak_fdr/              replicate statistics, annotated/significant peaks and clusters
 <sample>_chip_suite_summary.tsv
+chip_stage1_manifest.json
 ```
 
-An explicit `--mode` is recorded in the setup report with `mode_source=explicit`; automatic runs retain separate target/control estimates and the pooled estimate used by default.
+With biological replicates, `01_score_tracks/` and `02_mean_scaled_tracks/` retain replicate-specific outputs. The latter also contains condition-mean score tracks; only the mean treatment score track supplies default Stage 1 candidates. Replicate-specific scaled coverage supplies the all-treatment versus all-control gate and Welch/BH statistics, while condition-mean treatment coverage supplies the reported peak score. An explicit `--mode` is recorded with `mode_source=explicit`; automatic runs retain treatment, control, and pooled estimates.
+
+A four-group run places the two layouts under `01_condition1_stage1/` and `02_condition2_stage1/`. `03_condition_comparison/` contains differential peak and cluster tables, directional BEDs, and `chip_comparison_manifest.json`. The standalone `chip-compare` command writes the same Stage 2 layout from two existing Stage 1 manifests.

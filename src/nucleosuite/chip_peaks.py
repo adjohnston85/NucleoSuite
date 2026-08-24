@@ -9,7 +9,9 @@ from pathlib import Path
 from typing import Sequence
 
 import numpy as np
+from scipy.stats import ttest_ind
 
+from nucleosuite.bigwig_ops import interval_max, open_bigwigs
 from nucleosuite.peak_fdr import PeakRow, _read_peak_rows, empirical_peak_qvalues
 
 
@@ -23,6 +25,10 @@ class CompetitivePeak:
     source: str
     winner: bool = False
     matched_score: float = 0.0
+    signal_score: float | None = None
+    competition_score: float | None = None
+    treatment_replicate_scores: tuple[float, ...] = ()
+    control_replicate_scores: tuple[float, ...] = ()
     qvalue: float = 1.0
 
 
@@ -36,6 +42,22 @@ class PeakCluster:
     summit: int
     max_peak_score: float
     qvalue: float = 1.0
+
+
+@dataclass(frozen=True)
+class ReplicatePeakStatistics:
+    peak: CompetitivePeak
+    treatment_scores: tuple[float, ...]
+    control_scores: tuple[float, ...]
+    treatment_mean: float
+    control_mean: float
+    mean_difference: float
+    minimum_treatment: float
+    maximum_control: float
+    conservative_excess: float
+    all_controls_gate: bool
+    pvalue: float
+    qvalue: float = math.nan
 
 
 def _to_competitive(
@@ -116,7 +138,15 @@ def compete_peaks(
     for index, peak in enumerate(target):
         match = target_matches.get(index)
         if match is None:
-            updated_target.append(replace(peak, winner=True, matched_score=0.0))
+            updated_target.append(
+                replace(
+                    peak,
+                    winner=True,
+                    matched_score=0.0,
+                    signal_score=peak.row.score,
+                    competition_score=peak.row.score,
+                )
+            )
             continue
         other = control[match]
         updated_target.append(
@@ -124,13 +154,23 @@ def compete_peaks(
                 peak,
                 winner=peak.row.score > other.row.score,
                 matched_score=other.row.score,
+                signal_score=peak.row.score,
+                competition_score=max(peak.row.score - other.row.score, 0.0),
             )
         )
     updated_control: list[CompetitivePeak] = []
     for index, peak in enumerate(control):
         match = control_matches.get(index)
         if match is None:
-            updated_control.append(replace(peak, winner=True, matched_score=0.0))
+            updated_control.append(
+                replace(
+                    peak,
+                    winner=True,
+                    matched_score=0.0,
+                    signal_score=peak.row.score,
+                    competition_score=peak.row.score,
+                )
+            )
             continue
         other = target[match]
         # Ties conservatively belong to the control.
@@ -139,9 +179,182 @@ def compete_peaks(
                 peak,
                 winner=peak.row.score >= other.row.score,
                 matched_score=other.row.score,
+                signal_score=peak.row.score,
+                competition_score=max(peak.row.score - other.row.score, 0.0),
             )
         )
     return updated_target, updated_control
+
+
+def compete_peaks_with_bigwigs(
+    target_rows: Sequence[PeakRow],
+    control_rows: Sequence[PeakRow],
+    *,
+    target_bigwig: str | Path,
+    control_bigwig: str | Path,
+    summit_column: int = 7,
+) -> tuple[list[CompetitivePeak], list[CompetitivePeak]]:
+    """Compare both mean-scaled coverage tracks in each candidate interval.
+
+    Target candidates use the maximum target and control values in the target
+    peak interval. Control candidates use the reciprocal comparison in the
+    control peak interval. This avoids treating the absence of a separately
+    called overlapping control peak as zero control signal.
+    """
+
+    target = _to_competitive(target_rows, "target", summit_column)
+    control = _to_competitive(control_rows, "control", summit_column)
+    target_handle, control_handle = open_bigwigs([target_bigwig, control_bigwig])
+    try:
+        updated_target: list[CompetitivePeak] = []
+        for peak in target:
+            target_score = max(
+                interval_max(target_handle, peak.chrom, peak.start, peak.end), 0.0
+            )
+            control_score = max(
+                interval_max(control_handle, peak.chrom, peak.start, peak.end), 0.0
+            )
+            updated_target.append(
+                replace(
+                    peak,
+                    winner=target_score > control_score,
+                    matched_score=control_score,
+                    signal_score=target_score,
+                    competition_score=max(target_score - control_score, 0.0),
+                )
+            )
+
+        updated_control: list[CompetitivePeak] = []
+        for peak in control:
+            target_score = max(
+                interval_max(target_handle, peak.chrom, peak.start, peak.end), 0.0
+            )
+            control_score = max(
+                interval_max(control_handle, peak.chrom, peak.start, peak.end), 0.0
+            )
+            updated_control.append(
+                replace(
+                    peak,
+                    winner=control_score >= target_score,
+                    matched_score=target_score,
+                    signal_score=control_score,
+                    competition_score=max(control_score - target_score, 0.0),
+                )
+            )
+        return updated_target, updated_control
+    finally:
+        target_handle.close()
+        control_handle.close()
+
+
+def compete_peaks_all_controls(
+    target_rows: Sequence[PeakRow],
+    control_rows: Sequence[PeakRow],
+    *,
+    target_bigwigs: Sequence[str | Path],
+    control_bigwigs: Sequence[str | Path],
+    target_mean_bigwig: str | Path,
+    control_mean_bigwig: str | Path,
+    summit_column: int = 7,
+) -> tuple[list[CompetitivePeak], list[CompetitivePeak]]:
+    """Require every treatment replicate to exceed every control replicate.
+
+    Replicate maxima are measured over the candidate coordinates.  Therefore a
+    target candidate wins exactly when the minimum treatment-replicate maximum
+    is greater than the maximum control-replicate maximum.  Control candidates
+    are evaluated reciprocally to provide empirical decoys.  The condition-mean
+    coverage maximum remains the reported BED score.
+    """
+
+    if not target_bigwigs or not control_bigwigs:
+        raise ValueError("All-controls competition requires treatment and control tracks")
+    target = _to_competitive(target_rows, "target", summit_column)
+    control = _to_competitive(control_rows, "control", summit_column)
+    paths = [
+        *target_bigwigs,
+        *control_bigwigs,
+        target_mean_bigwig,
+        control_mean_bigwig,
+    ]
+    handles = open_bigwigs(paths)
+    target_handles = handles[: len(target_bigwigs)]
+    control_handles = handles[
+        len(target_bigwigs) : len(target_bigwigs) + len(control_bigwigs)
+    ]
+    target_mean_handle = handles[-2]
+    control_mean_handle = handles[-1]
+
+    def maxima(peak: CompetitivePeak) -> tuple[tuple[float, ...], tuple[float, ...]]:
+        treatment_scores = tuple(
+            max(interval_max(handle, peak.chrom, peak.start, peak.end), 0.0)
+            for handle in target_handles
+        )
+        control_scores = tuple(
+            max(interval_max(handle, peak.chrom, peak.start, peak.end), 0.0)
+            for handle in control_handles
+        )
+        return treatment_scores, control_scores
+
+    try:
+        updated_target: list[CompetitivePeak] = []
+        for peak in target:
+            treatment_scores, control_scores = maxima(peak)
+            minimum_treatment = min(treatment_scores)
+            maximum_control = max(control_scores)
+            updated_target.append(
+                replace(
+                    peak,
+                    winner=minimum_treatment > maximum_control,
+                    matched_score=maximum_control,
+                    signal_score=max(
+                        interval_max(
+                            target_mean_handle, peak.chrom, peak.start, peak.end
+                        ),
+                        0.0,
+                    ),
+                    competition_score=max(minimum_treatment - maximum_control, 0.0),
+                    treatment_replicate_scores=treatment_scores,
+                    control_replicate_scores=control_scores,
+                )
+            )
+
+        updated_control: list[CompetitivePeak] = []
+        for peak in control:
+            treatment_scores, control_scores = maxima(peak)
+            maximum_treatment = max(treatment_scores)
+            minimum_control = min(control_scores)
+            updated_control.append(
+                replace(
+                    peak,
+                    winner=minimum_control >= maximum_treatment,
+                    matched_score=maximum_treatment,
+                    signal_score=max(
+                        interval_max(
+                            control_mean_handle, peak.chrom, peak.start, peak.end
+                        ),
+                        0.0,
+                    ),
+                    competition_score=max(minimum_control - maximum_treatment, 0.0),
+                    treatment_replicate_scores=treatment_scores,
+                    control_replicate_scores=control_scores,
+                )
+            )
+        return updated_target, updated_control
+    finally:
+        for handle in handles:
+            handle.close()
+
+
+def _competition_score(peak: CompetitivePeak) -> float:
+    return (
+        peak.row.score
+        if peak.competition_score is None
+        else float(peak.competition_score)
+    )
+
+
+def _signal_score(peak: CompetitivePeak) -> float:
+    return peak.row.score if peak.signal_score is None else float(peak.signal_score)
 
 
 def assign_competition_qvalues(
@@ -150,17 +363,19 @@ def assign_competition_qvalues(
     """Assign target-decoy q-values to target-winning peaks."""
 
     target_indices = [index for index, peak in enumerate(target) if peak.winner]
-    control_scores = [peak.row.score for peak in control if peak.winner]
+    control_scores = [_competition_score(peak) for peak in control if peak.winner]
     if not target_indices:
         return list(target), None
     qvalues, _sample_counts, _control_counts = empirical_peak_qvalues(
-        [target[index].row.score for index in target_indices],
+        [_competition_score(target[index]) for index in target_indices],
         [control_scores],
     )
     output = list(target)
     for index, qvalue in zip(target_indices, qvalues):
         output[index] = replace(output[index], qvalue=float(qvalue))
-    return output, min((output[index].row.score for index in target_indices), default=None)
+    return output, min(
+        (_competition_score(output[index]) for index in target_indices), default=None
+    )
 
 
 def cluster_peaks(
@@ -183,16 +398,22 @@ def cluster_peaks(
     current_chrom: str | None = None
 
     def is_significant(peak: CompetitivePeak) -> bool:
-        if not peak.winner or peak.row.score < significance_score:
+        if not peak.winner or _competition_score(peak) < significance_score:
             return False
         return require_qvalue is None or peak.qvalue <= require_qvalue
 
     def finish() -> None:
         nonlocal current_significant, nonsignificant_run
         if len(current_significant) >= minimum_significant_peaks:
-            best = max(current_significant, key=lambda peak: (peak.row.score, -peak.summit))
+            best = max(
+                current_significant,
+                key=lambda peak: (_competition_score(peak), -peak.summit),
+            )
             score = float(
-                sum(max(peak.row.score - significance_score, 0.0) for peak in current_significant)
+                sum(
+                    max(_competition_score(peak) - significance_score, 0.0)
+                    for peak in current_significant
+                )
             )
             clusters.append(
                 PeakCluster(
@@ -202,7 +423,7 @@ def cluster_peaks(
                     significant_peaks=tuple(current_significant),
                     score=score,
                     summit=best.summit,
-                    max_peak_score=best.row.score,
+                    max_peak_score=max(_signal_score(peak) for peak in current_significant),
                 )
             )
         current_significant = []
@@ -257,6 +478,11 @@ def analyze_chip_peaks(
     cluster_break: int = 5,
     max_cluster_gap: int = 1000,
     minimum_significant_peaks: int = 2,
+    target_bigwig: str | Path | None = None,
+    control_bigwig: str | Path | None = None,
+    target_replicate_bigwigs: Sequence[str | Path] | None = None,
+    control_replicate_bigwigs: Sequence[str | Path] | None = None,
+    control_mode: str = "condition-mean",
 ) -> dict[str, Path]:
     """Run competition, peak FDR and cluster FDR and write BED/TSV outputs."""
 
@@ -265,27 +491,78 @@ def analyze_chip_peaks(
             raise ValueError(f"{name} must be between 0 and 1")
     target_rows = _read_peak_rows(target_path, score_column, allow_empty=True)
     control_rows = _read_peak_rows(control_path, score_column, allow_empty=True)
-    target, control = compete_peaks(
-        target_rows, control_rows,
-        match_distance=match_distance,
-        summit_column=summit_column,
-    )
+    if control_mode not in {"all-controls", "condition-mean"}:
+        raise ValueError("control_mode must be all-controls or condition-mean")
+    if (target_bigwig is None) != (control_bigwig is None):
+        raise ValueError("target_bigwig and control_bigwig must be supplied together")
+    if control_mode == "all-controls":
+        if target_bigwig is None or control_bigwig is None:
+            raise ValueError("all-controls mode requires condition-mean BigWigs")
+        if not target_replicate_bigwigs or not control_replicate_bigwigs:
+            raise ValueError("all-controls mode requires replicate BigWigs")
+        target, control = compete_peaks_all_controls(
+            target_rows,
+            control_rows,
+            target_bigwigs=target_replicate_bigwigs,
+            control_bigwigs=control_replicate_bigwigs,
+            target_mean_bigwig=target_bigwig,
+            control_mean_bigwig=control_bigwig,
+            summit_column=summit_column,
+        )
+    elif target_bigwig is not None and control_bigwig is not None:
+        target, control = compete_peaks_with_bigwigs(
+            target_rows,
+            control_rows,
+            target_bigwig=target_bigwig,
+            control_bigwig=control_bigwig,
+            summit_column=summit_column,
+        )
+    else:
+        target, control = compete_peaks(
+            target_rows, control_rows,
+            match_distance=match_distance,
+            summit_column=summit_column,
+        )
     target, _ = assign_competition_qvalues(target, control)
     passing = [peak for peak in target if peak.winner and peak.qvalue <= peak_fdr]
-    threshold = min((peak.row.score for peak in passing), default=math.inf)
+    threshold = min((_competition_score(peak) for peak in passing), default=math.inf)
 
     directory = Path(output_dir)
     directory.mkdir(parents=True, exist_ok=True)
     annotated = directory / "target_peaks_empirical_fdr.bed"
     significant = directory / f"target_peaks_fdr{peak_fdr:g}_significant.bed"
+    competition_table = directory / "target_control_interval_competition.tsv"
     with annotated.open("wt", encoding="utf-8") as all_handle, significant.open(
         "wt", encoding="utf-8"
     ) as sig_handle:
         for peak in sorted(target, key=lambda value: (value.chrom, value.start, value.end)):
-            text = "\t".join((*peak.row.fields, f"{peak.qvalue:.12g}")) + "\n"
+            fields = list(peak.row.fields)
+            fields[score_column - 1] = f"{_signal_score(peak):.12g}"
+            text = "\t".join((*fields, f"{peak.qvalue:.12g}")) + "\n"
             all_handle.write(text)
             if peak.winner and peak.qvalue <= peak_fdr:
                 sig_handle.write(text)
+    with competition_table.open("wt", encoding="utf-8") as handle:
+        handle.write(
+            "source\tchromosome\tstart\tend\tsummit\tdiscovery_score\t"
+            "scaled_coverage_max\t"
+            "other_track_interval_max\tlocal_excess\twinner\tempirical_fdr\t"
+            "treatment_replicate_maxima\tcontrol_replicate_maxima\n"
+        )
+        for peak in [*target, *control]:
+            treatment_scores = ";".join(
+                f"{value:.12g}" for value in peak.treatment_replicate_scores
+            )
+            control_scores = ";".join(
+                f"{value:.12g}" for value in peak.control_replicate_scores
+            )
+            handle.write(
+                f"{peak.source}\t{peak.chrom}\t{peak.start}\t{peak.end}\t"
+                f"{peak.summit}\t{peak.row.score:.12g}\t{_signal_score(peak):.12g}\t"
+                f"{peak.matched_score:.12g}\t"
+                f"{_competition_score(peak):.12g}\t{str(peak.winner).lower()}\t"
+                f"{peak.qvalue:.12g}\t{treatment_scores}\t{control_scores}\n"
+            )
 
     target_clusters: list[PeakCluster] = []
     control_clusters: list[PeakCluster] = []
@@ -333,6 +610,237 @@ def analyze_chip_peaks(
     return {
         "annotated_peaks": annotated,
         "significant_peaks": significant,
+        "competition_table": competition_table,
+        "cluster_table": cluster_table,
+        "significant_clusters": significant_clusters,
+    }
+
+
+def _one_sided_welch_greater(
+    treatment: Sequence[float], control: Sequence[float]
+) -> float:
+    """Test whether the treatment mean exceeds the control mean."""
+
+    if len(treatment) < 2 or len(control) < 2:
+        return math.nan
+    treatment_variance = float(np.var(treatment, ddof=1))
+    control_variance = float(np.var(control, ddof=1))
+    treatment_mean = float(np.mean(treatment))
+    control_mean = float(np.mean(control))
+    if treatment_variance == 0 and control_variance == 0:
+        return 0.0 if treatment_mean > control_mean else 1.0
+    result = ttest_ind(
+        treatment,
+        control,
+        equal_var=False,
+        nan_policy="omit",
+        alternative="greater",
+    )
+    value = float(result.pvalue)
+    return value if math.isfinite(value) else 1.0
+
+
+def _bh_qvalues(pvalues: Sequence[float]) -> list[float]:
+    qvalues = [math.nan] * len(pvalues)
+    finite = [(index, value) for index, value in enumerate(pvalues) if math.isfinite(value)]
+    if not finite:
+        return qvalues
+    ordered = sorted(finite, key=lambda item: item[1])
+    running = 1.0
+    total = len(ordered)
+    for rank in range(total, 0, -1):
+        index, pvalue = ordered[rank - 1]
+        running = min(running, max(0.0, min(1.0, pvalue * total / rank)))
+        qvalues[index] = running
+    return qvalues
+
+
+def _format_optional(value: float) -> str:
+    return "." if not math.isfinite(value) else f"{value:.12g}"
+
+
+def analyze_chip_replicate_peaks(
+    target_path: str | Path,
+    *,
+    output_dir: str | Path,
+    target_replicate_bigwigs: Sequence[str | Path],
+    control_replicate_bigwigs: Sequence[str | Path],
+    target_mean_bigwig: str | Path,
+    score_column: int = 5,
+    summit_column: int = 7,
+    peak_fdr: float = 0.05,
+    cluster_fdr: float = 0.05,
+    cluster_break: int = 5,
+    max_cluster_gap: int = 1000,
+    minimum_significant_peaks: int = 2,
+) -> dict[str, Path]:
+    """Test treatment-defined candidates from replicate scaled coverage.
+
+    No control peaks are called.  Each treatment candidate is measured in all
+    treatment and control tracks.  The all-controls gate requires the minimum
+    treatment maximum to exceed the maximum control maximum.  One-sided Welch
+    p-values are calculated for every candidate before BH correction.
+    """
+
+    for name, value in (("peak_fdr", peak_fdr), ("cluster_fdr", cluster_fdr)):
+        if not math.isfinite(value) or not 0 <= value <= 1:
+            raise ValueError(f"{name} must be between 0 and 1")
+    if not target_replicate_bigwigs or not control_replicate_bigwigs:
+        raise ValueError("Treatment and control replicate BigWigs are required")
+
+    target_rows = _read_peak_rows(target_path, score_column, allow_empty=True)
+    peaks = _to_competitive(target_rows, "target", summit_column)
+    paths = [*target_replicate_bigwigs, *control_replicate_bigwigs, target_mean_bigwig]
+    handles = open_bigwigs(paths)
+    treatment_handles = handles[: len(target_replicate_bigwigs)]
+    control_handles = handles[
+        len(target_replicate_bigwigs) :
+        len(target_replicate_bigwigs) + len(control_replicate_bigwigs)
+    ]
+    mean_handle = handles[-1]
+    statistics: list[ReplicatePeakStatistics] = []
+    try:
+        for peak in peaks:
+            treatment_scores = tuple(
+                max(interval_max(handle, peak.chrom, peak.start, peak.end), 0.0)
+                for handle in treatment_handles
+            )
+            control_scores = tuple(
+                max(interval_max(handle, peak.chrom, peak.start, peak.end), 0.0)
+                for handle in control_handles
+            )
+            treatment_mean = float(np.mean(treatment_scores))
+            control_mean = float(np.mean(control_scores))
+            minimum_treatment = min(treatment_scores)
+            maximum_control = max(control_scores)
+            excess = max(minimum_treatment - maximum_control, 0.0)
+            gate = minimum_treatment > maximum_control
+            mean_score = max(
+                interval_max(mean_handle, peak.chrom, peak.start, peak.end), 0.0
+            )
+            measured_peak = replace(
+                peak,
+                winner=gate,
+                matched_score=maximum_control,
+                signal_score=mean_score,
+                competition_score=excess,
+                treatment_replicate_scores=treatment_scores,
+                control_replicate_scores=control_scores,
+            )
+            statistics.append(
+                ReplicatePeakStatistics(
+                    peak=measured_peak,
+                    treatment_scores=treatment_scores,
+                    control_scores=control_scores,
+                    treatment_mean=treatment_mean,
+                    control_mean=control_mean,
+                    mean_difference=treatment_mean - control_mean,
+                    minimum_treatment=minimum_treatment,
+                    maximum_control=maximum_control,
+                    conservative_excess=excess,
+                    all_controls_gate=gate,
+                    pvalue=_one_sided_welch_greater(treatment_scores, control_scores),
+                )
+            )
+    finally:
+        for handle in handles:
+            handle.close()
+
+    qvalues = _bh_qvalues([record.pvalue for record in statistics])
+    statistics = [
+        replace(record, qvalue=qvalue, peak=replace(record.peak, qvalue=qvalue))
+        for record, qvalue in zip(statistics, qvalues)
+    ]
+
+    directory = Path(output_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    annotated = directory / "target_peaks_replicate_fdr.bed"
+    significant = directory / f"target_peaks_fdr{peak_fdr:g}_significant.bed"
+    statistics_table = directory / "target_peak_replicate_statistics.tsv"
+    with annotated.open("wt", encoding="utf-8") as all_handle, significant.open(
+        "wt", encoding="utf-8"
+    ) as significant_handle:
+        for record in statistics:
+            fields = list(record.peak.row.fields)
+            fields[score_column - 1] = f"{_signal_score(record.peak):.12g}"
+            text = "\t".join((*fields, _format_optional(record.qvalue))) + "\n"
+            all_handle.write(text)
+            if (
+                record.all_controls_gate
+                and math.isfinite(record.qvalue)
+                and record.qvalue <= peak_fdr
+            ):
+                significant_handle.write(text)
+
+    with statistics_table.open("wt", encoding="utf-8") as handle:
+        handle.write(
+            "chromosome\tstart\tend\tsummit\tdiscovery_score\t"
+            "condition_mean_scaled_coverage_max\ttreatment_replicate_maxima\t"
+            "control_replicate_maxima\ttreatment_mean\tcontrol_mean\t"
+            "treatment_minus_control\tminimum_treatment\tmaximum_control\t"
+            "conservative_excess\tall_treatments_exceed_all_controls\t"
+            "p_value\tfdr\n"
+        )
+        for record in statistics:
+            peak = record.peak
+            handle.write(
+                f"{peak.chrom}\t{peak.start}\t{peak.end}\t{peak.summit}\t"
+                f"{peak.row.score:.12g}\t{_signal_score(peak):.12g}\t"
+                + ";".join(f"{value:.12g}" for value in record.treatment_scores)
+                + "\t"
+                + ";".join(f"{value:.12g}" for value in record.control_scores)
+                + f"\t{record.treatment_mean:.12g}\t{record.control_mean:.12g}\t"
+                f"{record.mean_difference:.12g}\t{record.minimum_treatment:.12g}\t"
+                f"{record.maximum_control:.12g}\t{record.conservative_excess:.12g}\t"
+                f"{str(record.all_controls_gate).lower()}\t"
+                f"{_format_optional(record.pvalue)}\t{_format_optional(record.qvalue)}\n"
+            )
+
+    clusters = cluster_peaks(
+        [record.peak for record in statistics],
+        significance_score=0.0,
+        require_qvalue=peak_fdr,
+        cluster_break=cluster_break,
+        max_cluster_gap=max_cluster_gap,
+        minimum_significant_peaks=minimum_significant_peaks,
+    )
+    clusters = [
+        replace(
+            cluster,
+            qvalue=max(
+                (peak.qvalue for peak in cluster.significant_peaks), default=math.nan
+            ),
+        )
+        for cluster in clusters
+    ]
+    cluster_table = directory / "target_clusters_member_fdr.tsv"
+    significant_clusters = directory / f"target_clusters_fdr{cluster_fdr:g}_significant.bed"
+    with cluster_table.open("wt", encoding="utf-8") as table, significant_clusters.open(
+        "wt", encoding="utf-8"
+    ) as bed:
+        table.write(
+            "chromosome\tstart\tend\tsignificant_peak_count\tcluster_score\t"
+            "max_peak_score\tsummit\tmaximum_member_fdr\n"
+        )
+        for index, cluster in enumerate(clusters, 1):
+            table.write(
+                f"{cluster.chrom}\t{cluster.start}\t{cluster.end}\t"
+                f"{len(cluster.significant_peaks)}\t{cluster.score:.12g}\t"
+                f"{cluster.max_peak_score:.12g}\t{cluster.summit}\t"
+                f"{_format_optional(cluster.qvalue)}\n"
+            )
+            if math.isfinite(cluster.qvalue) and cluster.qvalue <= cluster_fdr:
+                bed.write(
+                    f"{cluster.chrom}\t{cluster.start}\t{cluster.end}\t"
+                    f"chip_cluster_{index}\t{cluster.score:.6f}\t.\t"
+                    f"{cluster.summit}\t{cluster.summit + 1}\t"
+                    f"{_format_optional(cluster.qvalue)}\n"
+                )
+
+    return {
+        "annotated_peaks": annotated,
+        "significant_peaks": significant,
+        "competition_table": statistics_table,
         "cluster_table": cluster_table,
         "significant_clusters": significant_clusters,
     }

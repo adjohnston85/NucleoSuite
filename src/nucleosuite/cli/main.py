@@ -148,6 +148,11 @@ def _chip_suite_main(argv: Sequence[str] | None = None) -> int:
     from nucleosuite.chip_suite import main
     return main(argv)
 
+
+def _chip_compare_main(argv: Sequence[str] | None = None) -> int:
+    from nucleosuite.chip_compare import main
+    return main(argv)
+
 def _mnase_suite_main(argv: Sequence[str] | None = None) -> int:
     from nucleosuite.cli.mnase_suite import main
     return main(argv)
@@ -218,6 +223,7 @@ DELEGATED_COMMANDS: dict[str, tuple[CommandMain, str]] = {
     "mnase-suite": (_mnase_suite_main, "Run the configurable MNase analysis workflow."),
     "cfdna-suite": (_cfdna_suite_main, "Run the cfDNA fragmentomics and nucleosome workflow."),
     "chip-suite": (_chip_suite_main, "Run matched target-control ChIP/CUT&RUN/CUT&Tag nucleosome scoring."),
+    "chip-compare": (_chip_compare_main, "Compare two completed chip-suite Stage 1 analyses."),
     "resources": (_resources_main, "List, check or copy reference files bundled with NucleoSuite."),
     "validate-inputs": (_validate_inputs_main, "Validate suite inputs and reference compatibility."),
     "region-peak-extractor": (_region_extract_main, "Alias of region-extract."),
@@ -256,6 +262,7 @@ DELEGATED_MODULES: dict[str, str] = {
     "mnase-suite": "nucleosuite.cli.mnase_suite",
     "cfdna-suite": "nucleosuite.cli.cfdna_suite",
     "chip-suite": "nucleosuite.chip_suite",
+    "chip-compare": "nucleosuite.chip_compare",
 }
 
 
@@ -446,6 +453,7 @@ def build_parser() -> argparse.ArgumentParser:
         "mnase-suite",
         "cfdna-suite",
         "chip-suite",
+        "chip-compare",
         "resources",
         "validate-inputs",
     )

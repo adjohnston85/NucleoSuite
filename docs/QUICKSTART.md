@@ -71,14 +71,16 @@ The default `chip-suite` run uses TNS over 120–500 bp fragments and estimates 
 
 ```bash
 nucleosuite chip-suite \
-  --target-bam target.bam \
-  --control-bam control.bam \
+  --treatment1-bam target.bam \
+  --control1-bam control.bam \
   --outdir target_chip_suite \
   --sample-name target \
   --cores 8
 ```
 
 Use `--scoring-method bns` or `--scoring-method pns` to change the score. Use `--mode 167` to bypass automatic sampling and use exactly 167 bp for both target and control.
+
+The score-track stage writes raw fragment coverage and a separate coverage BigWig scaled to a non-zero mean of 100 for each sample. TNS calls candidates on the average treatment track only. For a candidate to pass Stage 1, its maximum scaled coverage in every treatment must exceed the maximum in every control over the same interval and its one-sided Welch test must pass BH FDR. Treatment and control groups are independent, may contain different replicate counts and are never paired by input order. Use `--bam-mode merged` to pool a group. Supplying `--treatment2-bam` and `--control2-bam` adds an unpaired four-group interaction test. Two independently completed Stage 1 runs can instead be compared with [`chip-compare`](commands/chip-compare.md).
 
 ## 5. Measure nucleosome spacing
 

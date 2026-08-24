@@ -157,9 +157,15 @@ CORE_DESTINATIONS: dict[str, set[str]] = {
         "output_prefix", "output",
     },
     "chip-suite": {
-        "target_bam", "control_bam", "outdir", "sample_name", "scoring_method",
-        "mode", "mode_strategy", "frag_lower", "frag_upper", "blacklist_bed",
-        "contigs", "cores", "peak_fdr", "cluster_fdr",
+        "treatment1_bam", "control1_bam", "treatment2_bam", "control2_bam",
+        "outdir", "sample_name", "condition1_name", "condition2_name", "bam_mode",
+        "scoring_method", "mode", "mode_strategy", "frag_lower", "frag_upper",
+        "blacklist_bed", "contigs", "cores", "peak_fdr", "cluster_fdr",
+        "differential_fdr", "compare_feature_level",
+    },
+    "chip-compare": {
+        "condition1_results", "condition2_results", "outdir", "feature_level",
+        "peak_match_distance", "fdr",
     },
     "peak-states": {
         "peaks", "state_bed", "blacklist_bed", "position_column", "score_column",
