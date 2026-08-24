@@ -71,4 +71,6 @@ Significant target-winning peaks are clustered within each contig. A cluster end
 - `03_peak_calls/`: independent target and control peak calls;
 - `04_peak_fdr/`: all target peaks with appended empirical FDR, significant peaks, cluster tables and significant clusters.
 
+When `--cores` processes more than one contig, the native parallel commands retain per-contig files under `*_multicontig/per_contig` and place their final combined tracks or peak BEDs under `*_multicontig/combined`. `chip-suite` reads each multicontig manifest and automatically continues with those combined outputs. With one core or one selected contig, outputs remain directly under the stage directory.
+
 [Back to the command reference](../COMMAND_REFERENCE.md)

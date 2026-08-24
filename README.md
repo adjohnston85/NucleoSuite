@@ -187,6 +187,7 @@ For complete setup, prerequisite, update, and troubleshooting instructions, see 
 - [Glossary](docs/GLOSSARY.md)
 - [Algorithms](docs/ALGORITHMS.md)
 - [Plot customization](docs/PLOTTING.md)
+- [Version 0.10.1 release notes](docs/RELEASE_NOTES_0.10.1.md)
 - [Version 0.10.0 release notes](docs/RELEASE_NOTES_0.10.0.md)
 
 The command-line help is the authoritative reference for accepted options and defaults:

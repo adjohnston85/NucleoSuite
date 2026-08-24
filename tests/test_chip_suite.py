@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from nucleosuite.chip_peaks import (
@@ -5,7 +6,12 @@ from nucleosuite.chip_peaks import (
     assign_competition_qvalues,
     compete_peaks,
 )
-from nucleosuite.chip_suite import _validate, build_parser
+from nucleosuite.chip_suite import (
+    _locate_completed_prefix,
+    _resolved_prefix,
+    _validate,
+    build_parser,
+)
 from nucleosuite.peak_fdr import PeakRow
 
 
@@ -64,6 +70,63 @@ def test_explicit_chip_mode_does_not_validate_unused_auto_search_bounds(tmp_path
         ]
     )
     _validate(args)
+
+
+def test_chip_suite_locates_parameterized_multicontig_score_outputs(tmp_path: Path):
+    requested = tmp_path / "tracks" / "chip_target"
+    direct = _resolved_prefix(requested, "tns", 153, 120, 500)
+    root = requested.parent / f"{requested.name}_multicontig"
+    combined = root / "combined"
+    combined.mkdir(parents=True)
+    combined_name = direct.name
+    (root / "nucleosuite_multicontig_manifest.json").write_text(
+        json.dumps(
+            {"combined_dir": str(combined), "combined_name": combined_name}
+        ),
+        encoding="utf-8",
+    )
+    for suffix in ("_tns.bw", "_posTNS.bw"):
+        (combined / f"{combined_name}{suffix}").touch()
+
+    located = _locate_completed_prefix(
+        requested, direct, ("_tns.bw", "_posTNS.bw")
+    )
+
+    assert located == combined / combined_name
+
+
+def test_chip_suite_locates_multicontig_peak_outputs(tmp_path: Path):
+    requested = tmp_path / "peaks" / "chip_target_tns_mean_scaled"
+    root = requested.parent / f"{requested.name}_multicontig"
+    combined = root / "combined"
+    combined.mkdir(parents=True)
+    (root / "nucleosuite_multicontig_manifest.json").write_text(
+        json.dumps(
+            {"combined_dir": str(combined), "combined_name": requested.name}
+        ),
+        encoding="utf-8",
+    )
+    (combined / f"{requested.name}_nucleosome_regions.bed").touch()
+
+    located = _locate_completed_prefix(
+        requested, requested, ("_nucleosome_regions.bed",)
+    )
+
+    assert located == combined / requested.name
+
+
+def test_chip_suite_prefers_existing_serial_outputs(tmp_path: Path):
+    requested = tmp_path / "tracks" / "chip_target"
+    direct = _resolved_prefix(requested, "tns", 153, 120, 500)
+    direct.parent.mkdir(parents=True)
+    for suffix in ("_tns.bw", "_posTNS.bw"):
+        Path(f"{direct}{suffix}").touch()
+
+    located = _locate_completed_prefix(
+        requested, direct, ("_tns.bw", "_posTNS.bw")
+    )
+
+    assert located == direct
 
 
 def test_target_control_peak_competition_uses_control_for_ties():

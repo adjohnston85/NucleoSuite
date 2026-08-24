@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import subprocess
 import sys
@@ -25,6 +26,8 @@ _TRACK_NAMES = {
     "bns": ("bns", "posBNS"),
     "pns": ("pns", "posPNS"),
 }
+
+_MULTICONTIG_MANIFEST = "nucleosuite_multicontig_manifest.json"
 
 
 def _mode_value(text: str) -> str | int:
@@ -59,6 +62,47 @@ def _resolved_prefix(
 ) -> Path:
     return Path(
         f"{base}_method{method}_mode{mode}_lower{frag_lower}_upper{frag_upper}_smooth0x2"
+    )
+
+
+def _locate_completed_prefix(
+    requested_base: Path,
+    direct_prefix: Path,
+    required_suffixes: Sequence[str],
+) -> Path:
+    """Locate serial or manifest-declared combined multicontig outputs."""
+
+    candidates = [direct_prefix]
+    multicontig_root = requested_base.parent / f"{requested_base.name}_multicontig"
+    manifest_path = multicontig_root / _MULTICONTIG_MANIFEST
+    if manifest_path.is_file():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeError(
+                f"Could not read multicontig output manifest: {manifest_path}"
+            ) from exc
+        combined_dir = Path(
+            str(manifest.get("combined_dir") or (multicontig_root / "combined"))
+        )
+        if not combined_dir.is_absolute():
+            combined_dir = multicontig_root / combined_dir
+        combined_name = str(manifest.get("combined_name") or direct_prefix.name)
+        candidates.append(combined_dir / combined_name)
+    else:
+        candidates.append(multicontig_root / "combined" / direct_prefix.name)
+
+    for prefix in candidates:
+        if all(Path(f"{prefix}{suffix}").is_file() for suffix in required_suffixes):
+            return prefix
+
+    expected = ", ".join(
+        str(Path(f"{prefix}{suffix}"))
+        for prefix in candidates
+        for suffix in required_suffixes
+    )
+    raise RuntimeError(
+        f"Expected completed outputs were not created; searched: {expected}"
     )
 
 
@@ -318,15 +362,16 @@ def run(args: argparse.Namespace) -> int:
             command.extend(["--blacklist-bed", args.blacklist_bed])
         _run_nucleosuite(command)
 
-        prefix = _resolved_prefix(
+        direct_prefix = _resolved_prefix(
             base, args.scoring_method, mode, args.frag_lower, args.frag_upper
+        )
+        prefix = _locate_completed_prefix(
+            base,
+            direct_prefix,
+            (f"_{score_track}.bw", f"_{positive_track}.bw"),
         )
         score_path = Path(f"{prefix}_{score_track}.bw")
         positive_path = Path(f"{prefix}_{positive_track}.bw")
-        if not score_path.is_file() or not positive_path.is_file():
-            raise RuntimeError(
-                f"Expected {label} score outputs were not created: {score_path}, {positive_path}"
-            )
         scaled_path = scaled_dir / (
             f"{args.sample_name}_{label}_{score_track}_divided_by_mean_{positive_track}.bw"
         )
@@ -359,7 +404,14 @@ def run(args: argparse.Namespace) -> int:
             peak_command.extend(["--blacklist-bed", args.blacklist_bed])
         reporter.stage(f"Calling {label} peaks on mean-scaled {score_track}")
         _run_nucleosuite(peak_command)
-        peak_paths[label] = Path(f"{peak_prefix}_nucleosome_regions.bed")
+        completed_peak_prefix = _locate_completed_prefix(
+            peak_prefix,
+            peak_prefix,
+            ("_nucleosome_regions.bed",),
+        )
+        peak_paths[label] = Path(
+            f"{completed_peak_prefix}_nucleosome_regions.bed"
+        )
 
     match_distance = (
         args.peak_match_distance
