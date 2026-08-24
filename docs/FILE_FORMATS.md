@@ -170,6 +170,18 @@ chrom    chromStart    chromEnd    name    score    strand    thickStart    thic
 
 For PNS, column 7 is the retained positive- or negative-region midpoint; for WPS it is the selected above-median subrun midpoint. PNS BED files preserve six decimal places in column 5. PNS peak bigBed output multiplies that score by `--bigbed-score-scale` (default 1000), rounds to the nearest integer, and clamps it to 0–1000. Commands that accept peak tracks, including `region-extract`, use column 7 by default.
 
+### Empirical-FDR peak BED
+
+`pns-peak-fdr`, paired cfDNA/MNase suite execution, and the target-peak output from `chip-suite` preserve every original observed peak field and append one final field:
+
+```text
+chrom  start  end  name  score  strand  thickStart  thickEnd  empirical_fdr
+```
+
+The appended value is a monotonic empirical q-value from 0 to 1. No existing field is replaced or rescaled. If an input has more than eight fields, all of them remain in their original order and `empirical_fdr` is still appended last. Because standard BED9 normally reserves column 9 for `itemRgb`, treat this as an extended BED table unless the FDR field is removed or mapped before bigBed conversion.
+
+With no `--fdr` cutoff, the complete annotated file is the only peak BED written. With a cutoff, the same complete file is retained and an additional BED contains rows whose final value is no greater than the cutoff.
+
 ### Fragment BED outputs
 
 - Unclassified fragments are written as BED3: `chrom`, `start`, `end`.
@@ -204,6 +216,8 @@ Combined BigWigs are created after tabular and interval outputs. The default met
 ## BigWig
 
 BigWig and bigBed are indexed binary genomic formats described by Kent et al. (2010). BigWig files use the `.bw` extension and are read or written with pyBigWig. Newly generated BigWigs use the BAM-derived canonical namespace. Analyses resolve exact names first and then conservative `chr`/non-`chr` and mitochondrial aliases when matching support files or existing tracks.
+
+`mean-scale --reference-bigwig` divides one BigWig by the finite, non-zero mean of another. `chip-suite` uses this relationship to normalize TNS by `posTNS`, BNS by `posBNS`, or PNS by `posPNS` separately for target and control.
 
 ## Compressed WIG
 

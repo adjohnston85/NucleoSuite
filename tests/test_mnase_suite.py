@@ -181,6 +181,21 @@ def test_packaged_mnase_suite_has_no_wps_outputs():
     assert 'wps_peaks' not in text
 
 
+def test_both_suites_bind_tracks_to_their_combined_track_directory():
+    for script_name in ("mnase_full_suite.sh", "cfdna_full_suite.sh"):
+        text = files("nucleosuite").joinpath("resources", script_name).read_text()
+        assert '--output-dir "$COMBINED_TRACK_DIR"' in text
+        assert 'run_step "01_combined_tracks"' in text
+
+
+def test_mnase_peak_output_guards_use_the_defined_fatal_function():
+    text = files("nucleosuite").joinpath("resources/mnase_full_suite.sh").read_text()
+    assert '|| die "PNS nucleosome peak file' not in text
+    assert '|| die "PNS breakpoint peak file' not in text
+    assert '|| fatal "PNS nucleosome peak file' in text
+    assert '|| fatal "PNS breakpoint peak file' in text
+
+
 def test_packaged_mnase_suite_runs_positive_runs_for_pns_only():
     text = files("nucleosuite").joinpath("resources/mnase_full_suite.sh").read_text()
     assert '12_positive_runs_pns' in text

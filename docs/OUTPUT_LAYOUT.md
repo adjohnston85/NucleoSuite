@@ -74,3 +74,26 @@ Fragment-length products remain under:
 With `--analysis-scope combined-only` (default), per-contig workers create combine prerequisites beneath `per_contig/<contig>/`; complete tracks are combined beneath `combined/`, then scaling and downstream analyses run once on the pooled selected chromosomes. `--resume` reuses matching completed work and `--force` reruns it.
 
 Randomized runs use the same tree and mark their sample/output names with `_randomized_control`.
+
+With `--with-randomized-control`, the observed and randomized trees are both completed before FDR annotation. Combined observed nucleosome and breakpoint BEDs with appended FDR are written beneath:
+
+```text
+combined/13_peak_analysis/pns/empirical_fdr/
+```
+
+If the suite is not using the multicontig wrapper layout, the same directory is created directly beneath the suite root.
+
+## ChIP/CUT&RUN/CUT&Tag suite
+
+`chip-suite` uses a separate target/control layout:
+
+```text
+00_setup/                 fragment-mode and score-scaling reports
+01_score_tracks/          target/control TNS, BNS, or PNS plus positive tracks
+02_mean_scaled_tracks/    centred score divided by matching positive-score mean
+03_peak_calls/            independently called target and control peaks
+04_peak_fdr/              annotated/significant peaks and cluster FDR outputs
+<sample>_chip_suite_summary.tsv
+```
+
+An explicit `--mode` is recorded in the setup report with `mode_source=explicit`; automatic runs retain separate target/control estimates and the pooled estimate used by default.

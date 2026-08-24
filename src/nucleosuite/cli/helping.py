@@ -65,7 +65,7 @@ CORE_DESTINATIONS: dict[str, set[str]] = {
         "frag_upper", "max_duplicates", "dedup_scope", "cores",
     },
     "mean-scale": {
-        "input", "reference_mean", "regions", "score_column", "scale",
+        "input", "reference_mean", "regions", "reference_bigwig", "score_column", "scale",
         "integer_scores", "clamp_min", "clamp_max", "output_format", "chrom_sizes", "output",
     },
     "randomize-fragments": {
@@ -151,6 +151,15 @@ CORE_DESTINATIONS: dict[str, set[str]] = {
         "peaks", "output_prefix", "blacklist_bed", "score_column", "score_scale", "integer_bins",
         "bins", "bin_width", "score_min", "score_max", "normalization", "plot_x_min", "plot_x_max",
         "log_y",
+    },
+    "pns-peak-fdr": {
+        "sample_peaks", "randomized_peaks", "score_column", "fdr",
+        "output_prefix", "output",
+    },
+    "chip-suite": {
+        "target_bam", "control_bam", "outdir", "sample_name", "scoring_method",
+        "mode", "mode_strategy", "frag_lower", "frag_upper", "blacklist_bed",
+        "contigs", "cores", "peak_fdr", "cluster_fdr",
     },
     "peak-states": {
         "peaks", "state_bed", "blacklist_bed", "position_column", "score_column",
@@ -352,6 +361,8 @@ core options:
   --pns-frag-lower N            PNS lower fragment length (default: 137).
   --pns-frag-upper N            PNS upper fragment length (default: 197).
   --pns-mode-length N           PNS modal fragment length (default: 167).
+  --with-randomized-control     Run complete observed and randomized workflows, then annotate combined peak BEDs with empirical FDR.
+  --fdr N                       In paired mode, also write combined peak BEDs filtered at FDR N.
   --max-duplicates N            Identical-fragment copy limit (default: 1).
   --blacklist-bed FILE          Override the assembly-specific blacklist.
   --no-blacklist                Disable blacklist filtering.
@@ -379,6 +390,8 @@ core options:
   --pns-mode-length N           PNS modal fragment length (default: 147).
   --fine-frag-lower/upper N     Ranged dyad/WW class (default: 146-148).
   --exact-size N                Exact dyad/fragment-end length (default: 147).
+  --with-randomized-control     Run complete observed and randomized workflows, then annotate combined peak BEDs with empirical FDR.
+  --fdr N                       In paired mode, also write combined peak BEDs filtered at FDR N.
   --max-duplicates N            Identical-fragment copy limit.
   --blacklist-bed FILE          Override the assembly-specific blacklist.
   --no-blacklist                Disable blacklist filtering.

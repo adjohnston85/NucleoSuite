@@ -76,6 +76,10 @@ The suite performs PNS peak calls, ChromHMM-stratified PNS spacing, CTCF/TSS agg
 
 `peak-score-frequency` uses the mean-scaled nucleosome and breakpoint BEDs directly with `--score-scale 1`; no additional display scaling is applied.
 
+## Observed plus randomized execution and peak FDR
+
+`--randomize` retains randomized-only execution. `--with-randomized-control` instead runs the complete observed workflow and complete randomized workflow with identical settings in one invocation. After both combined peak callsets are available, the suite writes observed combined nucleosome and breakpoint BEDs with `empirical_fdr` appended as the final column. Add `--fdr 0.05` to also write filtered combined BEDs.
+
 See [Output layout](../OUTPUT_LAYOUT.md), [Workflows](../WORKFLOWS.md), and the command-line help for the complete accepted option set.
 
 [Back to the command reference](../COMMAND_REFERENCE.md)

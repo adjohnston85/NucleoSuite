@@ -44,6 +44,10 @@ The central position of nucleosome-bound DNA. A dyad track uses the centre of ea
 
 Dinucleotide profiles do not split even-length fragments between alternative centres.
 
+## Empirical FDR
+
+An estimate of the fraction of retained discoveries expected under a matched null or decoy process. `pns-peak-fdr` uses peak-score counts from fragment-randomized runs. `chip-suite` uses control-winning peaks and control-derived clusters as decoys. NucleoSuite reports monotonic empirical q-values in the appended `empirical_fdr` field.
+
 ## Flanking spacing
 
 The distance between the nearest nucleosome centre strictly upstream of a reference site and the nearest nucleosome centre strictly downstream. In `flank-spacing`, these distances are compared across categories defined in a reference BED.
@@ -63,6 +67,10 @@ The signed positional difference `position_B - position_A` used by DCC. A positi
 ## Mean centring
 
 Subtraction of a vector's arithmetic mean from every value. PNS, BNS and TNS mean-centre each fragment distribution before placing it on the genome, making the values contributed by each complete fragment sum to zero.
+
+## Mode estimation
+
+Estimation of the dominant accepted fragment length used to set the PNS, BNS, or TNS scoring geometry. `chip-suite` samples fragments from indexed genomic blocks, bootstraps a smoothed length histogram until the mode stabilizes, and uses an equal-weight pooled target/control mode by default. An integer `--mode` bypasses estimation.
 
 ## NRL
 
@@ -103,6 +111,10 @@ The non-negative TNS unit-mass triangle before mean subtraction. Each accepted f
 ## Positional offset
 
 The separation between two genomic positions, measured in base pairs. A signed offset retains direction: negative values indicate upstream displacement and positive values indicate downstream displacement. An absolute offset reports only the separation.
+
+## Positive-score mean scaling
+
+Division of a centred TNS, BNS, or PNS track by the finite, non-zero mean of its matching pre-centring positive track. This places matched target and control tracks on a comparable per-positive-score scale without subtracting the control signal.
 
 ## Summit
 

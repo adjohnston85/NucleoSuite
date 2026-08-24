@@ -342,6 +342,9 @@ Randomized-control mode:
   --randomize                   Run a randomized control instead of the observed analysis.
                                 Randomization occurs in 00_setup and the complete normal
                                 analysis tree is then generated with _randomized_control names.
+  --with-randomized-control    Run complete observed and randomized workflows, then
+                                append empirical FDR to observed combined peak BEDs.
+  --fdr N                       In paired mode, also write BEDs filtered at FDR N.
   --randomize-seed N            Reproducible dinucleotide-matched randomization seed. Default: 12345.
   --randomize-search-window N   Local dinucleotide search window. Default: 100000.
   --randomize-fallback VALUE    uniform or skip. Default: uniform.
@@ -1116,7 +1119,7 @@ queue_memory_step() {
 
 run_step "00_cli_registry" "$SETUP_DIR/${SUPPORT_PREFIX}nucleosuite_version.txt" bash -c '
 set -euo pipefail; bin="$1"; out="$2"; "$bin" --version | tee "$out"
-for cmd in tracks pns coverage dyads fragment-ends dinuc-profile ww-types call-peaks fragments randomize-fragments merge-bams fragment-lengths fragment-heatmap gene-sets gene-expression tss-expression-quintiles aggregate dac nrl plot positive-runs peak-score-frequency distances region-extract resources validate-inputs mnase-suite; do "$bin" "$cmd" --help >/dev/null; done
+for cmd in tracks pns coverage dyads fragment-ends dinuc-profile ww-types call-peaks pns-peak-fdr fragments randomize-fragments merge-bams fragment-lengths fragment-heatmap gene-sets gene-expression tss-expression-quintiles aggregate dac nrl plot positive-runs peak-score-frequency distances region-extract resources validate-inputs mnase-suite chip-suite; do "$bin" "$cmd" --help >/dev/null; done
 ' _ "$NUCLEOSUITE_BIN" "$SETUP_DIR/${SUPPORT_PREFIX}nucleosuite_version.txt"
 
 run_step "00_python_dependencies" "$SETUP_DIR/${SUPPORT_PREFIX}python_dependencies.txt" "$PYTHON_BIN" - "$SETUP_DIR/${SUPPORT_PREFIX}python_dependencies.txt" <<'PY'
@@ -1465,7 +1468,7 @@ fi
 OBS_TRACK_REPORT="$COMBINED_TRACK_DIR/${SUPPORT_PREFIX}completion_report.tsv"
 run_step "01_combined_tracks" "$OBS_TRACK_REPORT" "$NUCLEOSUITE_BIN" tracks \
     "${ANALYSIS_INPUT_ARGS[@]}" "${BLACKLIST_ARGS[@]}" --fasta "$FASTA" --chrom-sizes "$CHROM_SIZES" -c "${CONTIGS[@]}" \
-    --spec-file "$OBS_TRACK_SPEC" --max-duplicates "$ACTIVE_MAX_DUPLICATES" \
+    --output-dir "$COMBINED_TRACK_DIR" --spec-file "$OBS_TRACK_SPEC" --max-duplicates "$ACTIVE_MAX_DUPLICATES" \
     --max-per-coordinate "$MAX_PER_COORDINATE" --dedup-scope "$DEDUP_SCOPE" \
     --even-dyad "$EVEN_DYAD" --pns-mode-length "$PNS_MODE_LENGTH" --bigbed-score-scale "$BIGBED_SCORE_SCALE" \
     --pns-smooth-window "$PNS_SMOOTH_WINDOW" --pns-smooth-order "$PNS_SMOOTH_ORDER" \
@@ -1484,8 +1487,8 @@ PNS_CALL_NUC_SCALED="$SCALED_DIR/$(basename "${PNS_PREFIX}")_nucleosome_regions_
 PNS_CALL_BRK_SCALED="$SCALED_DIR/$(basename "${PNS_PREFIX}")_breakpoint_peaks_mean_scaled.${INTERVAL_EXT}"
 PNS_CALL_NUC="$PNS_CALL_NUC_RAW"
 PNS_CALL_BRK="$PNS_CALL_BRK_RAW"
-[[ -s "$PNS_CALL_NUC_RAW" ]] || die "PNS nucleosome peak file was not created: $PNS_CALL_NUC_RAW"
-[[ -s "$PNS_CALL_BRK_RAW" ]] || die "PNS breakpoint peak file was not created: $PNS_CALL_BRK_RAW"
+[[ -s "$PNS_CALL_NUC_RAW" ]] || fatal "PNS nucleosome peak file was not created: $PNS_CALL_NUC_RAW"
+[[ -s "$PNS_CALL_BRK_RAW" ]] || fatal "PNS breakpoint peak file was not created: $PNS_CALL_BRK_RAW"
 
 if [[ "$COMBINE_PREREQUISITES_ONLY" -eq 0 ]]; then
 

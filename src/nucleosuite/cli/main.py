@@ -143,6 +143,11 @@ def _cfdna_suite_main(argv: Sequence[str] | None = None) -> int:
     from nucleosuite.cli.cfdna_suite import main
     return main(argv)
 
+
+def _chip_suite_main(argv: Sequence[str] | None = None) -> int:
+    from nucleosuite.chip_suite import main
+    return main(argv)
+
 def _mnase_suite_main(argv: Sequence[str] | None = None) -> int:
     from nucleosuite.cli.mnase_suite import main
     return main(argv)
@@ -174,6 +179,11 @@ def _peak_states_main(argv: Sequence[str] | None = None) -> int:
     return main(argv)
 
 
+def _pns_peak_fdr_main(argv: Sequence[str] | None = None) -> int:
+    from nucleosuite.peak_fdr import main
+    return main(argv)
+
+
 def _region_extract_main(argv: Sequence[str] | None = None) -> int:
     from nucleosuite.pns_region_extractor import main
     return main(argv)
@@ -200,12 +210,14 @@ DELEGATED_COMMANDS: dict[str, tuple[CommandMain, str]] = {
     "plot": (_plot_main, "Recreate and customise figures from NucleoSuite output tables."),
     "positive-runs": (_positive_runs_main, "Measure the lengths of continuous positive-signal regions."),
     "peak-score-frequency": (_peak_score_frequency_main, "Compare the score distributions of peak callsets."),
+    "pns-peak-fdr": (_pns_peak_fdr_main, "Assign empirical FDR values using fragment-randomized PNS peaks."),
     "peak-states": (_peak_states_main, "Measure peak abundance and enrichment by chromatin state."),
     "gene-sets": (_gene_sets_main, "Group genes by the chromatin states that overlap them."),
     "gene-expression": (_gene_expression_main, "Compare gene expression with nucleosome spacing or periodicity."),
     "tss-expression-quintiles": (_tss_expression_quintiles_main, "Aggregate TSS signal after splitting genes into expression quintiles."),
     "mnase-suite": (_mnase_suite_main, "Run the configurable MNase analysis workflow."),
     "cfdna-suite": (_cfdna_suite_main, "Run the cfDNA fragmentomics and nucleosome workflow."),
+    "chip-suite": (_chip_suite_main, "Run matched target-control ChIP/CUT&RUN/CUT&Tag nucleosome scoring."),
     "resources": (_resources_main, "List, check or copy reference files bundled with NucleoSuite."),
     "validate-inputs": (_validate_inputs_main, "Validate suite inputs and reference compatibility."),
     "region-peak-extractor": (_region_extract_main, "Alias of region-extract."),
@@ -234,6 +246,7 @@ DELEGATED_MODULES: dict[str, str] = {
     "plot": "nucleosuite.replot",
     "positive-runs": "nucleosuite.positive_runs",
     "peak-score-frequency": "nucleosuite.peak_score_frequency",
+    "pns-peak-fdr": "nucleosuite.peak_fdr",
     "peak-states": "nucleosuite.peak_states",
     "gene-sets": "nucleosuite.gene_sets",
     "gene-expression": "nucleosuite.gene_expression",
@@ -242,6 +255,7 @@ DELEGATED_MODULES: dict[str, str] = {
     "validate-inputs": "nucleosuite.validate_inputs",
     "mnase-suite": "nucleosuite.cli.mnase_suite",
     "cfdna-suite": "nucleosuite.cli.cfdna_suite",
+    "chip-suite": "nucleosuite.chip_suite",
 }
 
 
@@ -411,6 +425,7 @@ def build_parser() -> argparse.ArgumentParser:
         "fragment-heatmap",
         "filter-peaks",
         "peak-score-frequency",
+        "pns-peak-fdr",
         "peak-states",
         "compare-positions",
         "distances",
@@ -430,6 +445,7 @@ def build_parser() -> argparse.ArgumentParser:
         "plot",
         "mnase-suite",
         "cfdna-suite",
+        "chip-suite",
         "resources",
         "validate-inputs",
     )

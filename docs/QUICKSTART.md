@@ -53,7 +53,34 @@ nucleosuite filter-peaks \
   --coverage-position-column 7
 ```
 
-## 3. Measure nucleosome spacing
+## 3. Assign empirical FDR from randomized peaks
+
+Run the observed and randomized sample with identical PNS settings, then compare their peak BEDs:
+
+```bash
+nucleosuite pns-peak-fdr \
+  sample_nucleosome_regions.bed \
+  sample_randomized_control_nucleosome_regions.bed
+```
+
+This always writes every observed peak with `empirical_fdr` appended. Add `--fdr 0.05` to also write a filtered BED. [`cfdna-suite`](commands/cfdna-suite.md) and [`mnase-suite`](commands/mnase-suite.md) can generate both full workflows and perform this annotation with `--with-randomized-control`.
+
+## 4. Run a matched ChIP-seq, CUT&RUN, or CUT&Tag analysis
+
+The default `chip-suite` run uses TNS over 120–500 bp fragments and estimates target and control fragment modes independently before choosing an equal-weight pooled analysis mode:
+
+```bash
+nucleosuite chip-suite \
+  --target-bam target.bam \
+  --control-bam control.bam \
+  --outdir target_chip_suite \
+  --sample-name target \
+  --cores 8
+```
+
+Use `--scoring-method bns` or `--scoring-method pns` to change the score. Use `--mode 167` to bypass automatic sampling and use exactly 167 bp for both target and control.
+
+## 5. Measure nucleosome spacing
 
 Use `--position-column 7` to measure from representative positions stored in BED column 7:
 
@@ -68,7 +95,7 @@ nucleosuite distances sample_methodpns_mode167_lower137_upper197_smooth0x2_nucle
 
 The main histogram shows how often each peak-to-peak spacing occurs.
 
-## 4. Compare one main nucleosome callset with multiple callsets
+## 6. Compare one main nucleosome callset with multiple callsets
 
 Use one main BED as the common reference and repeat `--compare-bed` for each additional callset:
 
@@ -83,7 +110,7 @@ nucleosuite compare-positions \
 
 Each comparison is matched once with one-to-one unique pairs. The smaller callset is used as the query, but percentile grouping always uses the matched **main BED score**. Quartiles are the default, and the grouped percentile boxplot places the comparison methods side-by-side within each quartile. See [`compare-positions`](commands/compare-positions.md).
 
-## 5. Measure spacing by chromatin state
+## 7. Measure spacing by chromatin state
 
 Pass the installed path of the bundled GM12878 state BED directly:
 
@@ -97,7 +124,7 @@ nucleosuite distances sample_methodpns_mode167_lower137_upper197_smooth0x2_nucle
   --output-prefix sample_spacing_by_state
 ```
 
-## 6. Compare flanking spacing across categorized reference sites
+## 8. Compare flanking spacing across categorized reference sites
 
 If a BED contains reference-site categories in column 4, compare the spacing between the nearest upstream and downstream nucleosome calls for every category:
 
@@ -111,7 +138,7 @@ nucleosuite flank-spacing \
 
 Density curves are used by default. Categories are ranked by the default 190/260 bp density ratio, with the lowest ratio ranked first. The displayed x-axis extends to 500 bp by default. See [`flank-spacing`](commands/flank-spacing.md).
 
-## 7. Aggregate signal around CTCF sites
+## 9. Aggregate signal around CTCF sites
 
 ```bash
 nucleosuite aggregate \
@@ -123,7 +150,7 @@ nucleosuite aggregate \
 
 This writes the average signal pattern and an individual-region heatmap.
 
-## 8. Calculate DAC from a dyad signal
+## 10. Calculate DAC from a dyad signal
 
 Use DAC when you want to detect distances at which the same signal repeats:
 
@@ -139,7 +166,7 @@ nucleosuite dac \
 Repeated nucleosome spacing appears as recurring DAC peaks. See [Distance autocorrelation](ALGORITHMS.md#distance-autocorrelation).
 
 
-## 9. Replot an existing result
+## 11. Replot an existing result
 
 Once an analysis has finished, `plot` can recreate a figure directly from its TSV without rerunning the genomic calculation:
 
@@ -161,7 +188,7 @@ nucleosuite plot sample_heatmap_matrix.tsv.gz \
 
 See [`plot`](commands/plot.md) for automatic file detection, major/minor grid controls, and Matplotlib pass-through options.
 
-## 10. Run the coordinated suites
+## 12. Run the coordinated suites
 
 For a standard cfDNA analysis:
 
@@ -189,7 +216,19 @@ nucleosuite mnase-suite \
 
 The suites coordinate fragment selection, tracks, calls, spacing, sequence profiles, and optional expression analyses in one output layout. Review the suite defaults before a large run.
 
-## 11. Find and reuse bundled resources
+To run a complete observed workflow and a complete fragment-randomized workflow, then annotate the observed combined peak BEDs with empirical FDR:
+
+```bash
+nucleosuite mnase-suite \
+  --bam sample.bam \
+  --fasta hg19.fa \
+  --resource-set hg19-gm12878 \
+  --outdir sample_mnase_suite \
+  --with-randomized-control \
+  --fdr 0.05
+```
+
+## 13. Find and reuse bundled resources
 
 ```bash
 nucleosuite resources list

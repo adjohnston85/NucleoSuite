@@ -307,6 +307,44 @@ Optional [Savitzky-Golay smoothing](https://doi.org/10.1021/ac60214a047) can be 
 
 Standalone `pns` uses PNS by default. Select `--scoring-method bns` for BNS or `--scoring-method tns` for TNS. `pns` and `cfdna-suite` use 137-197 bp fragments with $m=167$ bp by default. `mnase-suite` uses 120-180 bp fragments with $m=147$ bp.
 
+## Bootstrap-stabilized fragment-mode estimation
+
+`chip-suite --mode auto` estimates target and control fragment modes separately. Indexed genomic blocks from the selected analysis contigs are visited in seeded random order. Accepted paired fragments must satisfy the suite fragment-length, duplicate, alignment, and blacklist filters. A histogram is accumulated over the mode-search range, 120–250 bp by default.
+
+The histogram is lightly smoothed with normalized weights proportional to `1, 4, 6, 4, 1`. The point estimate is the integer length with the largest smoothed count. At each checkpoint, multinomial bootstrap samples are drawn from the current empirical length distribution and the smoothed mode is recalculated. Sampling stops when the recent point modes differ by no more than the selected tolerance and the bootstrap 95% interval is sufficiently narrow, or when the maximum sample size is reached.
+
+The default pooled strategy normalizes the target and control histograms separately and gives them equal weight:
+
+```math
+p_{pool}(L)=\frac{1}{2}\left(\frac{n_T(L)}{\sum_j n_T(j)}+\frac{n_C(L)}{\sum_j n_C(j)}\right).
+```
+
+This prevents a deeper library from determining the shared mode solely through read count. `--mode INT` bypasses sampling and uses the supplied integer exactly for both tracks.
+
+## Positive-score mean normalization
+
+For a centred score track $Z(x)$ and its matching non-negative pre-centring score $Z^+(x)$, `chip-suite` calculates the finite, non-zero mean of the positive track and writes:
+
+```math
+Z_{scaled}(x)=\frac{Z(x)}{\mathrm{mean}\!\left(Z^+(x)\right)}.
+```
+
+TNS uses `posTNS`, BNS uses `posBNS`, and PNS uses `posPNS`. Target and control are normalized independently. No control subtraction is performed; both normalized tracks retain their peak structure and are called separately.
+
+## Empirical peak FDR
+
+Let $S(s)$ be the number of observed peaks with score at least $s$, and let $R_b(s)$ be the corresponding count in randomized callset $b$. With $B$ randomized callsets, `pns-peak-fdr` estimates:
+
+```math
+\widehat{FDR}(s)=\min\left(1,\frac{1+\sum_{b=1}^{B}R_b(s)}{B\max\left(1,S(s)\right)}\right).
+```
+
+The pseudocount prevents a zero estimate above every randomized peak. Scores are evaluated at the distinct observed thresholds. Each observed peak receives the smallest estimated FDR among thresholds that retain that peak, producing a monotonic empirical q-value. Coordinates are not matched because coordinate-randomized peaks define a positional null distribution.
+
+In `chip-suite`, nearby target and control summits are first matched one-to-one. The higher normalized score wins, with ties assigned to the control. Unmatched peaks remain winners for their source. Control winners then replace randomized peaks as the empirical decoy distribution in the same cumulative calculation.
+
+Significant target winners are clustered within contigs. A cluster ends after the configured number of consecutive nonsignificant calls or when successive significant summits exceed the maximum gap. The cluster score is the sum of each member's score excess above the significant-peak threshold. Control winners are clustered with identical rules, and their cluster scores supply the cluster-level empirical FDR.
+
 ## Windowed protection score
 
 [Windowed protection score (WPS)](https://doi.org/10.1016/j.cell.2015.11.050) was introduced by Snyder et al. to infer nucleosome protection from cfDNA fragmentation. NucleoSuite's implementation was written to reproduce their L-WPS algorithm and default settings.

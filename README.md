@@ -1,6 +1,6 @@
 # NucleoSuite
 
-NucleoSuite is a command-line toolkit that converts paired-end alignments or fragment intervals into nucleosome-positioning signals, cfDNA and MNase-seq fragmentomic analyses, peak calls, chromatin-state profiles, sequence profiles, spacing measurements, and coordinated workflows.
+NucleoSuite is a command-line toolkit that converts paired-end alignments or fragment intervals into nucleosome-positioning signals, cfDNA and MNase-seq fragmentomic analyses, matched ChIP-seq/CUT&RUN/CUT&Tag analyses, peak calls, chromatin-state profiles, sequence profiles, spacing measurements, and coordinated workflows.
 
 <p align="center">
   <img src="docs/images/PNS_example_tracks_BH01.png" alt="Example NucleoSuite genomic track outputs displayed in IGV" width="100%">
@@ -52,6 +52,7 @@ Analysis commands derive output filenames or prefixes from the primary input bas
 | Command | Function |
 |---|---|
 | [`call-peaks`](docs/commands/call-peaks.md) | Call nucleosome and breakpoint features from PNS or WPS BigWigs. |
+| [`pns-peak-fdr`](docs/commands/pns-peak-fdr.md) | Assign empirical FDR values to sample PNS peaks using fragment-randomized peaks. |
 | [`filter-peaks`](docs/commands/filter-peaks.md) | Filter peak intervals by score, score percentile, region length, and/or BigWig coverage. |
 | [`peak-score-frequency`](docs/commands/peak-score-frequency.md) | Compare peak-score distributions. |
 | [`peak-states`](docs/commands/peak-states.md) | Measure peak abundance and score-dependent enrichment by chromatin state. |
@@ -79,6 +80,7 @@ Analysis commands derive output filenames or prefixes from the primary input bas
 |---|---|
 | [`mnase-suite`](docs/commands/mnase-suite.md) | Run the coordinated MNase-seq workflow. |
 | [`cfdna-suite`](docs/commands/cfdna-suite.md) | Run the coordinated cfDNA fragmentomics workflow. |
+| [`chip-suite`](docs/commands/chip-suite.md) | Run matched target-control ChIP-seq/CUT&RUN/CUT&Tag TNS, BNS or PNS analysis. |
 | [`combine`](docs/commands/combine.md) | Combine outputs from an existing chromosome-wise run. |
 | [`chrom-sizes`](docs/commands/chrom-sizes.md) | Write chromosome names and lengths from a BAM or CRAM header. |
 | [`resources`](docs/commands/resources.md) | List, locate, validate, or copy bundled resources. |
@@ -88,7 +90,7 @@ Analysis commands derive output filenames or prefixes from the primary input bas
 
 ## Typical workflows
 
-For a single analysis, run the command that produces the required signal, profile, peak set, or spacing result. For coordinated analyses, use [`mnase-suite`](docs/commands/mnase-suite.md) or [`cfdna-suite`](docs/commands/cfdna-suite.md). Existing chromosome-wise runs can be recombined with [`combine`](docs/commands/combine.md), and generated figures can be recreated or customized with [`plot`](docs/commands/plot.md).
+For a single analysis, run the command that produces the required signal, profile, peak set, or spacing result. For coordinated analyses, use [`mnase-suite`](docs/commands/mnase-suite.md), [`cfdna-suite`](docs/commands/cfdna-suite.md), or the matched target/control [`chip-suite`](docs/commands/chip-suite.md). Existing chromosome-wise runs can be recombined with [`combine`](docs/commands/combine.md), and generated figures can be recreated or customized with [`plot`](docs/commands/plot.md).
 
 A minimal PNS example:
 
@@ -100,6 +102,18 @@ nucleosuite pns \
   --cores 4 \
   --out-prefix sample
 ```
+
+A default TNS target/control analysis with automatic bootstrap fragment-mode estimation is:
+
+```bash
+nucleosuite chip-suite \
+  --target-bam target.bam \
+  --control-bam control.bam \
+  --outdir target_chip_suite \
+  --cores 8
+```
+
+Use `--mode 167` to bypass mode estimation and apply that exact mode to both samples.
 
 Detailed command behaviour, advanced options, output layouts, resource handling, and workflow examples are documented in the pages linked above and in the guides below.
 
@@ -173,6 +187,7 @@ For complete setup, prerequisite, update, and troubleshooting instructions, see 
 - [Glossary](docs/GLOSSARY.md)
 - [Algorithms](docs/ALGORITHMS.md)
 - [Plot customization](docs/PLOTTING.md)
+- [Version 0.10.0 release notes](docs/RELEASE_NOTES_0.10.0.md)
 
 The command-line help is the authoritative reference for accepted options and defaults:
 

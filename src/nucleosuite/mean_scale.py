@@ -137,6 +137,23 @@ def _bigwig_nonzero_mean(handle, reporter: ProgressReporter | None = None) -> tu
     return float(mean), count
 
 
+def bigwig_nonzero_mean(
+    path: str | Path, reporter: ProgressReporter | None = None
+) -> tuple[float, int]:
+    """Return the finite non-zero mean for a BigWig path."""
+    _require_pybigwig()
+    source = Path(path)
+    if not source.is_file():
+        raise FileNotFoundError(source)
+    handle = pyBigWig.open(str(source))
+    if handle is None:
+        raise OSError(f"Could not open BigWig: {source}")
+    try:
+        return _bigwig_nonzero_mean(handle, reporter)
+    finally:
+        handle.close()
+
+
 def _iter_scaled_intervals(handle, chrom: str, length: int, factor: float):
     """Yield clipped scaled BigWig intervals without materialising a chromosome."""
     for chunk_start in range(0, int(length), _CHUNK_BP):
@@ -208,6 +225,35 @@ def _write_scaled_bigwig(
         if not committed:
             partial.unlink(missing_ok=True)
     return output
+
+
+def scale_bigwig_by_reference(
+    input_path: str | Path,
+    reference_path: str | Path,
+    output_path: str | Path,
+    *,
+    scale: float = 1.0,
+    reporter: ProgressReporter | None = None,
+) -> tuple[Path, float, int]:
+    """Scale one BigWig by the finite non-zero mean of another BigWig."""
+    if not math.isfinite(scale) or scale <= 0:
+        raise ValueError("scale must be a finite value greater than zero")
+    reference_mean, count = bigwig_nonzero_mean(reference_path, reporter)
+    _require_pybigwig()
+    source = pyBigWig.open(str(input_path))
+    if source is None:
+        raise OSError(f"Could not open BigWig: {input_path}")
+    try:
+        output = _write_scaled_bigwig(
+            source,
+            output_path,
+            reference_mean=reference_mean,
+            scale=scale,
+            reporter=reporter,
+        )
+    finally:
+        source.close()
+    return output, reference_mean, count
 
 
 def _infer_bigbed_chrom_sizes(path: str | Path) -> dict[str, int]:
@@ -370,6 +416,8 @@ def _reference_token(
 ) -> str:
     if mode == "bigwig-nonzero-mean":
         return "bwnonzero"
+    if mode == "reference-bigwig-nonzero-mean":
+        return "reference-bwnonzero"
     if mode == "input-score-mean":
         return f"scores-col{score_column}"
     if mode == "region-score-mean":
@@ -459,7 +507,7 @@ def _write_summary(
         if contributing_values is not None:
             key = (
                 "finite_nonzero_bigwig_bases"
-                if mode == "bigwig-nonzero-mean"
+                if mode in {"bigwig-nonzero-mean", "reference-bigwig-nonzero-mean"}
                 else "finite_region_scores"
             )
             handle.write(f"{key}\t{contributing_values}\n")
@@ -493,6 +541,13 @@ def build_parser() -> argparse.ArgumentParser:
     source.add_argument(
         "--regions",
         help="BED, BED.gz or bigBed whose score-column mean defines the reference mean.",
+    )
+    source.add_argument(
+        "--reference-bigwig",
+        help=(
+            "BigWig whose finite non-zero mean defines the reference mean. Useful "
+            "for scaling a centred TNS/BNS/PNS track by its matching positive track."
+        ),
     )
     parser.add_argument(
         "--score-column", type=int, default=5,
@@ -564,6 +619,9 @@ def run(args: argparse.Namespace) -> int:
 
     reporter = ProgressReporter("mean-scale")
     region_path = Path(args.regions) if args.regions else None
+    reference_bigwig_path = (
+        Path(args.reference_bigwig) if args.reference_bigwig else None
+    )
     contributing_values: int | None = None
     nonfinite_region_scores: int | None = None
 
@@ -572,6 +630,14 @@ def run(args: argparse.Namespace) -> int:
         if not math.isfinite(reference_mean) or reference_mean == 0:
             raise ValueError("--reference-mean must be finite and non-zero")
         mode = "supplied-reference-mean"
+    elif reference_bigwig_path is not None:
+        if input_kind != "bigwig":
+            raise ValueError("--reference-bigwig requires BigWig input")
+        reporter.stage("Calculating reference mean from positive-score BigWig")
+        reference_mean, contributing_values = bigwig_nonzero_mean(
+            reference_bigwig_path, reporter
+        )
+        mode = "reference-bigwig-nonzero-mean"
     elif region_path is not None:
         reporter.stage("Calculating reference mean from region scores")
         reference_mean, contributing_values, nonfinite_region_scores = _region_score_mean(
@@ -664,6 +730,9 @@ def run(args: argparse.Namespace) -> int:
         clamp_min=effective_clamp_min,
         clamp_max=effective_clamp_max,
     )
+    if reference_bigwig_path is not None:
+        with summary.open("at", encoding="utf-8") as handle:
+            handle.write(f"reference_bigwig\t{reference_bigwig_path}\n")
     print(f"Reference mean: {reference_mean:.12g}")
     print(f"Scale: {args.scale:.12g}")
     print(f"Wrote: {output_path}")

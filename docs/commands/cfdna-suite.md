@@ -84,7 +84,11 @@ The suite performs PNS peak calls, ChromHMM-stratified PNS spacing, CTCF/TSS agg
 
 ## Randomization, resources and resume
 
-`--randomize` creates one validated randomized fragment set and runs it through the same current suite tree. `--resource-set hg19-gm12878` supplies compatible bundled annotations. `--resume`, `--force`, and `--dry-run` control recovery and planning.
+`--randomize` creates one validated randomized fragment set and runs randomized-only analysis through the same suite tree.
+
+`--with-randomized-control` runs the complete observed workflow followed by the complete randomized workflow with identical settings. Once both combined, mean-scaled nucleosome and breakpoint peak BEDs exist, `pns-peak-fdr` logic appends an `empirical_fdr` column to every observed combined peak. Add `--fdr 0.05` to also write FDR-filtered combined BEDs. The randomized files remain available for QC and reuse.
+
+`--resource-set hg19-gm12878` supplies compatible bundled annotations. `--resume`, `--force`, and `--dry-run` control recovery and planning.
 
 See [Output layout](../OUTPUT_LAYOUT.md), [Workflows](../WORKFLOWS.md), and the command-line help for the full accepted option set.
 

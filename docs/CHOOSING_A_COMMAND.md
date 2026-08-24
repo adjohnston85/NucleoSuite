@@ -16,11 +16,15 @@ For nucleosome-oriented signal:
 
 For a coordinated analysis with standard defaults, use [`cfdna-suite`](commands/cfdna-suite.md) or [`mnase-suite`](commands/mnase-suite.md).
 
+For a ChIP-seq, CUT&RUN, or CUT&Tag target plus matched control, use [`chip-suite`](commands/chip-suite.md). It defaults to TNS, estimates the target and control fragment modes by bootstrap-stabilized random sampling, scales each score by its matching positive-score mean, and estimates peak and cluster FDR from the control. Supply an integer such as `--mode 167` when the analysis mode is already known.
+
 ## I already have nucleosome or other peak calls
 
 Use [`mean-scale`](commands/mean-scale.md) when BigWig signal or BED-family scores should be expressed relative to a reference mean, including non-zero BigWig signal, interval-score means, alternate region-score means, or a supplied reference value.
 
 Use [`filter-peaks`](commands/filter-peaks.md) to create a reusable peak subset by score, score percentile, interval length, BigWig coverage, or combinations of these filters. Use [`peak-score-frequency`](commands/peak-score-frequency.md) to compare peak-score distributions and [`peak-states`](commands/peak-states.md) to measure how peaks are distributed across chromatin states.
+
+Use [`pns-peak-fdr`](commands/pns-peak-fdr.md) when an observed PNS peak BED and one or more identically processed fragment-randomized peak BEDs are available. It preserves every observed BED field and appends empirical FDR. An optional `--fdr` cutoff adds a filtered BED without replacing the complete annotated output.
 
 Use [`compare-positions`](commands/compare-positions.md) when one main nucleosome callset should be compared with one or more other callsets using one-to-one positional matching, main-score percentile groups, and optional within-percentile statistics.
 

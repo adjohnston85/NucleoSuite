@@ -50,6 +50,16 @@ nucleosuite mean-scale PNS.bw \
 
 `--normalization-mean` is an alias for `--reference-mean`. `--regions` and `--reference-mean` are mutually exclusive.
 
+A second BigWig can define the reference mean. This is used by `chip-suite` to divide a centred score track by its matching positive-score mean:
+
+```bash
+nucleosuite mean-scale target_tns.bw \
+  --reference-bigwig target_posTNS.bw \
+  --scale 1
+```
+
+`--reference-bigwig`, `--regions`, and `--reference-mean` are mutually exclusive.
+
 ## BED, BED.gz and bigBed input
 
 For a BED-family primary input, the default reference is the mean of the finite values in `--score-column` (column 5 by default):

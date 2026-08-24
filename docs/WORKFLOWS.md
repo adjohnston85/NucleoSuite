@@ -38,6 +38,22 @@ nucleosuite cfdna-suite \
 
 Use standalone commands for individual analyses or different fragment-selection settings between outputs.
 
+### Observed plus randomized suite execution
+
+```mermaid
+flowchart TB
+    A[Observed fragments] --> B[Full observed suite]
+    A --> C[Coordinate randomization]
+    C --> D[Full randomized suite]
+    B --> E[Observed combined peaks]
+    D --> F[Randomized combined peaks]
+    E --> G[pns-peak-fdr]
+    F --> G
+    G --> H[All peaks plus empirical FDR]
+```
+
+Both coordinated suites accept `--with-randomized-control`. The randomized workflow uses the same filtering, track, scaling, and peak-calling settings. If `--fdr` is omitted, all observed combined peaks are retained with FDR appended; if it is supplied, an additional filtered BED is written.
+
 ### PNS followed by spacing analysis
 
 ```mermaid
@@ -69,6 +85,30 @@ nucleosuite distances sample_methodpns_mode167_lower137_upper197_smooth0x2_nucle
   --min-distance 120 \
   --max-distance 250 \
   --output-prefix sample_spacing
+```
+
+## Matched ChIP-seq, CUT&RUN, or CUT&Tag
+
+```mermaid
+flowchart TB
+    A[Target BAM] --> C[chip-suite]
+    B[Control BAM] --> C
+    C --> D[Bootstrap fragment modes]
+    D --> E[TNS, BNS, or PNS tracks]
+    E --> F[Positive-score mean scaling]
+    F --> G[Independent peak calls]
+    G --> H[Peak competition and FDR]
+    H --> I[Cluster FDR]
+```
+
+[`chip-suite`](commands/chip-suite.md) defaults to TNS and 120–500 bp fragments. Target and control tracks are divided by their respective mean `posTNS` values; the control is not subtracted. An explicit mode bypasses automatic mode estimation:
+
+```bash
+nucleosuite chip-suite \
+  --target-bam target.bam \
+  --control-bam control.bam \
+  --outdir target_chip_suite \
+  --mode 167
 ```
 
 ## MNase-seq: from protected fragments to nucleosome organization
@@ -443,4 +483,10 @@ flowchart LR
 
 [`randomize-fragments`](commands/randomize-fragments.md) changes fragment coordinates while preserving selected fragment properties and placement constraints. Process observed and randomized fragments with the same downstream settings for a positional null comparison.
 
-The `cfdna-suite` and `mnase-suite` commands also provide randomized-only workflow execution with `--randomize`.
+The `cfdna-suite` and `mnase-suite` commands provide randomized-only workflow execution with `--randomize` and paired full execution with `--with-randomized-control`.
+
+When observed and randomized peak calls already exist, [`pns-peak-fdr`](commands/pns-peak-fdr.md) assigns monotonic empirical FDR values without positional matching:
+
+```bash
+nucleosuite pns-peak-fdr observed_peaks.bed randomized_peaks.bed --fdr 0.05
+```

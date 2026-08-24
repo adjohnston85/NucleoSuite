@@ -99,6 +99,17 @@ def test_mean_scale_parser_supports_reference_mean_alias_and_region_mode():
         ])
 
 
+def test_mean_scale_parser_accepts_a_reference_bigwig_exclusively():
+    parser = build_parser()
+    args = parser.parse_args(["tns.bw", "--reference-bigwig", "posTNS.bw", "--scale", "1"])
+    assert args.reference_bigwig == "posTNS.bw"
+    assert args.scale == pytest.approx(1.0)
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            ["tns.bw", "--reference-bigwig", "posTNS.bw", "--regions", "peaks.bed"]
+        )
+
+
 def test_mean_scale_bed_defaults_to_own_score_mean_and_same_format(tmp_path: Path):
     bed = tmp_path / "peaks.bed"
     bed.write_text(

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nucleosuite"
-version = "0.9.6"
+version = "0.10.0"
 description = "Nucleosome, chromatin and fragmentomics analysis from genomic sequencing data"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -39,7 +39,7 @@ dependencies = [
 test = ["pytest>=8", "build>=1.2"]
 
 [project.urls]
-Homepage = "https://github.com/adjohnston85/"
+Homepage = "https://github.com/adjohnston85/NucleoSuite"
 Repository = "https://github.com/adjohnston85/NucleoSuite"
 Documentation = "https://github.com/adjohnston85/NucleoSuite/tree/main/docs"
 

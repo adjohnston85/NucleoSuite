@@ -25,6 +25,7 @@ Each command page describes the calculation, a typical invocation, analysis opti
 ## Analyse peaks and spacing
 
 - [`call-peaks`](commands/call-peaks.md) — call PNS or WPS features from an existing signal track.
+- [`pns-peak-fdr`](commands/pns-peak-fdr.md) — assign empirical FDR values using fragment-randomized PNS peaks.
 - [`filter-peaks`](commands/filter-peaks.md) — filter peak intervals by score, score percentile, region length, and/or BigWig coverage.
 - [`peak-score-frequency`](commands/peak-score-frequency.md) — compare peak-score distributions.
 - [`peak-states`](commands/peak-states.md) — count peaks and score-dependent enrichment across chromatin states.
@@ -51,6 +52,7 @@ Each command page describes the calculation, a typical invocation, analysis opti
 
 - [`cfdna-suite`](commands/cfdna-suite.md) — coordinated cfDNA fragmentomics workflow.
 - [`mnase-suite`](commands/mnase-suite.md) — coordinated MNase-seq workflow.
+- [`chip-suite`](commands/chip-suite.md) — matched ChIP-seq/CUT&RUN/CUT&Tag target-control nucleosome-score workflow.
 
 ## Replot and customize figures
 

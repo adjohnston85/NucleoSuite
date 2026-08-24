@@ -277,6 +277,9 @@ Analysis:
   --randomize                   Run a randomized control instead of the observed analysis.
                                 The full normal analysis tree is retained and all output
                                 names contain _randomized_control.
+  --with-randomized-control    Run complete observed and randomized workflows, then
+                                append empirical FDR to observed combined peak BEDs.
+  --fdr N                       In paired mode, also write BEDs filtered at FDR N.
   --skip-positive-runs          Skip PNS positive-run analysis.
   --skip-peak-score-frequency   Skip peak-score plots for the active run mode.
   --interval-format VALUE       bed, bigbed or both. Default: both.
@@ -1211,7 +1214,7 @@ done
 TRACK_REPORT="$COMBINED_TRACK_DIR/${SUPPORT_PREFIX}completion_report.tsv"
 TRACK_ARGS=(
   "${ANALYSIS_INPUT_ARGS[@]}" "${BLACKLIST_ARGS[@]}" --fasta "$FASTA" --chrom-sizes "$CHROM_SIZES" -c "${CONTIGS[@]}"
-  --spec-file "$TRACK_SPEC_FILE" --max-duplicates "$ACTIVE_MAX_DUPLICATES" --max-per-coordinate "$MAX_PER_COORDINATE"
+  --output-dir "$COMBINED_TRACK_DIR" --spec-file "$TRACK_SPEC_FILE" --max-duplicates "$ACTIVE_MAX_DUPLICATES" --max-per-coordinate "$MAX_PER_COORDINATE"
   --dedup-scope "$DEDUP_SCOPE" --even-dyad "$EVEN_DYAD" --pns-mode-length "$PNS_MODE_LENGTH" --bigbed-score-scale "$BIGBED_SCORE_SCALE"
   --pns-smooth-window "$PNS_SMOOTH_WINDOW" --pns-smooth-order "$PNS_SMOOTH_ORDER" --pns-max-neg-run "$PNS_MAX_NEG_RUN"
   --interval-format "$INTERVAL_FORMAT" --output-format bigwig --report "$TRACK_REPORT"

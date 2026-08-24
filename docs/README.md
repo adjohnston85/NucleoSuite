@@ -6,8 +6,9 @@ Choose a command by the analysis to perform and the output you need.
 
 - [Quick start](QUICKSTART.md) — common analyses from BAM to interpretable output.
 - [Choosing a command](CHOOSING_A_COMMAND.md) — choose a command for your analysis goal.
-- [Workflows](WORKFLOWS.md) — see how commands fit together in cfDNA, MNase-seq, peak spacing, categorized [`flank-spacing`](commands/flank-spacing.md), chromatin-state, and gene-centred analyses.
+- [Workflows](WORKFLOWS.md) — see how commands fit together in cfDNA, MNase-seq, ChIP-seq/CUT&RUN/CUT&Tag, empirical peak FDR, peak spacing, categorized [`flank-spacing`](commands/flank-spacing.md), chromatin-state, and gene-centred analyses.
 - [Command reference](COMMAND_REFERENCE.md) — links to every command page.
+- [Version 0.10.0 release notes](RELEASE_NOTES_0.10.0.md) — summarizes the new workflows, interfaces, and compatibility changes.
 
 ## Understanding the calculations
 

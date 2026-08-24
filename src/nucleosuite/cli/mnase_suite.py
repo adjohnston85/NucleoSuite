@@ -747,6 +747,10 @@ def _parallel_main(
 def validate_argv(argv: Sequence[str] | None = None) -> None:
     """Validate suite arguments without creating outputs or starting a job."""
     args = list(argv or [])
+    from nucleosuite.cli.suite_paired import extract_paired_options
+    paired, _fdr, args = extract_paired_options(args)
+    if paired and _has_flag(args, "--randomize"):
+        raise ValueError("--with-randomized-control cannot be combined with --randomize")
     from nucleosuite.plotting import extract_plotting_argv
     args, plot_env = extract_plotting_argv(args)
     if plot_env:
@@ -795,6 +799,36 @@ def validate_argv(argv: Sequence[str] | None = None) -> None:
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the bundled workflow, optionally with one worker per contig."""
     args = list(argv or [])
+    from nucleosuite.cli.suite_paired import (
+        annotate_suite_combined_peaks,
+        extract_paired_options,
+    )
+    paired, paired_fdr, args = extract_paired_options(args)
+    if paired:
+        if _has_flag(args, "--randomize"):
+            raise ValueError("--with-randomized-control cannot be combined with --randomize")
+        outdir = _single_value(args, "--outdir")
+        if not outdir:
+            raise ValueError("--with-randomized-control requires --outdir")
+        args = _replace_single_option(args, "--interval-format", "both")
+        observed_code = main(args)
+        if observed_code:
+            return int(observed_code)
+        randomized_code = main([*args, "--randomize"])
+        if randomized_code:
+            return int(randomized_code)
+        if "--dry-run" in args:
+            return 0
+        outputs = annotate_suite_combined_peaks(
+            outdir,
+            suite_name="mnase-suite",
+            fdr_threshold=paired_fdr,
+        )
+        for label, result in outputs.items():
+            print(f"{label}_peaks_empirical_fdr\t{result.annotated_path}")
+            if result.significant_path is not None:
+                print(f"{label}_peaks_significant\t{result.significant_path}")
+        return 0
     from nucleosuite.plotting import extract_plotting_argv
     args, plot_env = extract_plotting_argv(args)
     if plot_env:
