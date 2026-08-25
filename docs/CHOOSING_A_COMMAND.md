@@ -9,14 +9,14 @@ Use [`fragments`](commands/fragments.md) if you first want an explicit fragment 
 For nucleosome-oriented signal:
 
 - [`pns`](commands/pns.md) — score positions with endpoint probability triangles (PNS), a balanced central boxcar (BNS), or a centred unit-mass triangle (TNS).
-- [`wps`](commands/wps.md) — score whether fragments protect a fixed window or terminate inside it.
+- [`wps`](commands/wps.md) — score whether fragments protect a mode-sized window or terminate inside it; the mode is estimated automatically unless fixed explicitly.
 - [`dyads`](commands/dyads.md) — place signal at fragment centres.
 - [`coverage`](commands/coverage.md) — count how many fragments cover each base.
 - [`fragment-ends`](commands/fragment-ends.md) — count fragment starts and ends.
 
 For a coordinated analysis with standard defaults, use [`cfdna-suite`](commands/cfdna-suite.md) or [`mnase-suite`](commands/mnase-suite.md).
 
-For a ChIP-seq, CUT&RUN, or CUT&Tag treatment plus control, use [`chip-suite`](commands/chip-suite.md). It defaults to TNS peak discovery on the average treatment track, estimates fragment modes by bootstrap-stabilized random sampling, and writes raw coverage. Coverage is independently scaled to a non-zero mean of 100. Replicate maxima over each treatment candidate supply an all-treatment versus all-control gate and a one-sided Welch/BH Stage 1 test; control peaks are not required. Replicate groups are independent and may differ in size unless `--bam-mode merged` is selected. Four supplied groups also run a difference-of-differences Stage 2 comparison. Supply an integer such as `--mode 167` when the analysis mode is already known.
+For a ChIP-seq, CUT&RUN, or CUT&Tag treatment plus control, use [`chip-suite`](commands/chip-suite.md). It defaults to TNS nucleosome-peak discovery on an average treatment track and estimates fragment modes by bootstrap-stabilized random sampling. Each replicate TNS is normalized by its own mean `posTNS` before averaging so sequencing depth does not determine its weight in candidate discovery. Raw coverage is retained, while coverage is independently scaled to a non-zero mean of 100 for comparable replicate peak measurements. Maximum scaled coverage supplies the default all-treatment versus all-control Stage 1 gate; Welch p-values and BH FDR are retained as optional exploratory filters. Clusters contain gated treatment peaks with p < 0.05. Control and breakpoint peaks are not called. Replicate groups are independent and may differ in size unless `--bam-mode merged` is selected. Four supplied groups add a log-scale empirical-Bayes interaction analysis. Supply an integer such as `--mode 167` when the analysis mode is already known.
 
 Use [`chip-compare`](commands/chip-compare.md) when two conditions already have completed Stage 1 manifests. It compares the saved mean-scaled coverage BigWigs and does not read the BAMs again.
 

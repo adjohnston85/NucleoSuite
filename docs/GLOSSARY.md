@@ -46,7 +46,7 @@ Dinucleotide profiles do not split even-length fragments between alternative cen
 
 ## Empirical FDR
 
-An estimate of the fraction of retained discoveries expected to be false. `pns-peak-fdr` uses peak-score counts from fragment-randomized runs and reports monotonic empirical q-values. Default `chip-suite` Stage 1 uses one-sided Welch p-values from replicate maximum scaled coverage followed by Benjamini-Hochberg correction across all treatment candidates. `chip-compare` applies BH correction to four-group interaction tests. The legacy CHIP condition-mean mode retains the earlier empirical control-decoy calculation.
+An estimate of the fraction of retained discoveries expected to be false. `pns-peak-fdr` uses peak-score counts from fragment-randomized runs and reports monotonic empirical q-values. `chip-suite` Stage 1 uses one-sided Welch p-values from replicate maximum scaled coverage followed by Benjamini-Hochberg correction across all treatment candidates, but uses the all-controls gate rather than FDR as its default selector. `chip-compare` applies BH correction to empirical-Bayes moderated four-group interaction tests.
 
 ## Flanking spacing
 
@@ -70,7 +70,7 @@ Subtraction of a vector's arithmetic mean from every value. PNS, BNS and TNS mea
 
 ## Mode estimation
 
-Estimation of the dominant accepted fragment length used to set the PNS, BNS, or TNS scoring geometry. `chip-suite` samples fragments from indexed genomic blocks, bootstraps a smoothed length histogram until the mode stabilizes, and uses an equal-weight pooled treatment/control mode by default. An integer `--mode` bypasses estimation.
+Estimation of the dominant accepted fragment length used to set PNS, BNS, TNS, or standalone WPS scoring geometry. `pns`, `wps`, and `chip-suite` sample accepted fragments from seeded randomly ordered genomic blocks and bootstrap the raw integer length histogram until the mode stabilizes. Histogram smoothing is disabled by default and is available explicitly with `--mode-histogram-smoothing binomial`. `chip-suite` uses an equal-weight pooled treatment/control mode by default. An integer `--mode` bypasses estimation.
 
 ## NRL
 

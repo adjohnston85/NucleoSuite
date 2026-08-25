@@ -5,7 +5,10 @@ from unittest.mock import patch
 import pyBigWig
 import pytest
 
-from nucleosuite.chip_compare import compare_stage1
+from nucleosuite.chip_compare import (
+    _moderated_interaction_statistics,
+    compare_stage1,
+)
 from nucleosuite.chip_peaks import (
     analyze_chip_peaks,
     analyze_chip_replicate_peaks,
@@ -15,12 +18,15 @@ from nucleosuite.chip_peaks import (
     compete_peaks_with_bigwigs,
 )
 from nucleosuite.chip_suite import (
+    _estimate_modes,
     _locate_completed_prefix,
     _resolved_prefix,
     _validate,
     build_parser,
     run,
 )
+from nucleosuite.mode_estimation import ModeEstimate
+from nucleosuite.progress import ProgressReporter
 from nucleosuite.peak_fdr import PeakRow
 
 
@@ -49,7 +55,11 @@ def test_chip_suite_defaults_to_tns_auto_mode_and_120_500(tmp_path: Path):
     assert (args.frag_lower, args.frag_upper) == (120, 500)
     assert args.mode_strategy == "pooled"
     assert args.bam_mode == "replicates"
-    assert args.stage1_control_mode == "all-controls"
+    assert args.mode_histogram_smoothing == "none"
+    assert args.peak_fdr is None
+    assert args.cluster_fdr is None
+    assert args.cluster_member_p_value == 0.05
+    assert not hasattr(args, "stage1_control_mode")
     assert args.treatment1_bam == [str(target)]
     assert args.control1_bam == [str(control)]
 
@@ -79,6 +89,7 @@ def test_chip_suite_emits_target_and_control_raw_coverage(tmp_path: Path):
             for suffix in ("_tns.bw", "_posTNS.bw", "_coverage.bw"):
                 Path(f"{prefix}{suffix}").touch()
             return
+        assert command[command.index("--call-type") + 1] == "nucleosome"
         peak_prefix = Path(command[command.index("--out-prefix") + 1])
         peak_prefix.parent.mkdir(parents=True, exist_ok=True)
         Path(f"{peak_prefix}_nucleosome_regions.bed").write_text(
@@ -117,7 +128,8 @@ def test_chip_suite_emits_target_and_control_raw_coverage(tmp_path: Path):
         (tmp_path / "out" / "chip_stage1_manifest.json").read_text()
     )
     assert manifest["control_candidate_peaks"] is None
-    assert manifest["stage1_statistics"] == "one_sided_welch_bh_all_candidates"
+    assert manifest["stage1_selection"] == "all_treatments_exceed_all_controls"
+    assert manifest["stage1_statistics"] == "exploratory_one_sided_welch_bh_all_candidates"
 
 
 def test_explicit_chip_mode_overrides_automatic_estimation(tmp_path: Path):
@@ -133,6 +145,52 @@ def test_explicit_chip_mode_overrides_automatic_estimation(tmp_path: Path):
         ]
     )
     assert args.mode == 167
+
+
+def test_chip_auto_mode_prints_treatment_control_and_pooled_estimates(
+    tmp_path: Path, capsys
+):
+    target = tmp_path / "target.bam"
+    control = tmp_path / "control.bam"
+    target.touch(); control.touch()
+    args = build_parser().parse_args(
+        [
+            "--target-bam", str(target),
+            "--control-bam", str(control),
+            "--outdir", str(tmp_path / "out"),
+        ]
+    )
+    treatment = ModeEstimate(
+        153, 152, 154, 1000, 900, True, 3, (1, 8, 1), 152, 154, "none"
+    )
+    control_estimate = ModeEstimate(
+        151, 150, 152, 1000, 900, True, 3, (1, 8, 1), 150, 152, "none"
+    )
+    pooled = ModeEstimate(
+        152, 151, 153, 2000, 900, True, 3, (1, 8, 1), 151, 153, "none"
+    )
+
+    with (
+        patch(
+            "nucleosuite.chip_suite.estimate_bam_fragment_mode",
+            side_effect=(treatment, control_estimate),
+        ),
+        patch(
+            "nucleosuite.chip_suite.pooled_mode_estimate",
+            return_value=pooled,
+        ),
+    ):
+        _estimate_modes(
+            args,
+            [(args.treatment1_bam, args.control1_bam)],
+            ProgressReporter("chip-suite"),
+        )
+
+    output = capsys.readouterr().err
+    assert "Condition 1 treatment fragment mode: 153 bp" in output
+    assert "Condition 1 control fragment mode: 151 bp" in output
+    assert "Condition 1 pooled fragment mode: 152 bp" in output
+    assert "smoothing=none" in output
 
 
 def test_explicit_chip_mode_does_not_validate_unused_auto_search_bounds(tmp_path: Path):
@@ -430,7 +488,75 @@ def test_stage1_single_replicate_reports_unavailable_fdr(tmp_path: Path):
     )
 
     assert outputs["annotated_peaks"].read_text().strip().endswith("\t.")
-    assert outputs["significant_peaks"].read_text() == ""
+    assert outputs["significant_peaks"].read_text().strip().endswith("\t.")
+    assert outputs["significant_clusters"].read_text() == ""
+
+
+def test_stage1_clusters_require_gate_and_member_p_below_005(tmp_path: Path):
+    target_bed = tmp_path / "target_candidates.bed"
+    target_bed.write_text(
+        "chr1\t20\t60\tpeak1\t8\t.\t40\t41\n"
+        "chr1\t100\t140\tpeak2\t8\t.\t120\t121\n"
+        "chr1\t180\t220\tpeak3\t8\t.\t200\t201\n",
+        encoding="utf-8",
+    )
+    treatment_paths = [tmp_path / f"treatment{index}.bw" for index in range(2)]
+    control_paths = [tmp_path / f"control{index}.bw" for index in range(2)]
+    treatment_scores = ((120.0, 120.0, 150.0), (122.0, 200.0, 152.0))
+    control_scores = ((50.0, 50.0, 60.0), (52.0, 110.0, 62.0))
+
+    def values(scores: tuple[float, float, float]) -> list[float]:
+        output = [0.0] * 300
+        for (start, end), score in zip(((20, 60), (100, 140), (180, 220)), scores):
+            output[start:end] = [score] * (end - start)
+        return output
+
+    for path, scores in zip(treatment_paths, treatment_scores):
+        _write_bigwig(path, values(scores))
+    for path, scores in zip(control_paths, control_scores):
+        _write_bigwig(path, values(scores))
+    mean_path = tmp_path / "treatment_mean.bw"
+    _write_bigwig(mean_path, values((121.0, 160.0, 151.0)))
+
+    outputs = analyze_chip_replicate_peaks(
+        target_bed,
+        output_dir=tmp_path / "results",
+        target_replicate_bigwigs=treatment_paths,
+        control_replicate_bigwigs=control_paths,
+        target_mean_bigwig=mean_path,
+        cluster_member_pvalue=0.05,
+        minimum_significant_peaks=2,
+    )
+
+    statistics = outputs["competition_table"].read_text().splitlines()
+    header = statistics[0].split("\t")
+    rows = [line.split("\t") for line in statistics[1:]]
+    assert all(row[header.index("selected_for_stage2")] == "true" for row in rows)
+    assert float(rows[0][header.index("p_value")]) < 0.05
+    assert float(rows[1][header.index("p_value")]) > 0.05
+    assert float(rows[2][header.index("p_value")]) < 0.05
+    cluster = outputs["cluster_table"].read_text().splitlines()[1].split("\t")
+    assert cluster[:4] == ["chr1", "20", "220", "2"]
+
+
+def test_stage2_empirical_bayes_moderates_region_variances():
+    groups = []
+    for index in range(30):
+        offset = index * 0.01
+        groups.append(
+            [
+                [2.0 + offset, 2.2 + offset],
+                [1.0, 1.1],
+                [3.0 + offset, 3.3 + offset],
+                [1.0, 1.2],
+            ]
+        )
+    statistics, metadata = _moderated_interaction_statistics(groups)
+    assert metadata["available"] is True
+    assert metadata["moderated"] is True
+    assert float(metadata["prior_degrees_freedom"]) > 0
+    assert len(statistics) == 30
+    assert all(0 <= row["moderated_pvalue"] <= 1 for row in statistics)
 
 
 def test_replicate_mode_allows_unequal_unpaired_treatment_control_groups(tmp_path: Path):
@@ -480,7 +606,7 @@ def test_four_group_dry_run_plans_stage2(tmp_path: Path, capsys):
     assert run(args) == 0
     output = capsys.readouterr().out
     assert "conditions\t2" in output
-    assert "stage2-four-group-interaction-bh" in output
+    assert "stage2-log2-moderated-four-group-interaction-bh" in output
 
 
 def _stage1_manifest(
@@ -615,7 +741,9 @@ def test_chip_compare_uses_unpaired_unequal_four_group_interaction(tmp_path: Pat
     assert "condition1_treatment_replicate_3" in header
     assert "condition1_control_replicate_3" not in header
     assert "condition2_control_replicate_3" in header
-    assert row[header.index("interaction_difference")] == "18"
+    assert row[header.index("raw_interaction_difference")] == "18"
+    assert float(row[header.index("log2_interaction_difference")]) > 0
+    assert row[header.index("replicate_consistency")] == "robust_gain"
     assert row[-1] == "significant_gain"
 
 

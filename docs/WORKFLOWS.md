@@ -92,15 +92,15 @@ nucleosuite distances sample_methodpns_mode167_lower137_upper197_smooth0x2_nucle
 ```mermaid
 flowchart TB
     A[Condition 1 treatment/control BAMs] --> B[chip-suite Stage 1]
-    B --> C[Scaled BigWigs and significant features]
+    B --> C[Scaled BigWigs, gated peaks and p-defined clusters]
     D[Condition 2 treatment/control BAMs] --> E[chip-suite Stage 1]
-    E --> F[Scaled BigWigs and significant features]
+    E --> F[Scaled BigWigs, gated peaks and p-defined clusters]
     C --> G[chip-compare Stage 2]
     F --> G
     G --> H[Differential peaks and clusters]
 ```
 
-[`chip-suite`](commands/chip-suite.md) defaults to TNS and 120–500 bp fragments. Each score track is divided by its own mean `posTNS`; treatment tracks are then averaged for peak discovery. Default Stage 1 does not call control peaks. Raw coverage BigWigs are retained, and separate coverage BigWigs are scaled to a non-zero mean of 100 for peak measurement. At each treatment candidate, every replicate maximum is retained, every treatment must exceed every control, and a one-sided Welch test receives BH correction across all candidates. Treatment and control groups are independent and may differ in size; `--bam-mode merged` pools each group. An explicit mode bypasses automatic mode estimation:
+[`chip-suite`](commands/chip-suite.md) defaults to TNS and 120–500 bp fragments. Each replicate TNS track is first divided by its own mean `posTNS`, which prevents a deeper replicate from dominating the condition average. The normalized treatment tracks are averaged to create one consensus discovery signal, ensuring that every replicate is evaluated over the same candidate intervals. Stage 1 calls treatment nucleosome peaks only; control and breakpoint peaks are not called. Raw coverage BigWigs are retained, and separate coverage BigWigs are scaled to a non-zero mean of 100 so peak abundance is comparable across samples. The maximum scaled coverage within each candidate is retained for every replicate because it captures local enrichment without strongly depending on interval width. Every treatment must exceed every control for a peak to pass by default. One-sided Welch p-values and BH FDR are reported as optional exploratory filters, while clusters use gate-passing members with p < 0.05. Treatment and control groups are independent and may differ in size; `--bam-mode merged` pools each group. Stage 2 uses a log-scale empirical-Bayes interaction model. An explicit mode bypasses automatic mode estimation:
 
 ```bash
 nucleosuite chip-suite \

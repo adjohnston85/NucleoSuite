@@ -55,6 +55,8 @@ class ReplicatePeakStatistics:
     minimum_treatment: float
     maximum_control: float
     conservative_excess: float
+    conservative_fold_enrichment: float
+    conservative_log2_enrichment: float
     all_controls_gate: bool
     pvalue: float
     qvalue: float = math.nan
@@ -591,7 +593,7 @@ def analyze_chip_peaks(
         "wt", encoding="utf-8"
     ) as bed:
         table.write(
-            "chromosome\tstart\tend\tsignificant_peak_count\tcluster_score\t"
+            "chromosome\tstart\tend\tqualifying_peak_count\tcluster_score\t"
             "max_peak_score\tsummit\tempirical_fdr\n"
         )
         for index, cluster in enumerate(target_clusters, 1):
@@ -668,8 +670,10 @@ def analyze_chip_replicate_peaks(
     target_mean_bigwig: str | Path,
     score_column: int = 5,
     summit_column: int = 7,
-    peak_fdr: float = 0.05,
-    cluster_fdr: float = 0.05,
+    peak_pvalue: float | None = None,
+    peak_fdr: float | None = None,
+    cluster_member_pvalue: float = 0.05,
+    cluster_fdr: float | None = None,
     cluster_break: int = 5,
     max_cluster_gap: int = 1000,
     minimum_significant_peaks: int = 2,
@@ -679,11 +683,19 @@ def analyze_chip_replicate_peaks(
     No control peaks are called.  Each treatment candidate is measured in all
     treatment and control tracks.  The all-controls gate requires the minimum
     treatment maximum to exceed the maximum control maximum.  One-sided Welch
-    p-values are calculated for every candidate before BH correction.
+    p-values are calculated for every candidate before BH correction.  The
+    default Stage 1 selection is the all-controls gate alone; p-value and FDR
+    cutoffs are optional because small replicate groups do not support a
+    useful genome-wide FDR for hundreds of thousands of nucleosome tests.
     """
 
-    for name, value in (("peak_fdr", peak_fdr), ("cluster_fdr", cluster_fdr)):
-        if not math.isfinite(value) or not 0 <= value <= 1:
+    for name, value in (
+        ("peak_pvalue", peak_pvalue),
+        ("peak_fdr", peak_fdr),
+        ("cluster_member_pvalue", cluster_member_pvalue),
+        ("cluster_fdr", cluster_fdr),
+    ):
+        if value is not None and (not math.isfinite(value) or not 0 <= value <= 1):
             raise ValueError(f"{name} must be between 0 and 1")
     if not target_replicate_bigwigs or not control_replicate_bigwigs:
         raise ValueError("Treatment and control replicate BigWigs are required")
@@ -714,6 +726,7 @@ def analyze_chip_replicate_peaks(
             minimum_treatment = min(treatment_scores)
             maximum_control = max(control_scores)
             excess = max(minimum_treatment - maximum_control, 0.0)
+            fold_enrichment = (minimum_treatment + 1.0) / (maximum_control + 1.0)
             gate = minimum_treatment > maximum_control
             mean_score = max(
                 interval_max(mean_handle, peak.chrom, peak.start, peak.end), 0.0
@@ -738,6 +751,8 @@ def analyze_chip_replicate_peaks(
                     minimum_treatment=minimum_treatment,
                     maximum_control=maximum_control,
                     conservative_excess=excess,
+                    conservative_fold_enrichment=fold_enrichment,
+                    conservative_log2_enrichment=math.log2(fold_enrichment),
                     all_controls_gate=gate,
                     pvalue=_one_sided_welch_greater(treatment_scores, control_scores),
                 )
@@ -755,7 +770,12 @@ def analyze_chip_replicate_peaks(
     directory = Path(output_dir)
     directory.mkdir(parents=True, exist_ok=True)
     annotated = directory / "target_peaks_replicate_fdr.bed"
-    significant = directory / f"target_peaks_fdr{peak_fdr:g}_significant.bed"
+    selection_tokens = ["all_controls_gated"]
+    if peak_pvalue is not None:
+        selection_tokens.append(f"p{peak_pvalue:g}")
+    if peak_fdr is not None:
+        selection_tokens.append(f"fdr{peak_fdr:g}")
+    significant = directory / f"target_peaks_{'_'.join(selection_tokens)}.bed"
     statistics_table = directory / "target_peak_replicate_statistics.tsv"
     with annotated.open("wt", encoding="utf-8") as all_handle, significant.open(
         "wt", encoding="utf-8"
@@ -765,11 +785,13 @@ def analyze_chip_replicate_peaks(
             fields[score_column - 1] = f"{_signal_score(record.peak):.12g}"
             text = "\t".join((*fields, _format_optional(record.qvalue))) + "\n"
             all_handle.write(text)
-            if (
-                record.all_controls_gate
-                and math.isfinite(record.qvalue)
-                and record.qvalue <= peak_fdr
-            ):
+            passes_pvalue = peak_pvalue is None or (
+                math.isfinite(record.pvalue) and record.pvalue <= peak_pvalue
+            )
+            passes_fdr = peak_fdr is None or (
+                math.isfinite(record.qvalue) and record.qvalue <= peak_fdr
+            )
+            if record.all_controls_gate and passes_pvalue and passes_fdr:
                 significant_handle.write(text)
 
     with statistics_table.open("wt", encoding="utf-8") as handle:
@@ -778,11 +800,18 @@ def analyze_chip_replicate_peaks(
             "condition_mean_scaled_coverage_max\ttreatment_replicate_maxima\t"
             "control_replicate_maxima\ttreatment_mean\tcontrol_mean\t"
             "treatment_minus_control\tminimum_treatment\tmaximum_control\t"
-            "conservative_excess\tall_treatments_exceed_all_controls\t"
+            "conservative_excess\tconservative_fold_enrichment_pseudocount1\t"
+            "conservative_log2_enrichment_pseudocount1\t"
+            "all_treatments_exceed_all_controls\tselected_for_stage2\t"
             "p_value\tfdr\n"
         )
         for record in statistics:
             peak = record.peak
+            selected = record.all_controls_gate
+            if peak_pvalue is not None:
+                selected = selected and math.isfinite(record.pvalue) and record.pvalue <= peak_pvalue
+            if peak_fdr is not None:
+                selected = selected and math.isfinite(record.qvalue) and record.qvalue <= peak_fdr
             handle.write(
                 f"{peak.chrom}\t{peak.start}\t{peak.end}\t{peak.summit}\t"
                 f"{peak.row.score:.12g}\t{_signal_score(peak):.12g}\t"
@@ -792,14 +821,24 @@ def analyze_chip_replicate_peaks(
                 + f"\t{record.treatment_mean:.12g}\t{record.control_mean:.12g}\t"
                 f"{record.mean_difference:.12g}\t{record.minimum_treatment:.12g}\t"
                 f"{record.maximum_control:.12g}\t{record.conservative_excess:.12g}\t"
-                f"{str(record.all_controls_gate).lower()}\t"
+                f"{record.conservative_fold_enrichment:.12g}\t"
+                f"{record.conservative_log2_enrichment:.12g}\t"
+                f"{str(record.all_controls_gate).lower()}\t{str(selected).lower()}\t"
                 f"{_format_optional(record.pvalue)}\t{_format_optional(record.qvalue)}\n"
             )
 
+    cluster_candidates = []
+    for record in statistics:
+        selected = (
+            record.all_controls_gate
+            and math.isfinite(record.pvalue)
+            and record.pvalue < cluster_member_pvalue
+        )
+        cluster_candidates.append(replace(record.peak, winner=selected))
     clusters = cluster_peaks(
-        [record.peak for record in statistics],
+        cluster_candidates,
         significance_score=0.0,
-        require_qvalue=peak_fdr,
+        require_qvalue=None,
         cluster_break=cluster_break,
         max_cluster_gap=max_cluster_gap,
         minimum_significant_peaks=minimum_significant_peaks,
@@ -814,7 +853,10 @@ def analyze_chip_replicate_peaks(
         for cluster in clusters
     ]
     cluster_table = directory / "target_clusters_member_fdr.tsv"
-    significant_clusters = directory / f"target_clusters_fdr{cluster_fdr:g}_significant.bed"
+    cluster_tokens = ["all_controls_gated", f"member_p{cluster_member_pvalue:g}"]
+    if cluster_fdr is not None:
+        cluster_tokens.append(f"maximum_member_fdr{cluster_fdr:g}")
+    significant_clusters = directory / f"target_clusters_{'_'.join(cluster_tokens)}.bed"
     with cluster_table.open("wt", encoding="utf-8") as table, significant_clusters.open(
         "wt", encoding="utf-8"
     ) as bed:
@@ -829,7 +871,10 @@ def analyze_chip_replicate_peaks(
                 f"{cluster.max_peak_score:.12g}\t{cluster.summit}\t"
                 f"{_format_optional(cluster.qvalue)}\n"
             )
-            if math.isfinite(cluster.qvalue) and cluster.qvalue <= cluster_fdr:
+            passes_cluster_fdr = cluster_fdr is None or (
+                math.isfinite(cluster.qvalue) and cluster.qvalue <= cluster_fdr
+            )
+            if passes_cluster_fdr:
                 bed.write(
                     f"{cluster.chrom}\t{cluster.start}\t{cluster.end}\t"
                     f"chip_cluster_{index}\t{cluster.score:.6f}\t.\t"
@@ -839,8 +884,10 @@ def analyze_chip_replicate_peaks(
 
     return {
         "annotated_peaks": annotated,
+        "selected_peaks": significant,
         "significant_peaks": significant,
         "competition_table": statistics_table,
         "cluster_table": cluster_table,
+        "selected_clusters": significant_clusters,
         "significant_clusters": significant_clusters,
     }

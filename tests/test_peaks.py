@@ -44,6 +44,8 @@ def test_wps_peak_caller_is_default():
     parser = build_parser()
     args = parser.parse_args(["wps", "-b", "sample.bam"])
     assert args.peak_caller == "wps"
+    assert args.protection == "auto"
+    assert args.mode_histogram_smoothing == "none"
 
 
 def test_call_peaks_method_specific_smoothing_defaults():
@@ -65,6 +67,8 @@ def test_pns_cli_defaults_to_raw_tracks_and_zero_gap():
     from nucleosuite.cli.main import build_parser
 
     args = build_parser().parse_args(["pns", "--bam", "sample.bam"])
+    assert args.mode_length == "auto"
+    assert args.mode_histogram_smoothing == "none"
     assert args.smooth_window == 0
     assert args.max_neg_run == 0
     assert args.pns_tracks == ["pns", "posPNS"]
@@ -85,19 +89,20 @@ def test_pns_cli_exposes_tns_as_optional_scoring_method():
     from nucleosuite.cli.main import build_parser
 
     args = build_parser().parse_args([
-        "pns", "--bam", "sample.bam", "--scoring-method", "tns"
+        "pns", "--bam", "sample.bam", "--scoring-method", "tns", "--mode", "167"
     ])
     assert args.scoring_method == "tns"
     assert args.pns_tracks == ["pns", "posPNS"]
 
 
-def test_pns_tns_run_maps_default_score_tracks(monkeypatch):
+def test_pns_tns_run_maps_default_score_tracks(monkeypatch, tmp_path):
     from nucleosuite.cli.main import build_parser
     from nucleosuite.cli import pns as pns_cli
     import nucleosuite.parallel as parallel
 
     args = build_parser().parse_args([
-        "pns", "--bam", "sample.bam", "--scoring-method", "tns"
+        "pns", "--bam", "sample.bam", "--scoring-method", "tns", "--mode", "167",
+        "--out-prefix", str(tmp_path / "sample"),
     ])
     captured = {}
 

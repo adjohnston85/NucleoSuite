@@ -10,6 +10,8 @@ Use PNS when you want endpoint-derived dyad support from nucleosome-sized fragme
 
 ## How it works
 
+Before constructing a score, `pns` resolves the protected-DNA mode. The default `--mode auto` samples accepted fragments from seeded randomly ordered genomic blocks and selects the most frequent integer length from the unsmoothed histogram. The mode controls where each fragment's positive central support and negative flanks are placed, so estimating it adapts the score geometry to the library rather than assuming 167 bp. Use an integer such as `--mode 167` when a fixed geometry is required.
+
 ### PNS
 
 Each fragment end contributes a triangular dyad-support distribution with mass 0.5. The two distributions are added, and their maxima coincide when the fragment length equals the selected protected-DNA mode. NucleoSuite subtracts the combined distribution's mean so that each complete fragment contributes values that sum to zero, then adds the fragment contributions across the genome.
@@ -65,11 +67,15 @@ nucleosuite pns \
 
 ## Defaults
 
-Standalone `pns` uses fragment lengths **137–197 bp** with modal protected-DNA length **167 bp** by default. `mnase-suite` uses an MNase-specific PNS configuration of **120–180 bp** with mode **147 bp**.
+Standalone `pns` uses fragment lengths **137–197 bp** and estimates the modal protected-DNA length automatically by default. `--mode 167` bypasses estimation. `mnase-suite` retains its workflow-specific **120–180 bp** PNS configuration with mode **147 bp**.
 
 `--scoring-method pns` is the default. Select `--scoring-method bns` for BNS or `--scoring-method tns` for TNS.
 
 Raw PNS, BNS or TNS is the default peak-calling signal. Savitzky–Golay smoothing is available but disabled by default (`--smooth-window 0`).
+
+Mode-histogram smoothing is also disabled by default. `--mode-histogram-smoothing binomial` optionally applies the normalized `1,4,6,4,1` kernel during mode estimation. This is separate from `--smooth-window`, which smooths the genomic score track rather than the fragment-length histogram.
+
+The resolved mode is printed during execution and written to `*_fragment_mode_estimation.tsv` with its bootstrap interval, search range, sampled-fragment counts, convergence result, seed, smoothing setting, and histogram. Output filenames use the resolved numeric mode so two automatic runs with different modes cannot silently overwrite one another.
 
 ## Peak calling
 

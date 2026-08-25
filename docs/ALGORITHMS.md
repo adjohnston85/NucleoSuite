@@ -273,41 +273,90 @@ score_{bigBed}=\min\left(1000,\max\left(0,\mathrm{round}(B\,score_{BED})\right)\
 
 Optional [Savitzky-Golay smoothing](https://doi.org/10.1021/ac60214a047) can be applied before peak calling. It fits a low-order polynomial within a moving window and evaluates the fitted value at the centre. Raw scoring signal is used by default.
 
-Standalone `pns` uses PNS by default. Select `--scoring-method bns` for BNS or `--scoring-method tns` for TNS. `pns` and `cfdna-suite` use 137-197 bp fragments with $m=167$ bp by default. `mnase-suite` uses 120-180 bp fragments with $m=147$ bp.
+Standalone `pns` uses PNS by default. Select `--scoring-method bns` for BNS or `--scoring-method tns` for TNS. Standalone `pns` now estimates $m$ automatically from the accepted fragments unless an integer `--mode` is supplied. The cfDNA and MNase suites retain their workflow-specific protected-DNA settings.
 
 ## Bootstrap-stabilized fragment-mode estimation
 
-`chip-suite --mode auto` estimates each treatment and control group separately. Indexed genomic blocks from the selected analysis contigs are visited in seeded random order. Accepted paired fragments must satisfy the suite fragment-length, duplicate, alignment, and blacklist filters. A histogram is accumulated over the mode-search range, 120–250 bp by default.
+### What is estimated and why
 
-The histogram is lightly smoothed with normalized weights proportional to `1, 4, 6, 4, 1`. The point estimate is the integer length with the largest smoothed count. At each checkpoint, multinomial bootstrap samples are drawn from the current empirical length distribution and the smoothed mode is recalculated. Sampling stops when the recent point modes differ by no more than the selected tolerance and the bootstrap 95% interval is sufficiently narrow, or when the maximum sample size is reached.
+`pns`, `wps`, and `chip-suite` use a protected-DNA length to define their scoring geometry. With `--mode auto`, NucleoSuite estimates the dominant accepted fragment length instead of assuming that every library has the same modal length. This matters because digestion, library preparation, and assay type can shift the observed protected-fragment distribution.
 
-The default pooled strategy normalizes the target and control histograms separately and gives them equal weight:
+An integer `--mode` bypasses estimation and uses that value exactly. This is useful when a fixed geometry is required across separately processed analyses.
+
+### Sampling the histogram
+
+Indexed genomic blocks from the selected analysis contigs are visited in seeded random order. Random block order prevents the estimate from being determined by whichever chromosomes happen to occur first in the input. A fragment enters the histogram only if it passes the same alignment, duplicate-coordinate, fragment-length, contig, and blacklist rules used by the analysis. The estimate therefore describes the fragments that will actually contribute to the score.
+
+The accepted fragment lengths are counted in one-base bins across the selected mode-search range. `pns` and `wps` use their accepted fragment range as the default search range; `chip-suite` uses 120–250 bp within its default 120–500 bp accepted range.
+
+The raw integer histogram is used by default. The modal length is the lowest length tied for the largest observed count. No histogram smoothing is applied because smoothing can merge nearby modes or move the maximum away from the most frequently observed integer length.
+
+Optional `--mode-histogram-smoothing binomial` applies the normalized five-bin kernel
+
+```math
+\frac{1}{16}(1,4,6,4,1)
+```
+
+before selecting the mode. This option can reduce isolated bin-to-bin noise, but it is deliberately opt-in because it changes the quantity being maximized.
+
+### Bootstrap stability and stopping
+
+At each sampling checkpoint, NucleoSuite draws multinomial bootstrap histograms from the current empirical length distribution and recalculates the mode using the same smoothing setting. These bootstrap modes provide a percentile 95% interval. Sampling stops early only when both conditions are met:
+
+1. the recent point estimates differ by no more than `--mode-max-change`; and
+2. the bootstrap interval is no wider than `--mode-max-ci-width`.
+
+Otherwise sampling continues until `--mode-max-fragments` is reached. Requiring stability across checkpoints reduces the chance of stopping on a temporary maximum produced by too few sampled fragments.
+
+The resolved estimate, bootstrap interval, sampled-fragment counts, search range, smoothing setting, convergence result, checkpoint count, seed, and histogram are written to a mode-estimation report. The resolved estimates are also printed during execution so a long `chip-suite` run immediately shows the mode selected for every treatment and control group.
+
+### Pooling treatment and control estimates in `chip-suite`
+
+`chip-suite` estimates each treatment and control group separately before selecting the analysis mode. The default pooled strategy converts the two histograms to within-group probabilities and gives them equal weight:
 
 ```math
 p_{pool}(L)=\frac{1}{2}\left(\frac{n_T(L)}{\sum_j n_T(j)}+\frac{n_C(L)}{\sum_j n_C(j)}\right).
 ```
 
-This prevents a deeper library from determining the shared mode solely through read count. With two conditions, corresponding group estimates are pooled so both conditions use compatible scoring geometry. `--mode INT` bypasses sampling and uses the supplied integer exactly.
+Equal weighting prevents the deeper BAM group from determining the shared mode solely because it contains more fragments. With two conditions, corresponding estimates are pooled again so both Stage 1 analyses use compatible scoring geometry. This compatibility is required because Stage 2 compares measurements made within peak regions defined by those Stage 1 analyses.
 
 ## Positive-score mean normalization
 
-For a centred score track $Z(x)$ and its matching non-negative pre-centring score $Z^+(x)$, `chip-suite` calculates the finite, non-zero mean of the positive track and writes:
+### Normalizing replicate score tracks for peak discovery
+
+TNS, BNS, or PNS is used to locate candidate peaks, not to provide the final ChIP peak abundance. Before treatment replicates are averaged, each centred score track $Z_i(x)$ is divided by the finite, non-zero mean of its matching non-negative pre-centring track $Z_i^+(x)$:
 
 ```math
-Z_{scaled}(x)=\frac{Z(x)}{\mathrm{mean}\!\left(Z^+(x)\right)}.
+Z_{i,scaled}(x)=\frac{Z_i(x)}{\mathrm{mean}\!\left(Z_i^+(x)\mid Z_i^+(x)>0\right)}.
 ```
 
-TNS uses `posTNS`, BNS uses `posBNS`, and PNS uses `posPNS`. Target and control are normalized independently. No control subtraction is performed; both normalized tracks retain their peak structure and are called separately.
+TNS uses `posTNS`, BNS uses `posBNS`, and PNS uses `posPNS`. The positive track measures the uncentred amount of score-support contributed by fragments, so its mean provides a method-matched reference for the overall score amplitude.
 
-Peak strength is then measured from coverage, not from the discovery-score height. Treatment and control coverage are independently scaled to a finite non-zero mean of 100:
+This normalization is performed before averaging because raw score magnitudes depend on library depth. Averaging unscaled tracks would give a higher-depth replicate more influence over candidate discovery. Dividing each replicate by its own positive-score mean places the tracks on comparable scales, allowing each replicate to contribute equally to the condition-average discovery track.
+
+The normalized treatment tracks are averaged because peak calling requires one common candidate set. Signal consistently present across replicates is reinforced, while replicate-specific fluctuations have less influence. Calling peaks once on the average also ensures that every treatment and control replicate is later measured over exactly the same intervals. Control score tracks are retained for inspection, but control peaks are not called and control is not subtracted from treatment.
+
+### Normalizing coverage for peak measurement
+
+Peak strength is measured from fragment coverage rather than TNS, BNS, or PNS height. Each treatment and control replicate is independently scaled to a finite non-zero coverage mean of 100:
 
 ```math
-Cov_{100}(x)=100\frac{Cov(x)}{\mathrm{mean}(Cov(x)\mid Cov(x)>0)}.
+Cov_{100,i}(x)=100\frac{Cov_i(x)}{\mathrm{mean}(Cov_i(x)\mid Cov_i(x)>0)}.
 ```
 
-The raw coverage BigWigs are retained separately.
+This scaling compensates for differences in total usable coverage between samples. A value of 100 represents the mean among covered bases in that replicate, so local values describe coverage relative to the replicate's typical covered position. Scaling every replicate separately makes treatment and control measurements comparable without globally subtracting one track from another. The raw coverage BigWigs are retained so the original depth remains available.
+
+For a candidate interval $R$, the replicate peak score is the maximum scaled coverage within the interval:
+
+```math
+P_i(R)=\max_{x\in R}Cov_{100,i}(x).
+```
+
+The maximum captures the strongest local enrichment supporting the TNS-defined candidate and is less dependent on the width of the called interval than a sum or area. TNS, BNS, or PNS therefore answers **where is the candidate?**, while scaled coverage answers **how strong is it in each replicate?**
 
 ## Empirical peak FDR
+
+### Randomized-peak FDR with `pns-peak-fdr`
 
 Let $S(s)$ be the number of observed peaks with score at least $s$, and let $R_b(s)$ be the corresponding count in randomized callset $b$. With $B$ randomized callsets, `pns-peak-fdr` estimates:
 
@@ -315,9 +364,15 @@ Let $S(s)$ be the number of observed peaks with score at least $s$, and let $R_b
 \widehat{FDR}(s)=\min\left(1,\frac{1+\sum_{b=1}^{B}R_b(s)}{B\max\left(1,S(s)\right)}\right).
 ```
 
-The pseudocount prevents a zero estimate above every randomized peak. Scores are evaluated at the distinct observed thresholds. Each observed peak receives the smallest estimated FDR among thresholds that retain that peak, producing a monotonic empirical q-value. Coordinates are not matched because coordinate-randomized peaks define a positional null distribution.
+The randomized callsets preserve the relevant fragment properties while removing the original genomic positioning, so their peak-score distribution represents peaks expected under a positional null. The pseudocount prevents a zero estimate above every randomized peak. Scores are evaluated at the distinct observed thresholds. Each observed peak receives the smallest estimated FDR among thresholds that retain that peak, producing a monotonic empirical q-value. Coordinates are not matched because randomized positions are intentionally unrelated to the observed positions.
 
-In default `chip-suite` Stage 1, TNS defines candidate peak intervals from the average normalized treatment TNS track. Control peaks are not called. Coverage is independently scaled to a non-zero mean of 100 in every replicate. For treatment replicate $i$, control replicate $j$, and treatment peak interval $R$, define
+### `chip-suite` Stage 1: treatment versus control
+
+Stage 1 asks whether a treatment-defined candidate is reproducibly stronger than the condition-matched control. It does not use the randomized-peak FDR above.
+
+Candidate intervals are called from the average normalized treatment TNS, BNS, or PNS track. Control peaks are not called because a control signal should be able to challenge a treatment candidate even when the control does not independently form a called peak.
+
+For treatment replicate $i$, control replicate $j$, and candidate interval $R$, the maximum scaled-coverage scores are
 
 ```math
 T_i(R)=\max_{x\in R}Cov_{100,T_i}(x),
@@ -325,17 +380,75 @@ T_i(R)=\max_{x\in R}Cov_{100,T_i}(x),
 C_j(R)=\max_{x\in R}Cov_{100,C_j}(x).
 ```
 
-The all-controls gate retains a target candidate only if $\min_i T_i(R)>\max_j C_j(R)$. This is equivalent to requiring every treatment replicate to exceed every control replicate, without input-order pairing. A one-sided Welch test of treatment versus control maxima is calculated for every treatment candidate when both groups contain at least two replicates. Benjamini-Hochberg correction is applied across all treatment candidates before the gate and FDR cutoff are jointly applied. The compatibility mode `--stage1-control-mode condition-mean` retains the earlier control-peak empirical-decoy analysis.
+The all-controls gate retains a candidate only if
 
-Significant target peaks are clustered within contigs. A cluster ends after the configured number of consecutive nonsignificant calls or when successive significant summits exceed the maximum gap. The cluster score is the sum of member conservative excesses, and `maximum_member_fdr` is used as a conservative cluster annotation and cutoff.
+```math
+\min_i T_i(R)>\max_j C_j(R).
+```
 
-For Stage 2, `chip-compare` forms the union of significant Stage 1 features from both conditions and measures all replicate-scaled coverage tracks over common intervals. Overlapping peaks use their coordinate union; condition-specific peaks retain their interval and are still measured in the other condition. Each interval records `region_origin` as `overlap_union`, `proximity_union`, `condition1_only`, or `condition2_only`. Peaks use maximum coverage and clusters use positive coverage area. Four independent replicate groups are retained, and the tested interaction is $\Delta=(\bar T_2-\bar C_2)-(\bar T_1-\bar C_1)$. A Welch-style standard error is $\sqrt{s^2_{T1}/n_{T1}+s^2_{C1}/n_{C1}+s^2_{T2}/n_{T2}+s^2_{C2}/n_{C2}}$, with Satterthwaite degrees of freedom. BH correction is applied across regions. Fewer than two replicates in any group produces descriptive effects without inferential FDR.
+This is equivalent to requiring every treatment replicate to exceed every control replicate. It is deliberately conservative: one weak treatment replicate or one strong control replicate prevents the peak from proceeding. Treatment and control BAMs are independent groups and are not paired by input order.
+
+The gate is the default Stage 1 peak selector. When both groups contain at least two biological replicates, a one-sided Welch test also asks whether the treatment-score mean is greater than the control-score mean without assuming equal variances. Benjamini-Hochberg correction is calculated across all candidates, but p-values and FDR are annotations by default. This separation is necessary because a nucleosome-scale analysis can contain hundreds of thousands of correlated tests, while two biological replicates per group provide unstable peak-specific variance estimates. `--stage1-p-value` and `--peak-fdr` enable optional additional filtering. With fewer than two replicates in either group, the scores and gate remain available but p-value and FDR are reported as unavailable.
+
+The statistics table also reports a conservative fold enrichment using a pseudocount of 1,
+
+```math
+F_{cons}(R)=\frac{\min_i T_i(R)+1}{\max_j C_j(R)+1},
+```
+
+and its base-2 logarithm. The extrema make the effect size consistent with the all-controls gate, while the pseudocount permits regions whose control maximum is zero.
+
+### Stage 1 peak clusters
+
+Cluster members must pass both the all-controls gate and the nominal one-sided member threshold $p<0.05$. This defines clusters as stretches of treatment peaks that are always stronger than the controls and also show nominal replicate-level separation. `--cluster-member-p-value` changes the member threshold. A cluster ends after the configured number of consecutive nonqualifying calls or when successive qualifying summits exceed the maximum gap. Allowing a limited nonqualifying bridge prevents one weak internal call from splitting an otherwise coherent domain.
+
+The cluster score remains the sum of member conservative excesses, where each excess is the minimum treatment score minus the maximum control score. `maximum_member_fdr` records the least significant member FDR as an annotation. `--cluster-fdr` can optionally filter that annotation, but no cluster FDR cutoff is applied by default.
+
+### `chip-compare` Stage 2: differences between conditions
+
+Stage 2 asks whether treatment enrichment relative to control changes between two biological conditions. It reads the Stage 1 manifests and scaled coverage BigWigs; it does not return to the BAM files.
+
+The union of gate-selected Stage 1 peaks, or p-defined Stage 1 clusters, is used so a feature found in only one condition can still be quantitatively measured in the other condition rather than being assigned an artificial zero. Overlapping peaks use their coordinate union so all replicates are measured over one common interval. Nearby non-overlapping peaks may also be joined by `--peak-match-distance`. `region_origin` records whether the interval is `overlap_union`, `proximity_union`, `condition1_only`, or `condition2_only`.
+
+Peaks use the maximum scaled coverage within the common interval for the same width-robust reason used in Stage 1. Clusters retain positive scaled-coverage area because a cluster represents a broader domain whose extent and accumulated enrichment are both informative.
+
+For each region, the four independent replicate groups are condition 1 treatment ($T_1$), condition 1 control ($C_1$), condition 2 treatment ($T_2$), and condition 2 control ($C_2$). Each peak maximum or cluster area $X$ is transformed to
+
+```math
+Y=\log_2(X+1).
+```
+
+The transformation makes multiplicative enrichment differences comparable across the coverage range and permits zero-valued regions. A factorial linear model contains condition, treatment/control status, and their interaction. Its tested coefficient is
+
+```math
+\Delta_{log}=(\bar Y_{T_2}-\bar Y_{C_2})-(\bar Y_{T_1}-\bar Y_{C_1}).
+```
+
+Subtracting the matched control within each condition first separates target-specific enrichment from condition-specific background. Comparing those two effects then tests the biological condition change rather than a raw treatment-track difference.
+
+Let $s_R^2$ be the ordinary residual variance for region $R$, with residual degrees of freedom $d_R$. NucleoSuite estimates a shared scaled-inverse-chi-square variance prior with variance $s_0^2$ and degrees of freedom $d_0$ from the winsorized distribution of log residual variances across regions. The posterior variance is
+
+```math
+s_{post,R}^2=\frac{d_0s_0^2+d_Rs_R^2}{d_0+d_R}.
+```
+
+The moderated t statistic uses $s_{post,R}^2$ and $d_0+d_R$ degrees of freedom. Borrowing variance information across regions stabilizes inference when each group has only two or three replicates; it does not increase the biological replicate count. Benjamini-Hochberg correction is applied to the moderated p-values across all tested regions. Fewer than two replicates in any group produces descriptive effects without inferential FDR.
+
+Stage 2 also reports a stringent replicate-separation annotation. On the log scale, condition $k$ has enrichment bounds
+
+```math
+L_k=\min(Y_{T_k})-\max(Y_{C_k}),
+\qquad
+U_k=\max(Y_{T_k})-\min(Y_{C_k}).
+```
+
+`robust_gain` requires $L_2>U_1$ and `robust_loss` requires $U_2<L_1$. These labels mean every possible treatment-control contrast is ordered in the same direction. They are descriptive consistency annotations rather than replacements for moderated FDR.
 
 ## Windowed protection score
 
 [Windowed protection score (WPS)](https://doi.org/10.1016/j.cell.2015.11.050) was introduced by Snyder et al. to infer nucleosome protection from cfDNA fragmentation. NucleoSuite's implementation was written to reproduce their L-WPS algorithm and default settings.
 
-The default L-WPS fragment range is 120–180 bp and the protection-window width is $k=120$ bp.
+The original L-WPS fragment range is 120–180 bp and its fixed protection-window width is $k=120$ bp. Standalone NucleoSuite `wps` retains the 120–180 bp fragment range but now sets $k$ to the automatically estimated fragment mode by default. This adapts the protection geometry to the analysed library. Supply `--mode 120` to reproduce the original fixed L-WPS width.
 
 ### One fragment at one window centre
 

@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 import numpy as np
+from scipy.optimize import brentq
+from scipy.special import digamma, polygamma
 from scipy.stats import t as student_t
 
 from nucleosuite.bigwig_ops import (
@@ -23,7 +25,7 @@ from nucleosuite.bigwig_ops import (
 
 MANIFEST_NAME = "chip_stage1_manifest.json"
 MANIFEST_SCHEMA = "nucleosuite_chip_stage1"
-MANIFEST_SCHEMA_VERSION = 2
+MANIFEST_SCHEMA_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -54,7 +56,7 @@ def load_stage1_manifest(value: str | Path) -> tuple[Path, dict[str, object]]:
         raise ValueError(f"Could not read Stage 1 manifest: {path}") from exc
     if payload.get("schema") != MANIFEST_SCHEMA:
         raise ValueError(f"Not a chip-suite Stage 1 manifest: {path}")
-    if int(payload.get("schema_version", -1)) not in {1, MANIFEST_SCHEMA_VERSION}:
+    if int(payload.get("schema_version", -1)) not in {1, 2, MANIFEST_SCHEMA_VERSION}:
         raise ValueError(f"Unsupported Stage 1 manifest schema version: {path}")
     return path, payload
 
@@ -67,6 +69,15 @@ def _require_manifest_path(manifest: dict[str, object], field: str) -> Path:
     if not path.is_file():
         raise FileNotFoundError(path)
     return path
+
+
+def _require_feature_path(
+    manifest: dict[str, object], preferred: str, legacy: str
+) -> Path:
+    """Read the gate-first schema field with a legacy manifest fallback."""
+
+    field = preferred if manifest.get(preferred) else legacy
+    return _require_manifest_path(manifest, field)
 
 
 def _validate_compatibility(
@@ -83,7 +94,6 @@ def _validate_compatibility(
         "frag_lower",
         "frag_upper",
         "contigs",
-        "stage1_control_mode",
         "stage1_statistics",
     )
     differences = [field for field in fields if first.get(field) != second.get(field)]
@@ -298,30 +308,153 @@ def _bh_qvalues(pvalues: Sequence[float]) -> list[float]:
     return qvalues
 
 
-def _interaction_pvalue(
-    first_treatment: Sequence[float],
-    first_control: Sequence[float],
-    second_treatment: Sequence[float],
-    second_control: Sequence[float],
-    delta: float,
-) -> float:
-    """Welch-style two-sided test of (T2-C2) - (T1-C1)."""
+def _interaction_design(group_sizes: Sequence[int]) -> np.ndarray:
+    """Build condition + treatment + condition:treatment factorial design."""
 
-    groups = (first_treatment, first_control, second_treatment, second_control)
-    if any(len(group) < 2 for group in groups):
-        return math.nan
-    components = [float(np.var(group, ddof=1)) / len(group) for group in groups]
-    variance = sum(components)
-    if variance == 0:
-        return 1.0 if delta == 0 else 0.0
-    denominator = sum(
-        component * component / (len(group) - 1)
-        for component, group in zip(components, groups)
-    )
-    degrees_freedom = variance * variance / denominator if denominator > 0 else math.inf
-    statistic = delta / math.sqrt(variance)
-    pvalue = 2.0 * float(student_t.sf(abs(statistic), degrees_freedom))
-    return min(max(pvalue, 0.0), 1.0) if math.isfinite(pvalue) else 1.0
+    if len(group_sizes) != 4:
+        raise ValueError("Four group sizes are required")
+    rows: list[list[float]] = []
+    # Input order is condition1 treatment, condition1 control,
+    # condition2 treatment, condition2 control.
+    for group_index, size in enumerate(group_sizes):
+        condition2 = 1.0 if group_index >= 2 else 0.0
+        treatment = 1.0 if group_index in {0, 2} else 0.0
+        rows.extend(
+            [[1.0, condition2, treatment, condition2 * treatment]] * size
+        )
+    return np.asarray(rows, dtype=float)
+
+
+def _estimate_variance_prior(
+    residual_variances: Sequence[float], residual_df: int
+) -> tuple[float, float]:
+    """Estimate a scaled-inverse-chi-square variance prior across regions.
+
+    This compact empirical-Bayes estimator follows the moment logic used for
+    moderated t statistics.  Log variances are winsorized before fitting so a
+    small number of extreme regions cannot determine the shared prior.
+    """
+
+    values = np.asarray(residual_variances, dtype=float)
+    values = values[np.isfinite(values) & (values >= 0)]
+    if residual_df <= 0 or values.size < 2:
+        return 0.0, math.nan
+    positive = values[values > 0]
+    reference = float(np.median(positive)) if positive.size else 1.0
+    floor = max(reference * 1e-8, np.finfo(float).tiny)
+    logs = np.log(np.maximum(values, floor))
+    if logs.size >= 20:
+        lower, upper = np.quantile(logs, (0.05, 0.95))
+        logs = np.clip(logs, lower, upper)
+    observed_variance = float(np.var(logs, ddof=1))
+    sampling_variance = float(polygamma(1, residual_df / 2.0))
+    target = observed_variance - sampling_variance
+    if not math.isfinite(target) or target <= 1e-8:
+        prior_df = 1_000_000.0
+    else:
+        try:
+            prior_df = 2.0 * brentq(
+                lambda value: float(polygamma(1, value)) - target,
+                1e-6,
+                1e8,
+            )
+        except ValueError:
+            prior_df = 1_000_000.0 if target < float(polygamma(1, 1e8)) else 0.001
+    finite_df = max(prior_df, 1e-6)
+    sampling_mean = float(digamma(residual_df / 2.0) - math.log(residual_df / 2.0))
+    prior_mean = float(digamma(finite_df / 2.0) - math.log(finite_df / 2.0))
+    prior_variance = math.exp(float(np.mean(logs)) - sampling_mean + prior_mean)
+    return prior_df, max(prior_variance, floor)
+
+
+def _moderated_interaction_statistics(
+    log_groups_by_region: Sequence[Sequence[Sequence[float]]],
+) -> tuple[list[dict[str, float]], dict[str, float | int | bool]]:
+    """Fit and moderate the four-group interaction for every region."""
+
+    if not log_groups_by_region:
+        return [], {
+            "available": False,
+            "moderated": False,
+            "residual_degrees_freedom": 0,
+            "prior_degrees_freedom": math.nan,
+            "prior_variance": math.nan,
+        }
+    group_sizes = [len(group) for group in log_groups_by_region[0]]
+    if any(size < 2 for size in group_sizes):
+        return [
+            {
+                "effect": math.nan,
+                "ordinary_pvalue": math.nan,
+                "moderated_pvalue": math.nan,
+                "residual_variance": math.nan,
+                "posterior_variance": math.nan,
+            }
+            for _ in log_groups_by_region
+        ], {
+            "available": False,
+            "moderated": False,
+            "residual_degrees_freedom": 0,
+            "prior_degrees_freedom": math.nan,
+            "prior_variance": math.nan,
+        }
+    if any([len(group) for group in groups] != group_sizes for groups in log_groups_by_region):
+        raise ValueError("Replicate-group sizes changed between regions")
+    design = _interaction_design(group_sizes)
+    residual_df = int(design.shape[0] - np.linalg.matrix_rank(design))
+    if residual_df <= 0:
+        raise ValueError("The four-group interaction model has no residual degrees of freedom")
+    inverse = np.linalg.inv(design.T @ design)
+    contrast_variance = float(inverse[3, 3])
+    fitted: list[dict[str, float]] = []
+    residual_variances: list[float] = []
+    for groups in log_groups_by_region:
+        response = np.asarray([value for group in groups for value in group], dtype=float)
+        beta = inverse @ design.T @ response
+        residuals = response - design @ beta
+        residual_variance = max(float(residuals @ residuals) / residual_df, 0.0)
+        effect = float(beta[3])
+        if residual_variance == 0:
+            ordinary_pvalue = 1.0 if effect == 0 else 0.0
+        else:
+            statistic = effect / math.sqrt(residual_variance * contrast_variance)
+            ordinary_pvalue = 2.0 * float(student_t.sf(abs(statistic), residual_df))
+        fitted.append(
+            {
+                "effect": effect,
+                "ordinary_pvalue": ordinary_pvalue,
+                "residual_variance": residual_variance,
+            }
+        )
+        residual_variances.append(residual_variance)
+    prior_df, prior_variance = _estimate_variance_prior(residual_variances, residual_df)
+    moderated = prior_df > 0 and math.isfinite(prior_variance)
+    for record in fitted:
+        if moderated:
+            posterior_variance = (
+                prior_df * prior_variance
+                + residual_df * record["residual_variance"]
+            ) / (prior_df + residual_df)
+            total_df = residual_df + prior_df
+            if posterior_variance == 0:
+                pvalue = 1.0 if record["effect"] == 0 else 0.0
+            else:
+                statistic = record["effect"] / math.sqrt(
+                    posterior_variance * contrast_variance
+                )
+                pvalue = 2.0 * float(student_t.sf(abs(statistic), total_df))
+        else:
+            posterior_variance = record["residual_variance"]
+            pvalue = record["ordinary_pvalue"]
+        record["posterior_variance"] = posterior_variance
+        record["moderated_pvalue"] = min(max(pvalue, 0.0), 1.0)
+    return fitted, {
+        "available": True,
+        "moderated": moderated,
+        "residual_degrees_freedom": residual_df,
+        "prior_degrees_freedom": prior_df,
+        "prior_variance": prior_variance,
+    }
 
 
 def _format_number(value: float) -> str:
@@ -353,55 +486,128 @@ def _compare_regions(
     try:
         for region in regions:
             measured = [
-                [statistic(handle, region.chrom, region.start, region.end) for handle in group]
+                [
+                    max(
+                        float(statistic(handle, region.chrom, region.start, region.end)),
+                        0.0,
+                    )
+                    for handle in group
+                ]
                 for group in grouped_handles
             ]
-            first_treatment_values, first_control_values, second_treatment_values, second_control_values = measured
+            log_measured = [
+                [math.log2(value + 1.0) for value in group] for group in measured
+            ]
+            (
+                first_treatment_values,
+                first_control_values,
+                second_treatment_values,
+                second_control_values,
+            ) = measured
+            (
+                first_treatment_log,
+                first_control_log,
+                second_treatment_log,
+                second_control_log,
+            ) = log_measured
             first_treatment_mean = float(np.mean(first_treatment_values))
             first_control_mean = float(np.mean(first_control_values))
             second_treatment_mean = float(np.mean(second_treatment_values))
             second_control_mean = float(np.mean(second_control_values))
             first_enrichment = first_treatment_mean - first_control_mean
             second_enrichment = second_treatment_mean - second_control_mean
-            delta = second_enrichment - first_enrichment
+            raw_delta = second_enrichment - first_enrichment
+            log_means = tuple(float(np.mean(group)) for group in log_measured)
+            first_log_enrichment = log_means[0] - log_means[1]
+            second_log_enrichment = log_means[2] - log_means[3]
+            log_delta = second_log_enrichment - first_log_enrichment
+            first_lower = min(first_treatment_log) - max(first_control_log)
+            first_upper = max(first_treatment_log) - min(first_control_log)
+            second_lower = min(second_treatment_log) - max(second_control_log)
+            second_upper = max(second_treatment_log) - min(second_control_log)
+            if second_lower > first_upper:
+                consistency = "robust_gain"
+            elif second_upper < first_lower:
+                consistency = "robust_loss"
+            else:
+                consistency = "not_replicate_separated"
             rows.append(
                 {
                     "region": region,
                     "groups": measured,
+                    "log_groups": log_measured,
                     "means": (
                         first_treatment_mean,
                         first_control_mean,
                         second_treatment_mean,
                         second_control_mean,
                     ),
+                    "log_means": log_means,
                     "first_enrichment": first_enrichment,
                     "second_enrichment": second_enrichment,
-                    "delta": delta,
-                    "pvalue": _interaction_pvalue(
-                        first_treatment_values,
-                        first_control_values,
-                        second_treatment_values,
-                        second_control_values,
-                        delta,
-                    ),
+                    "raw_delta": raw_delta,
+                    "first_log_enrichment": first_log_enrichment,
+                    "second_log_enrichment": second_log_enrichment,
+                    "log_delta": log_delta,
+                    "first_bounds": (first_lower, first_upper),
+                    "second_bounds": (second_lower, second_upper),
+                    "replicate_consistency": consistency,
                 }
             )
     finally:
         for handle in handles:
             handle.close()
 
-    qvalues = _bh_qvalues([float(row["pvalue"]) for row in rows])
-    inferential = (
+    inferential_requested = (
         first_manifest.get("bam_mode") == "replicates"
         and second_manifest.get("bam_mode") == "replicates"
         and all(len(group) >= 2 for group in groups)
     )
+    if inferential_requested:
+        model_rows, model_metadata = _moderated_interaction_statistics(
+            [row["log_groups"] for row in rows]  # type: ignore[list-item]
+        )
+    else:
+        model_rows = [
+            {
+                "effect": float(row["log_delta"]),
+                "ordinary_pvalue": math.nan,
+                "moderated_pvalue": math.nan,
+                "residual_variance": math.nan,
+                "posterior_variance": math.nan,
+            }
+            for row in rows
+        ]
+        model_metadata = {
+            "available": False,
+            "moderated": False,
+            "residual_degrees_freedom": 0,
+            "prior_degrees_freedom": math.nan,
+            "prior_variance": math.nan,
+        }
+    for row, model in zip(rows, model_rows):
+        row.pop("log_groups", None)
+        row["model"] = model
+    qvalues = _bh_qvalues(
+        [float(model["moderated_pvalue"]) for model in model_rows]
+    )
+    inferential = bool(model_metadata["available"])
     output_path.parent.mkdir(parents=True, exist_ok=True)
     gain_path = output_path.with_name(output_path.stem + f"_fdr{fdr:g}_gains.bed")
     loss_path = output_path.with_name(output_path.stem + f"_fdr{fdr:g}_losses.bed")
-    with output_path.open("wt", encoding="utf-8") as table, gain_path.open(
-        "wt", encoding="utf-8"
-    ) as gains, loss_path.open("wt", encoding="utf-8") as losses:
+    all_gain_path = output_path.with_name(output_path.stem + "_all_gains.bed")
+    all_loss_path = output_path.with_name(output_path.stem + "_all_losses.bed")
+    robust_gain_path = output_path.with_name(output_path.stem + "_robust_gains.bed")
+    robust_loss_path = output_path.with_name(output_path.stem + "_robust_losses.bed")
+    with (
+        output_path.open("wt", encoding="utf-8") as table,
+        gain_path.open("wt", encoding="utf-8") as gains,
+        loss_path.open("wt", encoding="utf-8") as losses,
+        all_gain_path.open("wt", encoding="utf-8") as all_gains,
+        all_loss_path.open("wt", encoding="utf-8") as all_losses,
+        robust_gain_path.open("wt", encoding="utf-8") as robust_gains,
+        robust_loss_path.open("wt", encoding="utf-8") as robust_losses,
+    ):
         replicate_columns = [
             *[f"condition1_treatment_replicate_{index}" for index in range(1, len(first_treatment) + 1)],
             *[f"condition1_control_replicate_{index}" for index in range(1, len(first_control) + 1)],
@@ -415,17 +621,26 @@ def _compare_regions(
             + "\tcondition1_treatment_mean\tcondition1_control_mean\t"
             "condition2_treatment_mean\tcondition2_control_mean\t"
             "condition1_mean_enrichment\tcondition2_mean_enrichment\t"
-            "interaction_difference\tp_value\tdifferential_fdr\tstatus\n"
+            "raw_interaction_difference\tcondition1_log2_treatment_mean\t"
+            "condition1_log2_control_mean\tcondition2_log2_treatment_mean\t"
+            "condition2_log2_control_mean\tcondition1_log2_enrichment\t"
+            "condition2_log2_enrichment\tlog2_interaction_difference\t"
+            "condition1_log2_enrichment_lower\tcondition1_log2_enrichment_upper\t"
+            "condition2_log2_enrichment_lower\tcondition2_log2_enrichment_upper\t"
+            "effect_direction\treplicate_consistency\tordinary_p_value\t"
+            "moderated_p_value\tdifferential_fdr\tresidual_variance\t"
+            "posterior_variance\tstatus\n"
         )
         for index, (row, qvalue) in enumerate(zip(rows, qvalues), 1):
             region = row["region"]
-            delta = float(row["delta"])
+            delta = float(row["log_delta"])
+            direction = "gain" if delta > 0 else "loss" if delta < 0 else "stable"
             if inferential and math.isfinite(qvalue) and qvalue <= fdr and delta > 0:
                 status = "significant_gain"
             elif inferential and math.isfinite(qvalue) and qvalue <= fdr and delta < 0:
                 status = "significant_loss"
             elif inferential:
-                status = "not_significant"
+                status = f"not_significant_{direction}"
             elif delta > 0:
                 status = "descriptive_gain"
             elif delta < 0:
@@ -449,9 +664,20 @@ def _compare_regions(
                 *(_format_number(float(value)) for value in row["means"]),
                 _format_number(float(row["first_enrichment"])),
                 _format_number(float(row["second_enrichment"])),
+                _format_number(float(row["raw_delta"])),
+                *(_format_number(float(value)) for value in row["log_means"]),
+                _format_number(float(row["first_log_enrichment"])),
+                _format_number(float(row["second_log_enrichment"])),
                 _format_number(delta),
-                _format_number(float(row["pvalue"])),
+                *(_format_number(float(value)) for value in row["first_bounds"]),
+                *(_format_number(float(value)) for value in row["second_bounds"]),
+                direction,
+                str(row["replicate_consistency"]),
+                _format_number(float(row["model"]["ordinary_pvalue"])),
+                _format_number(float(row["model"]["moderated_pvalue"])),
                 _format_number(qvalue),
+                _format_number(float(row["model"]["residual_variance"])),
+                _format_number(float(row["model"]["posterior_variance"])),
                 status,
             ]
             table.write("\t".join(values) + "\n")
@@ -461,20 +687,34 @@ def _compare_regions(
                 f"{region.summit}\t{region.summit + 1}\t{_format_number(qvalue)}\t"
                 f"{region.origin}\n"
             )
-            if status in {"significant_gain", "descriptive_gain"}:
+            if direction == "gain":
+                all_gains.write(bed_line)
+            elif direction == "loss":
+                all_losses.write(bed_line)
+            if status == "significant_gain":
                 gains.write(bed_line)
-            elif status in {"significant_loss", "descriptive_loss"}:
+            elif status == "significant_loss":
                 losses.write(bed_line)
+            if row["replicate_consistency"] == "robust_gain":
+                robust_gains.write(bed_line)
+            elif row["replicate_consistency"] == "robust_loss":
+                robust_losses.write(bed_line)
     origin_counts: dict[str, int] = {}
     for region in regions:
         origin_counts[region.origin] = origin_counts.get(region.origin, 0) + 1
     return {
         "table": str(output_path),
-        "gains": str(gain_path),
-        "losses": str(loss_path),
+        "significant_gains": str(gain_path),
+        "significant_losses": str(loss_path),
+        "all_gains": str(all_gain_path),
+        "all_losses": str(all_loss_path),
+        "robust_gains": str(robust_gain_path),
+        "robust_losses": str(robust_loss_path),
         "regions": len(regions),
         "region_origin_counts": origin_counts,
         "inferential_fdr_available": inferential,
+        "statistical_model": "empirical_bayes_log2_factorial_interaction",
+        "moderation": model_metadata,
     }
 
 
@@ -499,8 +739,12 @@ def compare_stage1(
 
     results: dict[str, object] = {}
     if feature_level in {"peaks", "both"}:
-        first_peaks = _read_bed_regions(_require_manifest_path(first, "significant_peaks"))
-        second_peaks = _read_bed_regions(_require_manifest_path(second, "significant_peaks"))
+        first_peaks = _read_bed_regions(
+            _require_feature_path(first, "selected_peaks", "significant_peaks")
+        )
+        second_peaks = _read_bed_regions(
+            _require_feature_path(second, "selected_peaks", "significant_peaks")
+        )
         distance = (
             int(peak_match_distance)
             if peak_match_distance is not None
@@ -524,10 +768,10 @@ def compare_stage1(
 
     if feature_level in {"clusters", "both"}:
         first_clusters = _read_bed_regions(
-            _require_manifest_path(first, "significant_clusters")
+            _require_feature_path(first, "selected_clusters", "significant_clusters")
         )
         second_clusters = _read_bed_regions(
-            _require_manifest_path(second, "significant_clusters")
+            _require_feature_path(second, "selected_clusters", "significant_clusters")
         )
         cluster_regions = _consensus_cluster_regions(first_clusters, second_clusters)
         results["clusters"] = _compare_regions(
@@ -545,7 +789,7 @@ def compare_stage1(
         json.dumps(
             {
                 "schema": "nucleosuite_chip_comparison",
-                "schema_version": 2,
+                "schema_version": 3,
                 "condition1_manifest": str(first_path),
                 "condition2_manifest": str(second_path),
                 "condition1_name": first.get("condition_name"),
@@ -553,7 +797,8 @@ def compare_stage1(
                 "feature_level": feature_level,
                 "peak_discovery_track": first.get("peak_discovery_track"),
                 "measurement_track": first.get("peak_measurement_track"),
-                "statistical_model": "welch_difference_of_differences",
+                "statistical_model": "empirical_bayes_log2_factorial_interaction",
+                "coverage_transform": "log2(mean_scaled_coverage_plus_1)",
                 "fdr": fdr,
                 "results": results,
             },
@@ -571,7 +816,8 @@ def build_parser() -> argparse.ArgumentParser:
         prog="nucleosuite chip-compare",
         description=(
             "Compare two completed chip-suite Stage 1 analyses using their "
-            "coverage BigWigs scaled to a non-zero mean of 100; BAM files are not revisited."
+            "coverage BigWigs scaled to a non-zero mean of 100 and a log2 "
+            "empirical-Bayes interaction model; BAM files are not revisited."
         ),
     )
     parser.add_argument(
@@ -601,7 +847,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--fdr", type=float, default=0.05,
-        help="Differential FDR cutoff when replicate inference is available (default: 0.05).",
+        help=(
+            "Moderated differential FDR cutoff for the separate significant "
+            "gain/loss BEDs; all regions remain in the complete tables (default: 0.05)."
+        ),
     )
     return parser
 

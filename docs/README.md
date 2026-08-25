@@ -14,7 +14,7 @@ Choose a command by the analysis to perform and the output you need.
 
 ## Understanding the calculations
 
-- [Algorithms](ALGORITHMS.md) describes each calculation and gives its defining mathematics.
+- [Algorithms](ALGORITHMS.md) explains what each important analytical step calculates, why that step is performed, how its values are derived, and how it affects the next stage. Command pages use the same what/why/how structure for defaults, normalization, filtering, statistics, and output interpretation.
 - [File formats](FILE_FORMATS.md) explains the coordinate and track formats NucleoSuite reads and writes.
 - [Output layout](OUTPUT_LAYOUT.md) explains single-contig, multicontig, suite, and combined output directories.
 - [Plot customization](PLOTTING.md) explains the shared plotting options.

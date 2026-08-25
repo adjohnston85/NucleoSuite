@@ -28,7 +28,7 @@ nucleosuite pns \
   --out-prefix sample_pns
 ```
 
-The most commonly reused outputs are the nucleosome-score BigWig and the nucleosome-region BED/bigBed. Select `--scoring-method bns` for Boxcar Nucleosome Score or `--scoring-method tns` for Triangular Nucleosome Score; both use the same peak caller as PNS. See [`pns`](commands/pns.md), [PNS in Algorithms](ALGORITHMS.md#probabilistic-nucleosome-scoring), [BNS in Algorithms](ALGORITHMS.md#boxcar-nucleosome-scoring), and [TNS in Algorithms](ALGORITHMS.md#triangular-nucleosome-scoring).
+The most commonly reused outputs are the nucleosome-score BigWig and the nucleosome-region BED/bigBed. The protected-DNA mode is estimated automatically from the unsmoothed accepted-fragment histogram and printed during execution; use `--mode 167` to fix it explicitly. Select `--scoring-method bns` for Boxcar Nucleosome Score or `--scoring-method tns` for Triangular Nucleosome Score; both use the same peak caller as PNS. See [`pns`](commands/pns.md), [PNS in Algorithms](ALGORITHMS.md#probabilistic-nucleosome-scoring), [BNS in Algorithms](ALGORITHMS.md#boxcar-nucleosome-scoring), and [TNS in Algorithms](ALGORITHMS.md#triangular-nucleosome-scoring).
 
 
 ### Filter nucleosome peaks by coverage
@@ -80,7 +80,7 @@ nucleosuite chip-suite \
 
 Use `--scoring-method bns` or `--scoring-method pns` to change the score. Use `--mode 167` to bypass automatic sampling and use exactly 167 bp for both target and control.
 
-The score-track stage writes raw fragment coverage and a separate coverage BigWig scaled to a non-zero mean of 100 for each sample. TNS calls candidates on the average treatment track only. For a candidate to pass Stage 1, its maximum scaled coverage in every treatment must exceed the maximum in every control over the same interval and its one-sided Welch test must pass BH FDR. Treatment and control groups are independent, may contain different replicate counts and are never paired by input order. Use `--bam-mode merged` to pool a group. Supplying `--treatment2-bam` and `--control2-bam` adds an unpaired four-group interaction test. Two independently completed Stage 1 runs can instead be compared with [`chip-compare`](commands/chip-compare.md).
+Each replicate TNS track is divided by its own mean `posTNS` before treatment tracks are averaged. This prevents sequencing-depth differences from weighting the consensus peak-discovery track toward one replicate. The score-track stage also writes raw fragment coverage and a separate coverage BigWig scaled to a non-zero mean of 100 for each sample. Maximum scaled coverage within each TNS-defined interval becomes the replicate peak score because it measures local abundance without making the score strongly dependent on peak width. A candidate passes the default Stage 1 selection when every treatment score exceeds every control score; p-values and BH FDR remain annotations unless optional cutoffs are supplied. Clusters use gate-passing peaks with p < 0.05. Treatment and control groups are independent, may contain different replicate counts, and are never paired by input order. Use `--bam-mode merged` to pool a group. Supplying `--treatment2-bam` and `--control2-bam` adds a log2 empirical-Bayes four-group interaction test. Two independently completed Stage 1 runs can instead be compared with [`chip-compare`](commands/chip-compare.md).
 
 ## 5. Measure nucleosome spacing
 

@@ -19,11 +19,12 @@ from nucleosuite.chip_compare import (
     MANIFEST_SCHEMA_VERSION,
     compare_stage1,
 )
-from nucleosuite.chip_peaks import analyze_chip_peaks, analyze_chip_replicate_peaks
+from nucleosuite.chip_peaks import analyze_chip_replicate_peaks
 from nucleosuite.mean_scale import scale_bigwig_by_reference
 from nucleosuite.mode_estimation import (
     ModeEstimate,
     estimate_bam_fragment_mode,
+    mode_estimate_message,
     pooled_mode_estimate,
 )
 from nucleosuite.progress import ProgressReporter
@@ -122,29 +123,39 @@ def _write_mode_report(
     pooled: ModeEstimate | None,
     target_mode: int,
     control_mode: int,
+    seeds: tuple[int, int, int],
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("wt", encoding="utf-8", newline="") as handle:
         handle.write(
             "sample\tmode\tbootstrap_ci_low\tbootstrap_ci_high\t"
-            "sampled_fragments\tmode_search_fragments\tconverged\tcheckpoints\tmode_source\n"
+            "sampled_fragments\tmode_search_fragments\tmode_search_lower\t"
+            "mode_search_upper\thistogram_smoothing\tconverged\tcheckpoints\t"
+            "seed\tmode_source\thistogram_length_bp_count\n"
         )
-        for label, estimate, analysis_mode in (
-            ("treatment", target, target_mode),
-            ("control", control, control_mode),
-            ("pooled", pooled, target_mode if target_mode == control_mode else -1),
+        for label, estimate, analysis_mode, seed in (
+            ("treatment", target, target_mode, seeds[0]),
+            ("control", control, control_mode, seeds[1]),
+            ("pooled", pooled, target_mode if target_mode == control_mode else -1, seeds[2]),
         ):
             if estimate is None:
                 if label != "pooled":
                     handle.write(
-                        f"{label}\t{analysis_mode}\t\t\t\t\t\t\t{mode_source}\n"
+                        f"{label}\t{analysis_mode}\t\t\t\t\t\t\t"
+                        f"not_applicable\t\t\t{seed}\t{mode_source}\t\n"
                     )
                 continue
+            histogram = ";".join(
+                f"{estimate.search_lower + index}:{count}"
+                for index, count in enumerate(estimate.histogram)
+            )
             handle.write(
                 f"{label}\t{estimate.mode}\t{estimate.ci_low:.6g}\t"
                 f"{estimate.ci_high:.6g}\t{estimate.sampled_fragments}\t"
-                f"{estimate.mode_search_fragments}\t{str(estimate.converged).lower()}\t"
-                f"{estimate.checkpoints}\t{mode_source}\n"
+                f"{estimate.mode_search_fragments}\t{estimate.search_lower}\t"
+                f"{estimate.search_upper}\t{estimate.histogram_smoothing}\t"
+                f"{str(estimate.converged).lower()}\t"
+                f"{estimate.checkpoints}\t{seed}\t{mode_source}\t{histogram}\n"
             )
 
 
@@ -186,16 +197,6 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--stage1-control-mode",
-        choices=("all-controls", "condition-mean"),
-        default="all-controls",
-        help=(
-            "Stage 1 method: test treatment-defined candidates across every "
-            "treatment/control replicate without calling control peaks, or use "
-            "the legacy condition-mean control-peak method (default: all-controls)."
-        ),
-    )
-    parser.add_argument(
         "--scoring-method", choices=("tns", "bns", "pns"), default="tns",
         help="Nucleosome scoring kernel (default: tns).",
     )
@@ -223,6 +224,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mode-max-change", type=int, default=1, help="Maximum mode range across stable checkpoints (default: 1 bp).")
     parser.add_argument("--mode-max-ci-width", type=float, default=4.0, help="Maximum bootstrap 95%% interval width (default: 4 bp).")
     parser.add_argument("--mode-block-bp", type=int, default=1_000_000, help="Random genomic-block size (default: 1000000 bp).")
+    parser.add_argument(
+        "--mode-histogram-smoothing",
+        choices=("none", "binomial"),
+        default="none",
+        help=(
+            "Histogram processing for automatic mode estimation: none uses raw "
+            "integer counts; binomial explicitly applies the optional 1,4,6,4,1 "
+            "kernel (default: none)."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=12345, help="Random seed (default: 12345).")
     parser.add_argument("--blacklist-bed", help="BED blacklist applied to every BAM group.")
     parser.add_argument("-c", "--contigs", nargs="+", default=["autosomes"], help="Contigs analysed in every sample (default: autosomes).")
@@ -232,8 +243,34 @@ def build_parser() -> argparse.ArgumentParser:
         help="Coordinate duplicate scope within a logical sample (default: all_bams).",
     )
     parser.add_argument("--cores", type=int, default=1, help="Parallel contig workers (default: 1).")
-    parser.add_argument("--peak-fdr", type=float, default=0.05, help="Stage 1 peak FDR cutoff (default: 0.05).")
-    parser.add_argument("--cluster-fdr", type=float, default=0.05, help="Stage 1 maximum-member cluster FDR cutoff (default: 0.05).")
+    parser.add_argument(
+        "--stage1-p-value", type=float,
+        help=(
+            "Optional exploratory one-sided Stage 1 p-value cutoff. By default, "
+            "the all-controls gate alone selects peaks."
+        ),
+    )
+    parser.add_argument(
+        "--peak-fdr", type=float,
+        help=(
+            "Optional Stage 1 peak FDR cutoff. No Stage 1 FDR cutoff is applied "
+            "by default."
+        ),
+    )
+    parser.add_argument(
+        "--cluster-fdr", type=float,
+        help=(
+            "Optional Stage 1 maximum-member cluster FDR cutoff. No cluster FDR "
+            "cutoff is applied by default."
+        ),
+    )
+    parser.add_argument(
+        "--cluster-member-p-value", type=float, default=0.05,
+        help=(
+            "One-sided p-value required, together with the all-controls gate, "
+            "for a treatment peak to become a cluster member (default: 0.05)."
+        ),
+    )
     parser.add_argument("--differential-fdr", type=float, default=0.05, help="Stage 2 differential FDR cutoff (default: 0.05).")
     parser.add_argument("--peak-match-distance", type=int, help="Peak matching distance; default: half the analysis mode.")
     parser.add_argument("--cluster-break", type=int, default=5, help="Consecutive nonsignificant peaks ending a cluster (default: 5).")
@@ -274,8 +311,17 @@ def _validate(args: argparse.Namespace) -> None:
         raise ValueError("--peak-match-distance must be non-negative")
     if min(args.cluster_break, args.max_cluster_gap, args.min_significant_peaks) < 1:
         raise ValueError("Cluster break, gap and significant-peak count must be positive")
-    for name in ("peak_fdr", "cluster_fdr", "differential_fdr"):
-        value = float(getattr(args, name))
+    for name in (
+        "stage1_p_value",
+        "peak_fdr",
+        "cluster_member_p_value",
+        "cluster_fdr",
+        "differential_fdr",
+    ):
+        raw_value = getattr(args, name)
+        if raw_value is None:
+            continue
+        value = float(raw_value)
         if not math.isfinite(value) or not 0 <= value <= 1:
             raise ValueError(f"--{name.replace('_', '-')} must be between 0 and 1")
     if (args.treatment2_bam is None) != (args.control2_bam is None):
@@ -320,6 +366,7 @@ def _estimate_modes(
         max_duplicates=args.max_duplicates,
         dedup_scope=args.dedup_scope,
         contig_tokens=args.contigs,
+        histogram_smoothing=args.mode_histogram_smoothing,
     )
     estimates: list[tuple[ModeEstimate, ModeEstimate, ModeEstimate]] = []
     for index, (treatment_bams, control_bams) in enumerate(conditions):
@@ -327,15 +374,31 @@ def _estimate_modes(
         target = estimate_bam_fragment_mode(
             treatment_bams, **{**common, "seed": args.seed + index * 10}
         )
+        reporter.stage(
+            mode_estimate_message(
+                f"Condition {index + 1} treatment fragment mode", target
+            )
+        )
         reporter.stage(f"Estimating condition {index + 1} control fragment mode")
         control = estimate_bam_fragment_mode(
             control_bams, **{**common, "seed": args.seed + index * 10 + 1}
+        )
+        reporter.stage(
+            mode_estimate_message(
+                f"Condition {index + 1} control fragment mode", control
+            )
         )
         pooled = pooled_mode_estimate(
             target,
             control,
             bootstrap_replicates=args.mode_bootstrap,
             seed=args.seed + index * 10 + 2,
+            histogram_smoothing=args.mode_histogram_smoothing,
+        )
+        reporter.stage(
+            mode_estimate_message(
+                f"Condition {index + 1} pooled fragment mode", pooled
+            )
         )
         estimates.append((target, control, pooled))
         if abs(target.mode - control.mode) > 5:
@@ -352,16 +415,19 @@ def _estimate_modes(
             estimates[0][0], estimates[1][0],
             bootstrap_replicates=args.mode_bootstrap,
             seed=args.seed + 100,
+            histogram_smoothing=args.mode_histogram_smoothing,
         )
         control_pooled = pooled_mode_estimate(
             estimates[0][1], estimates[1][1],
             bootstrap_replicates=args.mode_bootstrap,
             seed=args.seed + 101,
+            histogram_smoothing=args.mode_histogram_smoothing,
         )
         all_pooled = pooled_mode_estimate(
             estimates[0][2], estimates[1][2],
             bootstrap_replicates=args.mode_bootstrap,
             seed=args.seed + 102,
+            histogram_smoothing=args.mode_histogram_smoothing,
         )
     if args.mode_strategy == "pooled":
         target_mode = control_mode = all_pooled.mode
@@ -371,6 +437,10 @@ def _estimate_modes(
         target_mode = control_mode = target_pooled.mode
     else:
         target_mode = control_mode = control_pooled.mode
+    reporter.stage(
+        f"Resolved analysis modes: treatment={target_mode} bp; "
+        f"control={control_mode} bp; strategy={args.mode_strategy}"
+    )
     return target_mode, control_mode, f"automatic_{args.mode_strategy}", list(estimates)
 
 
@@ -482,7 +552,7 @@ def _call_peaks(
         "call-peaks",
         "--input-bigwig", str(scaled_path),
         "--peak-caller", "pns",
-        "--call-type", "both",
+        "--call-type", "nucleosome",
         "--out-prefix", str(peak_prefix),
         "--regions", *args.contigs,
         "--cores", str(args.cores),
@@ -511,6 +581,7 @@ def _run_stage1(
     estimates: tuple[ModeEstimate | None, ModeEstimate | None, ModeEstimate | None],
     reporter: ProgressReporter,
     seed_offset: int,
+    mode_condition_index: int,
 ) -> Path:
     tracks_dir = outdir / "01_score_tracks"
     scaled_dir = outdir / "02_mean_scaled_tracks"
@@ -520,14 +591,20 @@ def _run_stage1(
     for directory in (tracks_dir, scaled_dir, peaks_dir, fdr_dir, setup_dir):
         directory.mkdir(parents=True, exist_ok=True)
 
+    mode_report = setup_dir / f"{args.sample_name}_fragment_mode_estimation.tsv"
     _write_mode_report(
-        setup_dir / f"{args.sample_name}_fragment_mode_estimation.tsv",
+        mode_report,
         mode_source=mode_source,
         target=estimates[0],
         control=estimates[1],
         pooled=estimates[2],
         target_mode=target_mode,
         control_mode=control_mode,
+        seeds=(
+            args.seed + mode_condition_index * 10,
+            args.seed + mode_condition_index * 10 + 1,
+            args.seed + mode_condition_index * 10 + 2,
+        ),
     )
     score_track, positive_track = _TRACK_NAMES[args.scoring_method]
     if args.bam_mode == "replicates":
@@ -644,49 +721,32 @@ def _run_stage1(
         if args.peak_match_distance is not None
         else max(0, int(round((target_mode + control_mode) / 4.0)))
     )
-    control_peaks: Path | None = None
-    if args.stage1_control_mode == "all-controls":
-        reporter.stage(
-            f"Testing {condition_name} treatment candidates across all scaled-coverage replicates"
+    reporter.stage(
+        f"Testing {condition_name} treatment candidates across all scaled-coverage replicates"
+    )
+    if args.bam_mode == "replicates" and (
+        len(target_scaled_coverage) < 3 or len(control_scaled_coverage) < 3
+    ):
+        print(
+            "WARNING: Stage 1 has fewer than three biological replicates in at "
+            "least one group; Welch p-values and FDR are exploratory. Peak "
+            "selection defaults to the all-controls gate.",
+            file=sys.stderr,
         )
-        outputs = analyze_chip_replicate_peaks(
-            target_peaks,
-            output_dir=fdr_dir,
-            target_replicate_bigwigs=target_scaled_coverage,
-            control_replicate_bigwigs=control_scaled_coverage,
-            target_mean_bigwig=mean_target_coverage,
-            peak_fdr=args.peak_fdr,
-            cluster_fdr=args.cluster_fdr,
-            cluster_break=args.cluster_break,
-            max_cluster_gap=args.max_cluster_gap,
-            minimum_significant_peaks=args.min_significant_peaks,
-        )
-    else:
-        control_peaks = _call_peaks(
-            args,
-            reporter,
-            scaled_path=mean_control,
-            label="control",
-            peaks_dir=peaks_dir,
-            score_track=score_track,
-        )
-        reporter.stage(
-            f"Estimating {condition_name} Stage 1 FDR with legacy condition-mean control peaks"
-        )
-        outputs = analyze_chip_peaks(
-            target_peaks,
-            control_peaks,
-            output_dir=fdr_dir,
-            match_distance=match_distance,
-            peak_fdr=args.peak_fdr,
-            cluster_fdr=args.cluster_fdr,
-            cluster_break=args.cluster_break,
-            max_cluster_gap=args.max_cluster_gap,
-            minimum_significant_peaks=args.min_significant_peaks,
-            target_bigwig=mean_target_coverage,
-            control_bigwig=mean_control_coverage,
-            control_mode="condition-mean",
-        )
+    outputs = analyze_chip_replicate_peaks(
+        target_peaks,
+        output_dir=fdr_dir,
+        target_replicate_bigwigs=target_scaled_coverage,
+        control_replicate_bigwigs=control_scaled_coverage,
+        target_mean_bigwig=mean_target_coverage,
+        peak_pvalue=args.stage1_p_value,
+        peak_fdr=args.peak_fdr,
+        cluster_member_pvalue=args.cluster_member_p_value,
+        cluster_fdr=args.cluster_fdr,
+        cluster_break=args.cluster_break,
+        max_cluster_gap=args.max_cluster_gap,
+        minimum_significant_peaks=args.min_significant_peaks,
+    )
 
     manifest = {
         "schema": MANIFEST_SCHEMA,
@@ -694,11 +754,12 @@ def _run_stage1(
         "nucleosuite_version": __version__,
         "condition_name": condition_name,
         "bam_mode": args.bam_mode,
-        "stage1_control_mode": args.stage1_control_mode,
         "scoring_method": args.scoring_method,
         "score_track": score_track,
         "positive_track": positive_track,
         "mode_source": mode_source,
+        "mode_histogram_smoothing": args.mode_histogram_smoothing,
+        "mode_estimation_report": str(mode_report.resolve()),
         "target_mode": target_mode,
         "control_mode": control_mode,
         "frag_lower": args.frag_lower,
@@ -708,13 +769,12 @@ def _run_stage1(
         "max_duplicates": args.max_duplicates,
         "dedup_scope": args.dedup_scope,
         "peak_match_distance": match_distance,
+        "stage1_p_value": args.stage1_p_value,
         "peak_fdr": args.peak_fdr,
+        "cluster_member_p_value": args.cluster_member_p_value,
         "cluster_fdr": args.cluster_fdr,
-        "stage1_statistics": (
-            "one_sided_welch_bh_all_candidates"
-            if args.stage1_control_mode == "all-controls"
-            else "legacy_condition_mean_empirical_decoy"
-        ),
+        "stage1_selection": "all_treatments_exceed_all_controls",
+        "stage1_statistics": "exploratory_one_sided_welch_bh_all_candidates",
         "treatment_replicates": treatment_records,
         "control_replicates": control_records,
         "condition_mean_treatment_score": str(mean_target.resolve()),
@@ -724,7 +784,7 @@ def _run_stage1(
         "peak_discovery_track": score_track,
         "peak_measurement_track": "coverage_divided_by_nonzero_mean_x100",
         "target_candidate_peaks": str(target_peaks),
-        "control_candidate_peaks": str(control_peaks) if control_peaks else None,
+        "control_candidate_peaks": None,
         **{name: str(path.resolve()) for name, path in outputs.items()},
     }
     manifest_path = outdir / MANIFEST_NAME
@@ -737,9 +797,10 @@ def _run_stage1(
         handle.write("field\tvalue\n")
         handle.write(f"condition_name\t{condition_name}\n")
         handle.write(f"bam_mode\t{args.bam_mode}\n")
-        handle.write(f"stage1_control_mode\t{args.stage1_control_mode}\n")
         handle.write(f"scoring_method\t{args.scoring_method}\n")
         handle.write(f"mode_source\t{mode_source}\n")
+        handle.write(f"mode_histogram_smoothing\t{args.mode_histogram_smoothing}\n")
+        handle.write(f"mode_estimation_report\t{mode_report}\n")
         handle.write(f"target_analysis_mode\t{target_mode}\n")
         handle.write(f"control_analysis_mode\t{control_mode}\n")
         handle.write(f"fragment_range\t{args.frag_lower}-{args.frag_upper}\n")
@@ -758,7 +819,9 @@ def _run_stage1(
         handle.write(f"condition_mean_treatment_coverage\t{mean_target_coverage}\n")
         handle.write(f"condition_mean_control_coverage\t{mean_control_coverage}\n")
         handle.write(f"peak_match_distance\t{match_distance}\n")
+        handle.write(f"stage1_p_value\t{args.stage1_p_value}\n")
         handle.write(f"peak_fdr\t{args.peak_fdr}\n")
+        handle.write(f"cluster_member_p_value\t{args.cluster_member_p_value}\n")
         handle.write(f"cluster_fdr\t{args.cluster_fdr}\n")
         for name, path in outputs.items():
             handle.write(f"{name}\t{path}\n")
@@ -774,13 +837,13 @@ def run(args: argparse.Namespace) -> int:
     if args.dry_run:
         print(f"score_type\t{args.scoring_method}")
         print(f"mode\t{args.mode}")
+        print(f"mode_histogram_smoothing\t{args.mode_histogram_smoothing}")
         print(f"bam_mode\t{args.bam_mode}")
-        print(f"stage1_control_mode\t{args.stage1_control_mode}")
         print(f"conditions\t{2 if has_second else 1}")
         print(f"fragment_range\t{args.frag_lower}-{args.frag_upper}")
         print(
-            "stages\tstage1-treatment-candidates-replicate-welch-bh"
-            + (",stage2-four-group-interaction-bh" if has_second else "")
+            "stages\tstage1-treatment-candidates-all-controls-gate"
+            + (",stage2-log2-moderated-four-group-interaction-bh" if has_second else "")
         )
         return 0
 
@@ -807,6 +870,7 @@ def run(args: argparse.Namespace) -> int:
         estimates=estimates[0],
         reporter=reporter,
         seed_offset=1000,
+        mode_condition_index=0,
     )
     if not has_second:
         print(f"chip_stage1_manifest\t{first_manifest}")
@@ -825,6 +889,7 @@ def run(args: argparse.Namespace) -> int:
         estimates=estimates[1],
         reporter=reporter,
         seed_offset=2000,
+        mode_condition_index=1,
     )
     reporter.stage("Comparing Stage 1 enrichments between conditions")
     comparison_manifest = compare_stage1(
@@ -842,8 +907,8 @@ def run(args: argparse.Namespace) -> int:
         handle.write(f"condition2_manifest\t{second_manifest}\n")
         handle.write(f"comparison_manifest\t{comparison_manifest}\n")
         handle.write(f"bam_mode\t{args.bam_mode}\n")
-        handle.write(f"stage1_control_mode\t{args.stage1_control_mode}\n")
         handle.write(f"scoring_method\t{args.scoring_method}\n")
+        handle.write(f"mode_histogram_smoothing\t{args.mode_histogram_smoothing}\n")
         handle.write(f"target_analysis_mode\t{target_mode}\n")
         handle.write(f"control_analysis_mode\t{control_mode}\n")
     print(f"chip_suite_summary\t{summary}")

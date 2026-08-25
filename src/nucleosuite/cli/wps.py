@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from nucleosuite.cli.common import (
+    add_mode_estimation_arguments,
     add_bam_fragment_arguments,
     add_randomization_arguments,
     add_interval_output_arguments,
     normalise_track_list,
+    auto_or_integer_mode,
+    resolve_fragment_mode,
     validate_bam_arguments,
 )
 from nucleosuite.scoring.basic_tracks import BASIC_TRACKS
@@ -29,9 +32,15 @@ def register(subparsers):
     add_randomization_arguments(parser)
     add_interval_output_arguments(parser)
     parser.add_argument(
-        "--protection", type=int, default=120,
-        help="Width in bp of the centred protection window evaluated at each position (default: 120).",
+        "--mode", "--protection", dest="protection",
+        type=auto_or_integer_mode, default="auto",
+        help=(
+            "Protected-DNA mode used as the centred WPS protection-window width. "
+            "auto estimates it from accepted fragments; an integer bypasses "
+            "estimation (default: auto). --protection is retained as an alias."
+        ),
     )
+    add_mode_estimation_arguments(parser)
     parser.add_argument(
         "--baseline-window", type=int, default=1000,
         help="Running-median window subtracted from raw and smoothed WPS tracks (default: 1000 bp).",
@@ -80,8 +89,12 @@ def register(subparsers):
 
 def run(args):
     validate_bam_arguments(args)
+    mode, estimate, mode_source, mode_seed = resolve_fragment_mode(
+        args, args.protection, command="wps"
+    )
+    args.protection = mode
     if args.protection < 2:
-        raise ValueError("--protection must be at least 2")
+        raise ValueError("--mode/--protection must be at least 2")
     if args.baseline_window < 1:
         raise ValueError("--baseline-window must be positive")
     if args.sg_window < 0 or (args.sg_window and args.sg_window % 2 == 0):
@@ -105,6 +118,28 @@ def run(args):
                 "WPS peak calling requires --overlap-bp >= "
                 f"{required_overlap} for the selected peak and preprocessing windows"
             )
+    if not getattr(args, "_per_contig_worker", False):
+        from nucleosuite.mode_estimation import write_single_mode_report
+        from nucleosuite.workflows.common import default_output_prefix, input_paths_from_args
+
+        requested_prefix = args.out_prefix or default_output_prefix(
+            input_paths_from_args(args), args.contigs
+        )
+        report_prefix = (
+            f"{requested_prefix}_prot{args.protection}_lower{args.frag_lower}"
+            f"_upper{args.frag_upper}_baseline{args.baseline_window}"
+            f"_sg{args.sg_window}x{args.sg_order}_caller{args.peak_caller}"
+        )
+        if args.randomize_mode != "none":
+            report_prefix += f"_rand{args.randomize_mode}"
+        report = write_single_mode_report(
+            f"{report_prefix}_fragment_mode_estimation.tsv",
+            estimate=estimate,
+            resolved_mode=args.protection,
+            mode_source=mode_source,
+            seed=mode_seed,
+        )
+        print(f"[wps] Fragment mode report: {report}", flush=True)
     from nucleosuite.workflows import wps as workflow
     from nucleosuite.parallel import run_native_per_contig
     return run_native_per_contig("wps", args, workflow.run)

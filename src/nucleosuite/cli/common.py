@@ -5,6 +5,144 @@ from __future__ import annotations
 import argparse
 
 
+def auto_or_integer_mode(text: str) -> str | int:
+    """Parse a protected-DNA mode supplied as ``auto`` or an integer."""
+
+    value = str(text).strip().lower()
+    if value == "auto":
+        return "auto"
+    try:
+        integer = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("mode must be auto or an integer") from exc
+    if integer < 3:
+        raise argparse.ArgumentTypeError("mode must be at least 3")
+    return integer
+
+
+def add_mode_estimation_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add options shared by commands that resolve an automatic fragment mode."""
+
+    parser.add_argument(
+        "--mode-search-lower",
+        type=int,
+        default=None,
+        help=(
+            "Lower fragment length considered during automatic mode estimation. "
+            "Default: --frag-lower."
+        ),
+    )
+    parser.add_argument(
+        "--mode-search-upper",
+        type=int,
+        default=None,
+        help=(
+            "Upper fragment length considered during automatic mode estimation. "
+            "Default: --frag-upper."
+        ),
+    )
+    parser.add_argument("--mode-min-fragments", type=int, default=100_000, help="Minimum accepted fragments before convergence checks (default: 100000).")
+    parser.add_argument("--mode-batch-fragments", type=int, default=25_000, help="Additional accepted fragments between convergence checks (default: 25000).")
+    parser.add_argument("--mode-max-fragments", type=int, default=1_000_000, help="Maximum accepted fragments sampled for mode estimation (default: 1000000).")
+    parser.add_argument("--mode-bootstrap", type=int, default=200, help="Bootstrap mode replicates per checkpoint (default: 200).")
+    parser.add_argument("--mode-stable-checkpoints", type=int, default=3, help="Consecutive stable checkpoints required for early stopping (default: 3).")
+    parser.add_argument("--mode-max-change", type=int, default=1, help="Largest mode range allowed across stable checkpoints (default: 1 bp).")
+    parser.add_argument("--mode-max-ci-width", type=float, default=4.0, help="Largest bootstrap 95%% interval width allowed for convergence (default: 4 bp).")
+    parser.add_argument("--mode-block-bp", type=int, default=1_000_000, help="Genomic block size used for seeded random sampling (default: 1000000 bp).")
+    parser.add_argument(
+        "--mode-histogram-smoothing",
+        choices=("none", "binomial"),
+        default="none",
+        help=(
+            "Histogram processing used for mode selection and bootstrap draws: "
+            "none uses the observed integer counts; binomial applies the optional "
+            "1,4,6,4,1 kernel (default: none)."
+        ),
+    )
+
+
+def resolve_fragment_mode(args, value: str | int, *, command: str):
+    """Resolve an explicit or automatically estimated mode for a fragment command."""
+
+    from nucleosuite.mode_estimation import (
+        estimate_bam_fragment_mode,
+        estimate_fragment_file_mode,
+        mode_estimate_message,
+    )
+
+    seed = 12345 if getattr(args, "seed", None) is None else int(args.seed)
+    if value != "auto":
+        mode = int(value)
+        print(f"[{command}] Fragment mode: {mode} bp (explicit)", flush=True)
+        return mode, None, "explicit", seed
+
+    search_lower = (
+        int(args.frag_lower)
+        if args.mode_search_lower is None
+        else int(args.mode_search_lower)
+    )
+    search_upper = (
+        int(args.frag_upper)
+        if args.mode_search_upper is None
+        else int(args.mode_search_upper)
+    )
+    if search_lower < args.frag_lower or search_upper > args.frag_upper:
+        raise ValueError("Automatic mode-search bounds must lie within the fragment range")
+    if search_upper < search_lower:
+        raise ValueError("--mode-search-upper must be at least --mode-search-lower")
+    if min(
+        args.mode_min_fragments,
+        args.mode_batch_fragments,
+        args.mode_max_fragments,
+        args.mode_bootstrap,
+        args.mode_stable_checkpoints,
+        args.mode_block_bp,
+    ) < 1:
+        raise ValueError("Automatic mode-sampling counts must be positive")
+    if args.mode_max_fragments < args.mode_min_fragments:
+        raise ValueError("--mode-max-fragments must be at least --mode-min-fragments")
+    if args.mode_max_change < 0 or args.mode_max_ci_width < 0:
+        raise ValueError("Automatic mode-stability limits must be non-negative")
+
+    print(
+        f"[{command}] Estimating fragment mode from an unsmoothed histogram"
+        if args.mode_histogram_smoothing == "none"
+        else f"[{command}] Estimating fragment mode with optional binomial histogram smoothing",
+        flush=True,
+    )
+    common = dict(
+        frag_lower=args.frag_lower,
+        frag_upper=args.frag_upper,
+        search_lower=search_lower,
+        search_upper=search_upper,
+        minimum_fragments=args.mode_min_fragments,
+        batch_fragments=args.mode_batch_fragments,
+        maximum_fragments=args.mode_max_fragments,
+        stable_checkpoints=args.mode_stable_checkpoints,
+        maximum_mode_change=args.mode_max_change,
+        maximum_ci_width=args.mode_max_ci_width,
+        bootstrap_replicates=args.mode_bootstrap,
+        block_bp=args.mode_block_bp,
+        seed=seed,
+        histogram_smoothing=args.mode_histogram_smoothing,
+        blacklist_bed=getattr(args, "blacklist_bed", None),
+        max_duplicates=args.max_duplicates,
+        dedup_scope=args.dedup_scope,
+        contig_tokens=args.contigs,
+    )
+    if getattr(args, "bamfiles", None):
+        estimate = estimate_bam_fragment_mode(args.bamfiles, **common)
+    else:
+        estimate = estimate_fragment_file_mode(
+            args.fragment_files,
+            chrom_sizes=getattr(args, "chrom_sizes", None),
+            fasta_path=getattr(args, "fasta", None),
+            **common,
+        )
+    print(f"[{command}] {mode_estimate_message('Fragment mode estimate', estimate)}", flush=True)
+    return estimate.mode, estimate, "automatic", seed
+
+
 def add_fragment_input_arguments(
     parser: argparse.ArgumentParser,
     *,

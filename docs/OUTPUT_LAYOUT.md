@@ -92,11 +92,11 @@ If the suite is not using the multicontig wrapper layout, the same directory is 
 01_score_tracks/          target/control score, positive-score, and raw coverage tracks
 02_mean_scaled_tracks/    discovery-score normalization and coverage scaled to mean 100
 03_peak_calls/            treatment candidates; legacy mode may also call control peaks
-04_peak_fdr/              replicate statistics, annotated/significant peaks and clusters
+04_peak_fdr/              replicate statistics, gate-selected peaks and p-defined clusters
 <sample>_chip_suite_summary.tsv
 chip_stage1_manifest.json
 ```
 
-With biological replicates, `01_score_tracks/` and `02_mean_scaled_tracks/` retain replicate-specific outputs. The latter also contains condition-mean score tracks; only the mean treatment score track supplies default Stage 1 candidates. Replicate-specific scaled coverage supplies the all-treatment versus all-control gate and Welch/BH statistics, while condition-mean treatment coverage supplies the reported peak score. An explicit `--mode` is recorded with `mode_source=explicit`; automatic runs retain treatment, control, and pooled estimates.
+With biological replicates, `01_score_tracks/` and `02_mean_scaled_tracks/` retain replicate-specific outputs. Each score track is normalized by its matching positive-score mean before treatment tracks are averaged, preventing a deeper replicate from dominating consensus candidate discovery. Only nucleosome peaks from the mean treatment score track supply Stage 1 candidates; `chip-suite` does not call breakpoint peaks. Replicate-specific coverage scaled to a non-zero mean of 100 supplies the all-treatment versus all-control gate and exploratory Welch/BH annotations, while condition-mean treatment coverage supplies the reported peak score. Gate-selected peaks proceed by default. Clusters contain gate-passing members with p < 0.05. An explicit `--mode` is recorded with `mode_source=explicit`; automatic runs retain treatment, control, and pooled estimates together with the unsmoothed-by-default histogram setting.
 
-A four-group run places the two layouts under `01_condition1_stage1/` and `02_condition2_stage1/`. `03_condition_comparison/` contains differential peak and cluster tables, directional BEDs, and `chip_comparison_manifest.json`. The standalone `chip-compare` command writes the same Stage 2 layout from two existing Stage 1 manifests.
+A four-group run places the two layouts under `01_condition1_stage1/` and `02_condition2_stage1/`. `03_condition_comparison/` contains complete differential peak and cluster tables, all-direction, robust-direction and FDR-significant BEDs, and `chip_comparison_manifest.json`. The manifest records the log-scale empirical-Bayes interaction model and variance prior. The standalone `chip-compare` command writes the same Stage 2 layout from two existing Stage 1 manifests.

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from nucleosuite.cli.common import (
+    add_mode_estimation_arguments,
     add_bam_fragment_arguments,
     add_randomization_arguments,
     add_interval_output_arguments,
     normalise_track_list,
+    auto_or_integer_mode,
+    resolve_fragment_mode,
     validate_bam_arguments,
 )
 from nucleosuite.scoring.basic_tracks import BASIC_TRACKS
@@ -38,12 +41,15 @@ def register(subparsers):
         ),
     )
     parser.add_argument(
-        "--mode-length", type=int, default=167,
+        "--mode", "--mode-length", dest="mode_length",
+        type=auto_or_integer_mode, default="auto",
         help=(
-            "Modal protected-DNA length that defines scoring support for accepted "
-            "fragment lengths (default: 167 bp)."
+            "Modal protected-DNA length defining the scoring geometry. auto "
+            "estimates it from accepted fragments; an integer bypasses estimation "
+            "(default: auto)."
         ),
     )
+    add_mode_estimation_arguments(parser)
     parser.add_argument(
         "--smooth-window", type=int, default=0,
         help="Savitzky-Golay window for optional score smoothing; 0 disables (default: 0).",
@@ -135,8 +141,10 @@ def register(subparsers):
 
 def run(args):
     validate_bam_arguments(args)
-    if args.mode_length < 3:
-        raise ValueError("--mode-length must be at least 3")
+    mode, estimate, mode_source, mode_seed = resolve_fragment_mode(
+        args, args.mode_length, command="pns"
+    )
+    args.mode_length = mode
     if args.smooth_window < 0:
         raise ValueError("--smooth-window must be 0 or greater")
     if args.smooth_window and (args.smooth_window < 3 or args.smooth_window % 2 == 0):
@@ -202,6 +210,26 @@ def run(args):
         raise ValueError("--dinuc-fraction requires --dinuc-profile")
     if (args.dinuc_profile or args.split_ww_types) and not args.fasta:
         raise ValueError("--dinuc-profile and --split-ww-types require --fasta")
+    if not getattr(args, "_per_contig_worker", False):
+        from nucleosuite.mode_estimation import write_single_mode_report
+        from nucleosuite.workflows.common import default_output_prefix, input_paths_from_args
+
+        requested_prefix = args.out_prefix or default_output_prefix(
+            input_paths_from_args(args), args.contigs
+        )
+        report_prefix = (
+            f"{requested_prefix}_method{args.scoring_method}_mode{args.mode_length}"
+            f"_lower{args.frag_lower}_upper{args.frag_upper}"
+            f"_smooth{args.smooth_window}x{args.smooth_order}"
+        )
+        report = write_single_mode_report(
+            f"{report_prefix}_fragment_mode_estimation.tsv",
+            estimate=estimate,
+            resolved_mode=args.mode_length,
+            mode_source=mode_source,
+            seed=mode_seed,
+        )
+        print(f"[pns] Fragment mode report: {report}", flush=True)
     from nucleosuite.workflows import pns as workflow
     from nucleosuite.parallel import run_native_per_contig
     return run_native_per_contig("pns", args, workflow.run)

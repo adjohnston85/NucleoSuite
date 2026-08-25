@@ -21,7 +21,15 @@ Each argument may name a Stage 1 directory or its `chip_stage1_manifest.json` di
 
 ## Comparison statistics
 
-The candidate set is the union of significant Stage 1 calls from either condition. Those calls were discovered with TNS by default. Overlapping peaks use the union of their Stage 1 coordinates. Condition-specific peaks retain their own coordinates and are measured in every replicate from both conditions; absence of a called peak is never treated as zero. `--peak-match-distance` can additionally combine nearby non-overlapping peaks. Peak scores use maximum scaled coverage, while clusters use scaled positive coverage area.
+### 1. Validate compatible Stage 1 analyses
+
+The command first checks the scoring method, resolved modes, fragment limits, contigs, peak-measurement method, and BigWig chromosome definitions. These settings must agree because otherwise the two Stage 1 feature sets would have been discovered or measured using different geometries.
+
+### 2. Construct one shared region set
+
+The candidate set is the union of gate-selected Stage 1 peaks from either condition. At cluster level, it is the union of Stage 1 clusters made from peaks that passed both the all-controls gate and the configured member p-value. The union is used because failure to select a feature in one condition does not prove that its signal is zero. Retaining the region allows its actual scaled coverage to be measured in both conditions.
+
+Overlapping peaks use the union of their Stage 1 coordinates so every replicate is summarized across one common interval. Condition-specific peaks retain their own coordinates. `--peak-match-distance` can additionally combine nearby non-overlapping peaks that plausibly represent the same shifted feature.
 
 The `region_origin` field records how each comparison interval was formed:
 
@@ -34,10 +42,50 @@ The `region_origin` field records how each comparison interval was formed:
 
 `--feature-level peaks`, `clusters`, or `both` controls which outputs are produced.
 
-Every region produces four independent replicate vectors: condition 1 treatment, condition 1 control, condition 2 treatment and condition 2 control. The tested interaction is $(T_2-C_2)-(T_1-C_1)$. A Welch-style standard error and degrees of freedom use the variance and sample size of all four groups, so input-order pairing and equal group sizes are unnecessary. Benjamini-Hochberg correction is applied across all tested regions. `--fdr 0.05` sets the significant gain/loss cutoff. At least two replicates are required in every group; merged or undersampled inputs receive descriptive effects without differential p-values or FDR.
+### 3. Measure all four replicate groups
+
+Every region produces four independent replicate vectors: condition 1 treatment, condition 1 control, condition 2 treatment, and condition 2 control. Peaks use maximum scaled coverage because it captures local enrichment without strongly depending on interval width. Clusters use positive scaled-coverage area because a broader cluster represents both signal magnitude and enriched extent.
+
+### 4. Transform replicate measurements
+
+Each replicate measurement is transformed before inference:
+
+```math
+Y=\log_2(\mathrm{scaled\ coverage}+1).
+```
+
+Coverage enrichment is multiplicative and tends to become more variable as its magnitude increases. The log transformation makes fold-like changes comparable across the signal range. Adding 1 permits a region with zero measured coverage while having little effect near the mean-scaled value of 100.
+
+### 5. Test the condition-by-treatment interaction
+
+The factorial model contains condition, treatment/control status, and their interaction. Its tested coefficient is
+
+```math
+\Delta_{log}=(\bar Y_{T_2}-\bar Y_{C_2})-(\bar Y_{T_1}-\bar Y_{C_1}).
+```
+
+Control subtraction within each condition accounts for condition-specific background. Comparing those two enrichments tests whether target-specific enrichment changes between conditions rather than simply testing whether the treatment tracks differ.
+
+Ordinary region-by-region variance estimates are unreliable with two or three replicates. `chip-compare` therefore estimates a shared variance prior across the full region set and combines it with each region's residual variance. The resulting empirical-Bayes moderated t test borrows precision across regions without treating them as biological replicates. Both the ordinary and moderated p-values are reported, but Benjamini-Hochberg correction uses the moderated p-values.
+
+At least two replicates are required in every group. Merged or undersampled inputs receive descriptive log and raw effects without differential p-values or FDR. `--fdr 0.05` controls the separate significant gain and loss BEDs; the complete TSV and all-direction BEDs are always written.
+
+### 6. Annotate replicate-consistent direction
+
+For condition $k$, the possible log enrichment range is
+
+```math
+L_k=\min(Y_{T_k})-\max(Y_{C_k}),
+\qquad
+U_k=\max(Y_{T_k})-\min(Y_{C_k}).
+```
+
+`robust_gain` requires $L_2>U_1$, so every treatment-control contrast in condition 2 exceeds every contrast in condition 1. `robust_loss` requires $U_2<L_1$. Otherwise the region is `not_replicate_separated`. This stringent annotation is useful for 2×2 designs, but it is descriptive and does not replace moderated FDR for a formal differential call.
 
 ## Outputs
 
-The output directory contains `differential_peaks.tsv` and/or `differential_clusters.tsv`, directional BED files, and `chip_comparison_manifest.json`. Tables include Stage 1 support, `region_origin`, every replicate score in all four groups, group means, within-condition mean enrichments, the interaction difference, p-value, differential FDR and status. Directional BED files append `region_origin` after differential FDR. The comparison manifest reports counts by origin for each feature level.
+The output directory contains `differential_peaks.tsv` and/or `differential_clusters.tsv`, directional BED files, and `chip_comparison_manifest.json`. Tables include Stage 1 support, `region_origin`, every raw replicate score, raw and log group means, raw and log interaction effects, enrichment-range bounds, effect direction, replicate consistency, ordinary and moderated p-values, differential FDR, residual and posterior variances, and status.
+
+For each feature level, the command writes all gains, all losses, robust gains, robust losses, FDR-significant gains, and FDR-significant losses as separate BEDs. Directional BED records append `region_origin` after differential FDR. The comparison manifest records the empirical-Bayes prior, model degrees of freedom, output paths, and counts by origin.
 
 [Back to the command reference](../COMMAND_REFERENCE.md)

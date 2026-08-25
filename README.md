@@ -104,6 +104,8 @@ nucleosuite pns \
   --out-prefix sample
 ```
 
+Standalone `pns` and `wps` estimate their protected-DNA mode automatically from the unsmoothed accepted-fragment histogram. The resolved estimate is printed and recorded; use an integer such as `--mode 167` to apply a fixed mode instead.
+
 A default TNS target/control analysis with automatic bootstrap fragment-mode estimation is:
 
 ```bash
@@ -116,7 +118,7 @@ nucleosuite chip-suite \
 
 Use `--mode 167` to bypass mode estimation and apply that exact mode to both samples.
 
-Multiple BAMs are treated as independent biological replicates by default; treatment and control counts may differ, and `--bam-mode merged` pools each group as one logical sample. TNS calls candidates only on the average normalized treatment track. The workflow retains raw coverage and scales every treatment and control coverage track independently to a non-zero mean of 100. A candidate is retained only when every treatment maximum exceeds every control maximum and its one-sided Welch test passes BH FDR. Control peaks are not called in the default mode. Add `--treatment2-bam` and `--control2-bam` to test the four-group interaction $(T_2-C_2)-(T_1-C_1)$, or run [`chip-compare`](docs/commands/chip-compare.md) later from two Stage 1 manifests.
+Multiple BAMs are treated as independent biological replicates by default; treatment and control counts may differ, and `--bam-mode merged` pools each group as one logical sample. Each TNS track is divided by its own mean `posTNS` before treatment replicates are averaged, preventing a deeper replicate from dominating consensus peak discovery. The workflow retains raw coverage and scales every treatment and control coverage track independently to a non-zero mean of 100. Maximum scaled coverage within each candidate becomes the replicate peak score. A candidate passes Stage 1 by default when every treatment score exceeds every control score; Welch p-values and BH FDR are retained as optional filters. Clusters contain gate-passing peaks with p < 0.05. Control and breakpoint peaks are not called. Add `--treatment2-bam` and `--control2-bam` for a log-scale empirical-Bayes four-group interaction analysis, or run [`chip-compare`](docs/commands/chip-compare.md) later from two Stage 1 manifests.
 
 Detailed command behaviour, advanced options, output layouts, resource handling, and workflow examples are documented in the pages linked above and in the guides below.
 
