@@ -474,7 +474,7 @@ def cluster_seeded_gate_peaks(
     statistics: Sequence[ReplicatePeakStatistics],
     *,
     seed_pvalue: float = 0.05,
-    gate_mode: str = "mean",
+    gate_mode: str = "all-controls",
     member_mode: str = "seed-and-gated",
     maximum_non_member_gap: int = 1,
     max_cluster_gap: int = 1000,
@@ -482,9 +482,9 @@ def cluster_seeded_gate_peaks(
 ) -> list[PeakCluster]:
     """Build seeded clusters using the selected treatment-control gate.
 
-    ``gate_mode='mean'`` uses mean treatment > mean control and scores each
-    member by mean treatment minus mean control. ``all-controls`` uses the
-    conservative minimum-treatment > maximum-control rule. In
+    ``gate_mode='all-controls'`` uses the conservative minimum-treatment >
+    maximum-control rule and is the default. ``mean`` uses mean treatment >
+    mean control and scores each member by mean treatment minus mean control. In
     ``seed-and-gated`` mode, significant seeds and other gate-passing peaks are
     members. In ``significant-only`` mode, only significant seeds are members.
     Up to ``maximum_non_member_gap`` consecutive non-members may bridge two
@@ -780,7 +780,7 @@ def analyze_chip_replicate_peaks(
     peak_fdr: float | None = None,
     cluster_seed_pvalue: float = 0.05,
     cluster_fdr: float | None = None,
-    gate_mode: str = "mean",
+    gate_mode: str = "all-controls",
     cluster_member_mode: str = "seed-and-gated",
     cluster_max_non_member_gap: int = 1,
     max_cluster_gap: int = 1000,
@@ -789,9 +789,9 @@ def analyze_chip_replicate_peaks(
     """Test treatment-defined candidates from replicate normalized coverage.
 
     Candidate maxima are measured in every treatment and control replicate.
-    The default gate requires mean treatment > mean control. The optional
-    all-controls gate requires every treatment replicate to exceed every control
-    replicate. Welch p-values and BH FDR are reported independently of the gate.
+    The default all-controls gate requires every treatment replicate to exceed
+    every control replicate. The optional mean gate requires mean treatment >
+    mean control. Welch p-values and BH FDR are reported independently of the gate.
     """
     for name, value in (
         ("peak_pvalue", peak_pvalue), ("peak_fdr", peak_fdr),
@@ -873,22 +873,38 @@ def analyze_chip_replicate_peaks(
 
     directory = Path(output_dir)
     directory.mkdir(parents=True, exist_ok=True)
-    annotated = directory / "target_peaks_replicate_fdr.bed"
+    annotated = directory / f"target_peaks_replicate_statistics_gate_{gate_mode}.bed"
     selection_tokens = [f"gate_{gate_mode}"]
     if peak_pvalue is not None: selection_tokens.append(f"p{peak_pvalue:g}")
     if peak_fdr is not None: selection_tokens.append(f"fdr{peak_fdr:g}")
     significant = directory / f"target_peaks_{'_'.join(selection_tokens)}.bed"
-    statistics_table = directory / "target_peak_replicate_statistics.tsv"
-    with annotated.open("wt", encoding="utf-8") as all_handle, significant.open("wt", encoding="utf-8") as sig_handle:
+    seed_tokens = [f"gate_{gate_mode}", f"seed_p{cluster_seed_pvalue:g}"]
+    seed_peaks = directory / f"target_seed_peaks_{'_'.join(seed_tokens)}.bed"
+    statistics_table = directory / f"target_peak_replicate_statistics_gate_{gate_mode}.tsv"
+    with (
+        annotated.open("wt", encoding="utf-8") as all_handle,
+        significant.open("wt", encoding="utf-8") as sig_handle,
+        seed_peaks.open("wt", encoding="utf-8") as seed_handle,
+    ):
         for record in statistics:
             fields = list(record.peak.row.fields)
             fields[score_column - 1] = f"{_signal_score(record.peak):.12g}"
-            text = "\t".join((*fields, _format_optional(record.qvalue))) + "\n"
+            text = "\t".join((
+                *fields,
+                _format_optional(record.pvalue),
+                _format_optional(record.qvalue),
+            )) + "\n"
             all_handle.write(text)
             passes_p = peak_pvalue is None or (math.isfinite(record.pvalue) and record.pvalue <= peak_pvalue)
             passes_q = peak_fdr is None or (math.isfinite(record.qvalue) and record.qvalue <= peak_fdr)
             if selected_gate(record) and passes_p and passes_q:
                 sig_handle.write(text)
+            if (
+                selected_gate(record)
+                and math.isfinite(record.pvalue)
+                and record.pvalue < cluster_seed_pvalue
+            ):
+                seed_handle.write(text)
 
     with statistics_table.open("wt", encoding="utf-8") as handle:
         handle.write(
@@ -951,6 +967,7 @@ def analyze_chip_replicate_peaks(
                 )
     return {
         "annotated_peaks": annotated, "selected_peaks": significant, "significant_peaks": significant,
+        "seed_peaks": seed_peaks,
         "competition_table": statistics_table, "cluster_table": cluster_table,
         "selected_clusters": significant_clusters, "significant_clusters": significant_clusters,
     }

@@ -105,6 +105,7 @@ def test_chip_suite_defaults_to_pns_auto_mode_scoring_flank_and_coverage_range(
     assert args.peak_fdr is None
     assert args.cluster_fdr is None
     assert args.cluster_seed_p_value == 0.05
+    assert args.stage1_gate_mode == "all-controls"
     assert args.cluster_max_non_member_gap == 1
     assert args.min_cluster_members == 2
     assert args.cluster_aggregate_nrl_resolution == 140
@@ -187,13 +188,13 @@ def test_chip_suite_emits_score_and_coverage_in_one_tracks_pass_per_group(tmp_pa
     assert "condition_mean_treatment_coverage\t" in summary
     assert "condition_mean_control_coverage\t" in summary
     call = analyze_mock.call_args.kwargs
-    assert call["gate_mode"] == "mean"
+    assert call["gate_mode"] == "all-controls"
     assert call["cluster_member_mode"] == "seed-and-gated"
     assert len(call["target_replicate_bigwigs"]) == 1
     assert len(call["control_replicate_bigwigs"]) == 1
     manifest = json.loads((tmp_path / "out" / "chip_stage1_manifest.json").read_text())
     assert manifest["control_candidate_peaks"] is None
-    assert manifest["stage1_selection"] == "mean_treatment_exceeds_mean_control"
+    assert manifest["stage1_selection"] == "all_treatments_exceed_all_controls"
     assert manifest["condition_mean_treatment_cluster_aggregate_score"]
 
 
@@ -541,8 +542,14 @@ def test_stage1_replicate_statistics_calls_fdr_without_control_peaks(tmp_path: P
     significant = outputs["significant_peaks"].read_text().strip().split("\t")
     statistics = outputs["competition_table"].read_text().splitlines()
     assert annotated[4] == "120"
-    assert annotated[-1] == "0"
+    assert len(annotated) == 10
+    assert annotated[-2:] == ["0", "0"]
     assert significant == annotated
+    seed = outputs["seed_peaks"].read_text().strip().split("\t")
+    assert seed == annotated
+    assert outputs["annotated_peaks"].name == "target_peaks_replicate_statistics_gate_all-controls.bed"
+    assert outputs["seed_peaks"].name == "target_seed_peaks_gate_all-controls_seed_p0.05.bed"
+    assert outputs["competition_table"].name == "target_peak_replicate_statistics_gate_all-controls.tsv"
     assert "treatment_replicate_maxima" in statistics[0]
     assert "control_replicate_maxima" in statistics[0]
     assert statistics[1].split("\t")[-3:] == ["true", "0", "0"]
@@ -571,8 +578,9 @@ def test_stage1_single_replicate_reports_unavailable_fdr(tmp_path: Path):
         minimum_cluster_members=1,
     )
 
-    assert outputs["annotated_peaks"].read_text().strip().endswith("\t.")
-    assert outputs["significant_peaks"].read_text().strip().endswith("\t.")
+    assert outputs["annotated_peaks"].read_text().strip().endswith("\t.\t.")
+    assert outputs["significant_peaks"].read_text().strip().endswith("\t.\t.")
+    assert outputs["seed_peaks"].read_text() == ""
     assert outputs["significant_clusters"].read_text() == ""
 
 
@@ -674,7 +682,7 @@ def test_stage1_clusters_use_p_seeds_and_all_gated_members(tmp_path: Path):
     cluster = lines[1].split("\t")
     assert cluster[:4] == ["chip_cluster_1", "chr1", "20", "220"]
     assert cluster[cluster_header.index("seed_peak_count")] == "2"
-    assert cluster[cluster_header.index("gate_member_count")] == "3"
+    assert cluster[cluster_header.index("member_count")] == "3"
     assert cluster[cluster_header.index("bridged_non_member_peak_count")] == "0"
 
 

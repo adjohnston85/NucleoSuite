@@ -388,29 +388,29 @@ T_i(R)=\max_{x\in R}Cov_{100,T_i}(x),
 C_j(R)=\max_{x\in R}Cov_{100,C_j}(x).
 ```
 
-The default treatment-control gate retains a candidate when
-
-```math
-\mathrm{mean}_i T_i(R)>\mathrm{mean}_j C_j(R).
-```
-
-The optional `--stage1-gate-mode all-controls` instead requires
+The default treatment-control gate is the **all-controls** rule:
 
 ```math
 \min_i T_i(R)>\max_j C_j(R).
+```
+
+The optional `--stage1-gate-mode mean` instead requires
+
+```math
+\mathrm{mean}_i T_i(R)>\mathrm{mean}_j C_j(R).
 ```
 
 The mean gate tolerates replicate-level variation while requiring average treatment enrichment. The all-controls gate is deliberately more conservative: one weak treatment replicate or one strong control replicate prevents the peak from proceeding. Treatment and control BAMs are independent groups and are not paired by input order.
 
 The gate is the default Stage 1 peak selector. When both groups contain at least two biological replicates, a one-sided Welch test also asks whether the treatment-score mean is greater than the control-score mean without assuming equal variances. Benjamini-Hochberg correction is calculated across all candidates, but p-values and FDR are annotations by default. This separation is necessary because a nucleosome-scale analysis can contain hundreds of thousands of correlated tests, while two biological replicates per group provide unstable peak-specific variance estimates. `--stage1-p-value` and `--peak-fdr` enable optional additional filtering. With fewer than two replicates in either group, the scores and gate remain available but p-value and FDR are reported as unavailable.
 
-The statistics table also reports a conservative fold enrichment using a pseudocount of 1,
+The complete annotated peak BED appends raw Welch p-value and BH FDR, and a dedicated parameter-aware seed BED reports every `S` peak that passes the selected gate and satisfies the seed threshold. The statistics table also reports a conservative fold enrichment using a pseudocount of 1,
 
 ```math
 F_{cons}(R)=\frac{\min_i T_i(R)+1}{\max_j C_j(R)+1},
 ```
 
-and its base-2 logarithm. The conservative fold remains reported regardless of gate mode as a worst-case effect-size annotation. The selected excess used for clustering is mean treatment minus mean control in the default mean mode and minimum treatment minus maximum control in all-controls mode.
+and its base-2 logarithm. The conservative fold remains reported regardless of gate mode as a worst-case effect-size annotation. The selected excess used for clustering is minimum treatment minus maximum control in the default all-controls mode and mean treatment minus mean control in mean mode.
 
 ### Stage 1 peak clusters
 
@@ -444,7 +444,7 @@ cluster:  1 1 1 . . . .
 
 In the final example, the right-hand `G G` has no seed and is therefore not a cluster. Connected expansions from multiple seeds are emitted once rather than as overlapping duplicate clusters.
 
-Cluster boundaries are the outermost included-member intervals. By default, the Stage 1 gate is mean treatment > mean control and the cluster score is the sum of mean treatment-minus-control excess across included members. `--stage1-gate-mode all-controls` instead requires every treatment replicate to exceed every control replicate and uses minimum treatment minus maximum control as the member excess. `--cluster-member-mode seed-and-gated` includes both significant seed (S) peaks and other gate-passing (G) peaks; `significant-only` includes only S peaks. Non-members may bridge included members up to `--cluster-max-non-member-gap` but do not contribute to the boundary or score. The aggregate anchor is the discovery-track summit of the included member with the largest condition-mean scaled-coverage maximum; selected excess and genomic position break ties. Coverage ranks members because it is the direct abundance measurement, while the selected member's TNS/BNS/PNS summit preserves the positioning estimate.
+Cluster boundaries are the outermost included-member intervals. By default, the Stage 1 gate requires every treatment replicate to exceed every control replicate and the cluster score is the sum of minimum-treatment-minus-maximum-control excess across included members. `--stage1-gate-mode mean` instead uses mean treatment > mean control and mean treatment minus mean control as the member excess. `--cluster-member-mode seed-and-gated` includes both significant seed (S) peaks and other gate-passing (G) peaks; `significant-only` includes only S peaks. Non-members may bridge included members up to `--cluster-max-non-member-gap` but do not contribute to the boundary or score. The aggregate anchor is the discovery-track summit of the included member with the largest condition-mean scaled-coverage maximum; selected excess and genomic position break ties. Coverage ranks members because it is the direct abundance measurement, while the selected member's TNS/BNS/PNS summit preserves the positioning estimate.
 
 ### `chip-compare` Stage 2: differences between conditions
 

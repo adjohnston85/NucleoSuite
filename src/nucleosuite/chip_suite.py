@@ -302,10 +302,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--differential-fdr", type=float, default=0.05, help="Stage 2 differential FDR cutoff (default: 0.05).")
     parser.add_argument(
-        "--stage1-gate-mode", choices=("mean", "all-controls"), default="mean",
+        "--stage1-gate-mode", choices=("mean", "all-controls"), default="all-controls",
         help=(
-            "Treatment-control gate: mean compares group means; all-controls "
-            "requires every treatment replicate to exceed every control replicate (default: mean)."
+            "Treatment-control gate: all-controls requires every treatment replicate to "
+            "exceed every control replicate; mean compares group means (default: all-controls)."
         ),
     )
     parser.add_argument(
@@ -850,10 +850,15 @@ def _run_stage1(
     if args.bam_mode == "replicates" and (
         len(target_scaled_coverage) < 3 or len(control_scaled_coverage) < 3
     ):
+        gate_description = (
+            "every treatment replicate > every control replicate"
+            if args.stage1_gate_mode == "all-controls"
+            else "mean treatment > mean control"
+        )
         print(
             "WARNING: Stage 1 has fewer than three biological replicates in at "
             "least one group; Welch p-values and FDR are exploratory. Peak "
-            "selection defaults to the mean treatment > mean control gate.",
+            f"selection uses the {args.stage1_gate_mode} gate ({gate_description}).",
             file=sys.stderr,
         )
     outputs = analyze_chip_replicate_peaks(

@@ -71,23 +71,23 @@ C_j(R)=\max_{x\in R}Cov_{100,C_j}(x).
 
 The maximum is used because it captures the strongest local fragment enrichment supporting the candidate without making the score strongly dependent on the width of the PNS/BNS/TNS-defined interval. These broad-range coverage maxima—not the PNS, BNS, or TNS peak heights—are the replicate peak scores used for filtering and inference.
 
-Column 5 of the annotated BED is replaced with the maximum of the condition-mean treatment `Cov100` track over the same interval. This provides one convenient display score, while `target_peak_replicate_statistics.tsv` retains every individual replicate value used in the test.
+Column 5 of the annotated BED is replaced with the maximum of the condition-mean treatment `Cov100` track over the same interval. This provides one convenient display score. The complete peak BED appends the raw Welch p-value and BH FDR as its final two columns, while the parameter-aware replicate-statistics TSV retains every individual replicate value used in the test.
 
 ### 5. Apply the treatment-control gate
 
-The default gate is mean treatment greater than mean control:
-
-```math
-\mathrm{mean}_i T_i(R)>\mathrm{mean}_j C_j(R).
-```
-
-This allows replicate-level variation while requiring the average treatment signal to exceed the average control signal. Use `--stage1-gate-mode all-controls` for the more conservative rule
+The default gate is the conservative **all-controls** rule:
 
 ```math
 \min_i T_i(R)>\max_j C_j(R),
 ```
 
-which requires every treatment replicate to exceed every control replicate. Treatment and control are independent groups rather than paired files, so input ordering does not affect either gate.
+which requires every treatment replicate to exceed every control replicate. Use `--stage1-gate-mode mean` to instead require
+
+```math
+\mathrm{mean}_i T_i(R)>\mathrm{mean}_j C_j(R).
+```
+
+The mean gate allows replicate-level variation while requiring average treatment enrichment. Treatment and control are independent groups rather than paired files, so input ordering does not affect either gate.
 
 ### 6. Select Stage 1 peaks and annotate statistical evidence
 
@@ -95,7 +95,7 @@ A one-sided Welch test compares the full treatment and control replicate vectors
 
 By default, the selected treatment-control gate alone selects individual peaks for Stage 2. This default is intentional. A nucleosome-scale analysis may test hundreds of thousands of correlated candidates, while two or three biological replicates provide little power for a separate Welch test at every nucleosome. Requiring genome-wide FDR by default can therefore discard every peak even when treatment is consistently enriched over control. The p-value and FDR remain in the outputs so they can be inspected without being presented as stronger evidence than the replicate design supports.
 
-`--stage1-p-value` optionally adds an exploratory raw-p cutoff, and `--peak-fdr` optionally adds an FDR cutoff. Neither is applied unless requested. The output BED preserves the discovery-track coordinates and other fields, uses the condition-mean treatment coverage maximum as column 5, and appends FDR. `target_peak_replicate_statistics.tsv` reports every replicate maximum, group means, mean treatment-minus-control difference, the conservative `min(T)-max(C)` excess and fold/log2 enrichment with pseudocount 1, both gate results, the selected gate/excess, Stage 2 selection status, p-value, and FDR. At least two treatment and two control biological replicates are required to calculate p-values and FDR. Runs with fewer than three replicates in either group print a warning that these annotations are exploratory.
+`--stage1-p-value` optionally adds an exploratory raw-p cutoff, and `--peak-fdr` optionally adds an FDR cutoff. Neither is applied unless requested. The complete annotated BED is named `target_peaks_replicate_statistics_gate_<mode>.bed`; it preserves the discovery-track coordinates and other fields, uses the condition-mean treatment coverage maximum as column 5, and appends **raw p-value then BH FDR**. The selected-peak BED carries the same two statistical columns. `target_peak_replicate_statistics_gate_<mode>.tsv` reports every replicate maximum, group means, mean treatment-minus-control difference, the conservative `min(T)-max(C)` excess and fold/log2 enrichment with pseudocount 1, both gate results, the selected gate/excess, Stage 2 selection status, p-value, and FDR. At least two treatment and two control biological replicates are required to calculate p-values and FDR. Runs with fewer than three replicates in either group print a warning that these annotations are exploratory.
 
 ### 7. Form Stage 1 clusters
 
@@ -105,7 +105,7 @@ Clusters are seeded by the strongest statistical evidence and then extended thro
 p(R)<0.05.
 ```
 
-With the default mean gate this means mean treatment > mean control; with `--stage1-gate-mode all-controls` it means every treatment replicate exceeds every control replicate. The nominal p-value supplies a reproducible point from which to begin the cluster. Change the default seed threshold with `--cluster-seed-p-value`.
+With the default all-controls gate this means every treatment replicate exceeds every control replicate; with `--stage1-gate-mode mean` it means mean treatment > mean control. Every seed is also written to `target_seed_peaks_gate_<mode>_seed_p<threshold>.bed`, with raw p-value and BH FDR appended as the final two columns. The nominal p-value supplies a reproducible point from which to begin the cluster. Change the default seed threshold with `--cluster-seed-p-value`.
 
 After finding a seed, `chip-suite` looks upstream and downstream through the ordered treatment candidates. Any neighbouring peak that passes the selected treatment-control gate can extend the cluster even when its own p-value is at least 0.05. This separates the evidence needed to **start** a domain from the evidence used to define its **extent**: local replicate variability should not cut a coherent run of consistently treatment-over-control nucleosomes into many small pieces.
 
@@ -153,7 +153,7 @@ The right-hand `G G` is discarded because it contains no `S`. A lone `S` is also
 
 With `--cluster-member-mode significant-only`, `G` and `x` are both non-members for gap counting. For example, with the default `--cluster-max-non-member-gap 1`, `S G S` may form one cluster, but `S G x S` is split because two consecutive non-members separate the significant peaks.
 
-Cluster coordinates run from the start of the first included member to the end of the last included member. With the default `--stage1-gate-mode mean`, each member contributes `mean treatment - mean control` to the cluster score. With `--stage1-gate-mode all-controls`, each member instead contributes `minimum treatment - maximum control`. The default `--cluster-member-mode seed-and-gated` treats both `S` and `G` peaks as members; `--cluster-member-mode significant-only` restricts membership and scoring to `S` peaks. `--cluster-max-non-member-gap` controls how many consecutive non-members may bridge included members; a longer run ends the current cluster and later eligible peaks are evaluated as a new cluster. Bridging candidates never contribute to the cluster boundary or score. The strongest peak is the included member with the largest maximum on the condition-mean treatment coverage track; selected treatment-over-control excess and genomic position break ties. `--cluster-fdr` can optionally filter the maximum seed FDR, but no cluster FDR cutoff is applied by default.
+Cluster coordinates run from the start of the first included member to the end of the last included member. With the default `--stage1-gate-mode all-controls`, each member contributes `minimum treatment - maximum control` to the cluster score. With `--stage1-gate-mode mean`, each member instead contributes `mean treatment - mean control`. The default `--cluster-member-mode seed-and-gated` treats both `S` and `G` peaks as members; `--cluster-member-mode significant-only` restricts membership and scoring to `S` peaks. `--cluster-max-non-member-gap` controls how many consecutive non-members may bridge included members; a longer run ends the current cluster and later eligible peaks are evaluated as a new cluster. Bridging candidates never contribute to the cluster boundary or score. The strongest peak is the included member with the largest maximum on the condition-mean treatment coverage track; selected treatment-over-control excess and genomic position break ties. `--cluster-fdr` can optionally filter the maximum seed FDR, but no cluster FDR cutoff is applied by default.
 
 `chip-suite` calls nucleosome peaks only. It does not call or retain breakpoint peaks because Stage 1 and Stage 2 use positive nucleosome-score candidates.
 

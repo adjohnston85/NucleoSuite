@@ -19,10 +19,10 @@ def _record(i, *, mean_diff, all_gate, p):
     )
 
 
-def test_chip_suite_0_10_11_public_defaults(tmp_path: Path):
+def test_chip_suite_0_10_12_public_defaults(tmp_path: Path):
     t = tmp_path / "t.bam"; c = tmp_path / "c.bam"; t.touch(); c.touch()
     args = build_parser().parse_args(["--treatment1-bam", str(t), "--control1-bam", str(c), "--outdir", str(tmp_path/'out')])
-    assert args.stage1_gate_mode == "mean"
+    assert args.stage1_gate_mode == "all-controls"
     assert args.cluster_member_mode == "seed-and-gated"
     assert args.cluster_max_non_member_gap == 1
     assert args.min_cluster_members == 2
@@ -145,3 +145,38 @@ def test_stage2_manifest_uses_selected_method_score_tracks(tmp_path: Path):
     assert resolved[0] == mean.resolve()
     assert resolved[1] == [rep1.resolve(), rep2.resolve()]
     assert resolved[2:] == ("bns", "posBNS")
+
+
+def test_stage1_statistics_and_seed_beds_append_raw_p_and_fdr(tmp_path: Path, monkeypatch):
+    import nucleosuite.chip_peaks as cp
+
+    class Handle:
+        def __init__(self, score):
+            self.score = score
+        def close(self):
+            pass
+
+    target_bed = tmp_path / "target_candidates.bed"
+    target_bed.write_text("chr1\t100\t180\tpeak1\t8\t.\t140\t141\n", encoding="utf-8")
+    handles = [Handle(120.0), Handle(122.0), Handle(50.0), Handle(52.0), Handle(121.0)]
+    monkeypatch.setattr(cp, "open_bigwigs", lambda _paths: handles)
+    monkeypatch.setattr(cp, "interval_max", lambda handle, *_args: handle.score)
+
+    outputs = cp.analyze_chip_replicate_peaks(
+        target_bed,
+        output_dir=tmp_path / "out",
+        target_replicate_bigwigs=["t1.bw", "t2.bw"],
+        control_replicate_bigwigs=["c1.bw", "c2.bw"],
+        target_mean_bigwig="treatment_mean.bw",
+        minimum_cluster_members=1,
+    )
+
+    assert outputs["annotated_peaks"].name == "target_peaks_replicate_statistics_gate_all-controls.bed"
+    assert outputs["seed_peaks"].name == "target_seed_peaks_gate_all-controls_seed_p0.05.bed"
+    assert outputs["competition_table"].name == "target_peak_replicate_statistics_gate_all-controls.tsv"
+    annotated = outputs["annotated_peaks"].read_text().strip().split("\t")
+    seed = outputs["seed_peaks"].read_text().strip().split("\t")
+    assert len(annotated) == 10
+    assert seed == annotated
+    assert float(annotated[-2]) < 0.05
+    assert float(annotated[-1]) <= 0.05
