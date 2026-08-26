@@ -253,7 +253,7 @@ def run(args) -> int:
                 scores = basic_tracks.to_scores(
                     basic_by_group[group], region.contig, region.adjusted_start
                 )
-                if args.pns_mode == "on":
+                if args.pns_mode == "on" and args.peak_calling:
                     scores.update(
                         pns_scoring.to_scores(
                             pns_by_group[group],
@@ -442,7 +442,7 @@ def run(args) -> int:
                     f"skipped: {accumulator['fragments_skipped']:,}."
                 )
 
-        if args.pns_mode == "on":
+        if args.pns_mode == "on" and args.peak_calling:
             peak_beds = []
             for group in output_groups:
                 prefix = group_output_prefix(args.out_prefix, group)

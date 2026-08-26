@@ -161,7 +161,8 @@ CORE_DESTINATIONS: dict[str, set[str]] = {
         "outdir", "sample_name", "condition1_name", "condition2_name", "bam_mode",
         "scoring_method", "mode", "mode_strategy", "frag_lower", "frag_upper",
         "blacklist_bed", "contigs", "cores", "stage1_p_value", "peak_fdr",
-        "cluster_member_p_value", "cluster_fdr",
+        "cluster_seed_p_value", "cluster_max_non_gated_gap",
+        "min_cluster_gated_peaks", "cluster_fdr",
         "differential_fdr", "compare_feature_level",
     },
     "chip-compare": {

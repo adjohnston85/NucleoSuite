@@ -293,6 +293,8 @@ def _combine(
             peak_resolution=config.nrl_peak_resolution,
             regression_min=config.nrl_regression_min,
             regression_max=config.nrl_regression_max,
+            regression_min_order=config.nrl_regression_min_order,
+            regression_max_order=config.nrl_regression_max_order,
             exclusion_start=exclusion_start,
             exclusion_end=exclusion_end,
         )

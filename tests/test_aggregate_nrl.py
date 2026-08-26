@@ -164,6 +164,22 @@ def test_regression_range_does_not_limit_unified_peak_calling() -> None:
     assert [peak.distance for peak in result.negative_peaks] == [380, 570, 760]
 
 
+def test_directional_regression_can_be_limited_to_peak_orders_zero_through_three() -> None:
+    positions, values = _aggregate_profile()
+    result = analyse_aggregate_nrl(
+        values,
+        positions=positions,
+        regression_max=1000,
+        regression_min_order=0,
+        regression_max_order=3,
+    )
+    assert result.positive_peak_numbers == (0, 1, 2, 3)
+    assert result.negative_peak_numbers == (0, 1, 2, 3)
+    assert [peak.distance for peak in result.positive_peaks] == [0, 185, 370, 555]
+    assert [peak.distance for peak in result.negative_peaks] == [0, 190, 380, 570]
+    assert len(result.peaks) == 11
+
+
 def test_aggregate_cli_nrl_defaults_and_range_options() -> None:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -175,6 +191,8 @@ def test_aggregate_cli_nrl_defaults_and_range_options() -> None:
     assert defaults.nrl_peak_resolution == 160
     assert defaults.nrl_regression_min == 0
     assert defaults.nrl_regression_max is None
+    assert defaults.nrl_regression_min_order is None
+    assert defaults.nrl_regression_max_order is None
     assert defaults.nrl_regression_exclusion_start is None
     assert defaults.nrl_regression_exclusion_end is None
     assert defaults.nrl_exclusion is True
@@ -190,6 +208,10 @@ def test_aggregate_cli_nrl_defaults_and_range_options() -> None:
             "200",
             "--nrl-regression-max",
             "1200",
+            "--nrl-regression-min-order",
+            "0",
+            "--nrl-regression-max-order",
+            "3",
             "--nrl-exclusion-start",
             "-100",
             "--nrl-exclusion-end",
@@ -200,6 +222,8 @@ def test_aggregate_cli_nrl_defaults_and_range_options() -> None:
     assert custom.nrl is False
     assert custom.nrl_regression_min == 200
     assert custom.nrl_regression_max == 1200
+    assert custom.nrl_regression_min_order == 0
+    assert custom.nrl_regression_max_order == 3
     assert custom.nrl_regression_exclusion_start == -100
     assert custom.nrl_regression_exclusion_end == 100
 

@@ -159,6 +159,24 @@ def add_aggregate_parser(subparsers: argparse._SubParsersAction) -> argparse.Arg
         ),
     )
     parser.add_argument(
+        "--nrl-regression-min-order",
+        type=int,
+        default=None,
+        help=(
+            "Smallest directional peak order included in each regression. "
+            "Order 0 is the central peak when one is called (default: no order filter)."
+        ),
+    )
+    parser.add_argument(
+        "--nrl-regression-max-order",
+        type=int,
+        default=None,
+        help=(
+            "Largest directional peak order included in each regression; missing "
+            "orders are preserved rather than renumbered (default: no order filter)."
+        ),
+    )
+    parser.add_argument(
         "--nrl-regression-exclusion-start",
         "--nrl-exclusion-start",
         type=float,

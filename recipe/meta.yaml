@@ -1,5 +1,5 @@
 {% set name = "nucleosuite" %}
-{% set version = "0.10.8" %}
+{% set version = "0.10.10" %}
 
 package:
   name: {{ name|lower }}

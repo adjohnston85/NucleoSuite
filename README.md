@@ -81,7 +81,7 @@ Analysis commands derive output filenames or prefixes from the primary input bas
 | [`mnase-suite`](docs/commands/mnase-suite.md) | Run the coordinated MNase-seq workflow. |
 | [`cfdna-suite`](docs/commands/cfdna-suite.md) | Run the coordinated cfDNA fragmentomics workflow. |
 | [`chip-suite`](docs/commands/chip-suite.md) | Run matched target-control ChIP-seq/CUT&RUN/CUT&Tag TNS, BNS or PNS analysis. |
-| [`chip-compare`](docs/commands/chip-compare.md) | Compare two completed chip-suite Stage 1 analyses from their scaled coverage BigWigs. |
+| [`chip-compare`](docs/commands/chip-compare.md) | Compare Stage 1 clusters between two conditions and summarize cluster overlap. |
 | [`combine`](docs/commands/combine.md) | Combine outputs from an existing chromosome-wise run. |
 | [`chrom-sizes`](docs/commands/chrom-sizes.md) | Write chromosome names and lengths from a BAM or CRAM header. |
 | [`resources`](docs/commands/resources.md) | List, locate, validate, or copy bundled resources. |
@@ -106,7 +106,7 @@ nucleosuite pns \
 
 Standalone `pns` and `wps` estimate their protected-DNA mode automatically from the unsmoothed accepted-fragment histogram. The resolved estimate is printed and recorded; use an integer such as `--mode 167` to apply a fixed mode instead.
 
-A default TNS target/control analysis with automatic bootstrap fragment-mode estimation is:
+A default PNS target/control analysis with automatic bootstrap fragment-mode estimation is:
 
 ```bash
 nucleosuite chip-suite \
@@ -118,7 +118,7 @@ nucleosuite chip-suite \
 
 Use `--mode 167` to bypass mode estimation and apply that exact mode to both samples.
 
-Multiple BAMs are treated as independent biological replicates by default; treatment and control counts may differ, and `--bam-mode merged` pools each group as one logical sample. Each TNS track is divided by its own mean `posTNS` before treatment replicates are averaged, preventing a deeper replicate from dominating consensus peak discovery. The workflow retains raw coverage and scales every treatment and control coverage track independently to a non-zero mean of 100. Maximum scaled coverage within each candidate becomes the replicate peak score. A candidate passes Stage 1 by default when every treatment score exceeds every control score; Welch p-values and BH FDR are retained as optional filters. Clusters contain gate-passing peaks with p < 0.05. Control and breakpoint peaks are not called. Add `--treatment2-bam` and `--control2-bam` for a log-scale empirical-Bayes four-group interaction analysis, or run [`chip-compare`](docs/commands/chip-compare.md) later from two Stage 1 manifests.
+Multiple BAMs are treated as independent biological replicates by default; treatment and control counts may differ, and `--bam-mode merged` pools each group as one logical sample. Peak discovery uses PNS over each resolved mode ±30 bp. Each PNS track is divided by its own mean `posPNS` before treatment replicates are averaged, preventing a deeper replicate from dominating consensus peak discovery. A separate pass retains raw 1–1,000 bp coverage and scales every treatment and control coverage track independently to a non-zero mean of 100. The narrow score range focuses peak positioning on nucleosome-sized fragments, while broad coverage preserves the fragment abundance used for peak measurement. Maximum scaled coverage within each candidate becomes the replicate peak score. A candidate passes Stage 1 by default when every treatment score exceeds every control score; Welch p-values and BH FDR are retained as optional filters. Clusters begin at gated seeds with p < 0.05 and extend through neighbouring gated peaks; one non-gated candidate may bridge members, at least two gated members are required, and adjacent gated-member summits cannot be more than 1,000 bp apart. Per-replicate interval and breakpoint calling is disabled. Each cluster is aligned at its strongest coverage-scored member, and the normalized treatment PNS is averaged for heatmaps, confidence bands, and default order 0–3 directional NRLs at 140 bp resolution. Add `--treatment2-bam` and `--control2-bam` for cluster-only empirical-Bayes interaction tests plus Venn and occupied-base overlap summaries, or run [`chip-compare`](docs/commands/chip-compare.md) later from two Stage 1 manifests.
 
 Detailed command behaviour, advanced options, output layouts, resource handling, and workflow examples are documented in the pages linked above and in the guides below.
 

@@ -67,7 +67,7 @@ This always writes every observed peak with `empirical_fdr` appended. Add `--fdr
 
 ## 4. Run a matched ChIP-seq, CUT&RUN, or CUT&Tag analysis
 
-The default `chip-suite` run uses TNS over 120–500 bp fragments and estimates target and control fragment modes independently before choosing an equal-weight pooled analysis mode:
+The default `chip-suite` run estimates target and control fragment modes independently before choosing an equal-weight pooled analysis mode. It then uses PNS over the resolved mode ±30 bp for peak discovery and a separate 1–1,000 bp fragment range for coverage measurement:
 
 ```bash
 nucleosuite chip-suite \
@@ -78,9 +78,9 @@ nucleosuite chip-suite \
   --cores 8
 ```
 
-Use `--scoring-method bns` or `--scoring-method pns` to change the score. Use `--mode 167` to bypass automatic sampling and use exactly 167 bp for both target and control.
+Use `--scoring-method bns` or `--scoring-method tns` to change the discovery score. Use `--mode 167` to bypass automatic sampling and use exactly 167 bp for both target and control; with the default flank this gives a 137–197 bp discovery range.
 
-Each replicate TNS track is divided by its own mean `posTNS` before treatment tracks are averaged. This prevents sequencing-depth differences from weighting the consensus peak-discovery track toward one replicate. The score-track stage also writes raw fragment coverage and a separate coverage BigWig scaled to a non-zero mean of 100 for each sample. Maximum scaled coverage within each TNS-defined interval becomes the replicate peak score because it measures local abundance without making the score strongly dependent on peak width. A candidate passes the default Stage 1 selection when every treatment score exceeds every control score; p-values and BH FDR remain annotations unless optional cutoffs are supplied. Clusters use gate-passing peaks with p < 0.05. Treatment and control groups are independent, may contain different replicate counts, and are never paired by input order. Use `--bam-mode merged` to pool a group. Supplying `--treatment2-bam` and `--control2-bam` adds a log2 empirical-Bayes four-group interaction test. Two independently completed Stage 1 runs can instead be compared with [`chip-compare`](commands/chip-compare.md).
+Each replicate PNS track is divided by its own mean `posPNS` before treatment tracks are averaged. This prevents sequencing-depth differences from weighting the consensus peak-discovery track toward one replicate. The independent broad-range coverage pass writes raw coverage and a BigWig scaled to a non-zero mean of 100 for each sample. Maximum scaled coverage within each PNS-defined interval becomes the replicate peak score because it measures local abundance without making the score strongly dependent on peak width. A candidate passes the default Stage 1 selection when every treatment score exceeds every control score; p-values and BH FDR remain annotations unless optional cutoffs are supplied. Clusters start at gated peaks with p < 0.05 and extend through neighbouring gated peaks regardless of their p-values. One non-gated bridge is allowed, at least two gated members are required, and adjacent gated-member summits cannot be more than 1,000 bp apart. Treatment and control groups are independent, may contain different replicate counts, and are never paired by input order. Use `--bam-mode merged` to pool a group. Supplying `--treatment2-bam` and `--control2-bam` adds a log2 empirical-Bayes four-group interaction test. Two independently completed Stage 1 runs can instead be compared with [`chip-compare`](commands/chip-compare.md).
 
 ## 5. Measure nucleosome spacing
 

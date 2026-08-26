@@ -114,6 +114,8 @@ nucleosuite aggregate \
 
 This fits positive peaks from +200 to +1200 bp and negative peaks from −200 to −1200 bp. Peaks outside that range remain present in the unified peak table and plot.
 
+Peak-order filters can be applied independently of distance filters. `--nrl-regression-min-order 0 --nrl-regression-max-order 3` includes the central order-0 peak, when present, plus outward orders 1–3. Peak calling still covers the complete aggregate, and missing or excluded orders are not renumbered. The cluster aggregates in `chip-suite` use this 0–3 order range with 140 bp resolution and `--no-nrl-exclusion` by default.
+
 By default, an inclusive regression-only exclusion interval spans half the peak resolution on either side of 0. It is therefore −80 to +80 bp at the default 160 bp resolution and changes automatically when `--nrl-peak-resolution` changes. This avoids making the reference-centred peak determine both outward fits. Use `--no-nrl-exclusion` to include an eligible central peak as order 0 in both regressions.
 
 Explicit bounds replace the resolution-derived default:

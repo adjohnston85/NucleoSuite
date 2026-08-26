@@ -74,6 +74,8 @@ class AlignmentConfig:
     nrl_peak_resolution: float = 160.0
     nrl_regression_min: float = 0.0
     nrl_regression_max: float | None = None
+    nrl_regression_min_order: int | None = None
+    nrl_regression_max_order: int | None = None
     nrl_exclusion: bool = True
     nrl_regression_exclusion_start: float | None = None
     nrl_regression_exclusion_end: float | None = None
@@ -100,6 +102,8 @@ class AggregateNRLResult:
     local_max_window: int
     regression_min: float
     regression_max: float
+    regression_min_order: int | None
+    regression_max_order: int | None
     exclusion_start: float | None
     exclusion_end: float | None
 
@@ -209,6 +213,24 @@ def validate_config(config: AlignmentConfig) -> None:
         raise ValueError("nrl_peak_resolution must be >= 0")
     if config.nrl_regression_min < 0:
         raise ValueError("nrl_regression_min must be >= 0")
+    if (
+        config.nrl_regression_min_order is not None
+        and config.nrl_regression_min_order < 0
+    ):
+        raise ValueError("nrl_regression_min_order must be >= 0")
+    if (
+        config.nrl_regression_max_order is not None
+        and config.nrl_regression_max_order < 0
+    ):
+        raise ValueError("nrl_regression_max_order must be >= 0")
+    if (
+        config.nrl_regression_min_order is not None
+        and config.nrl_regression_max_order is not None
+        and config.nrl_regression_max_order < config.nrl_regression_min_order
+    ):
+        raise ValueError(
+            "nrl_regression_max_order must be at least nrl_regression_min_order"
+        )
     if (
         config.nrl_regression_max is not None
         and config.nrl_regression_max <= config.nrl_regression_min
@@ -341,6 +363,20 @@ def make_output_prefix(config: AlignmentConfig) -> str:
                 ("nrlres", config.nrl_peak_resolution),
                 ("nrlmin", config.nrl_regression_min),
                 ("nrlmax", regression_max),
+                (
+                    "nrlorders",
+                    "all"
+                    if config.nrl_regression_min_order is None
+                    and config.nrl_regression_max_order is None
+                    else parameter_range(
+                        0
+                        if config.nrl_regression_min_order is None
+                        else config.nrl_regression_min_order,
+                        "all"
+                        if config.nrl_regression_max_order is None
+                        else config.nrl_regression_max_order,
+                    ),
+                ),
                 (
                     "excl",
                     "none"
@@ -671,6 +707,8 @@ def analyse_aggregate_nrl(
     peak_resolution: float = 160.0,
     regression_min: float = 0.0,
     regression_max: float | None = None,
+    regression_min_order: int | None = None,
+    regression_max_order: int | None = None,
     exclusion_start: float | None = None,
     exclusion_end: float | None = None,
 ) -> AggregateNRLResult:
@@ -695,6 +733,16 @@ def analyse_aggregate_nrl(
         raise ValueError("peak_resolution must be zero or greater")
     if regression_min < 0:
         raise ValueError("regression_min must be zero or greater")
+    if regression_min_order is not None and regression_min_order < 0:
+        raise ValueError("regression_min_order must be zero or greater")
+    if regression_max_order is not None and regression_max_order < 0:
+        raise ValueError("regression_max_order must be zero or greater")
+    if (
+        regression_min_order is not None
+        and regression_max_order is not None
+        and regression_max_order < regression_min_order
+    ):
+        raise ValueError("regression_max_order must be at least regression_min_order")
     if (exclusion_start is None) != (exclusion_end is None):
         raise ValueError("exclusion_start and exclusion_end must be supplied together")
     if exclusion_start is not None and exclusion_end is not None:
@@ -778,6 +826,8 @@ def analyse_aggregate_nrl(
             for number, peak in numbered
             if regression_min <= abs(peak.distance) <= effective_max
             and not excluded(peak)
+            and (regression_min_order is None or number >= regression_min_order)
+            and (regression_max_order is None or number <= regression_max_order)
         ]
         return (
             tuple(_outward_peak(peak) for _, peak in selected),
@@ -808,6 +858,8 @@ def analyse_aggregate_nrl(
         local_max_window=local_max_window,
         regression_min=float(regression_min),
         regression_max=effective_max,
+        regression_min_order=regression_min_order,
+        regression_max_order=regression_max_order,
         exclusion_start=exclusion_start,
         exclusion_end=exclusion_end,
     )
@@ -1175,6 +1227,8 @@ def write_aggregate_nrl_outputs(
                 "peak_calling_scope",
                 "regression_min_distance_bp",
                 "regression_max_distance_bp",
+                "regression_min_peak_order",
+                "regression_max_peak_order",
                 "peak_resolution_bp",
                 "detection_smoothing_window",
                 "local_max_smoothing_window",
@@ -1205,6 +1259,16 @@ def write_aggregate_nrl_outputs(
                     "complete_aggregate_alignment",
                     _format_nrl_value(result.regression_min),
                     _format_nrl_value(result.regression_max),
+                    (
+                        "all"
+                        if result.regression_min_order is None
+                        else result.regression_min_order
+                    ),
+                    (
+                        "all"
+                        if result.regression_max_order is None
+                        else result.regression_max_order
+                    ),
                     _format_nrl_value(result.peak_resolution),
                     result.detection_window,
                     result.local_max_window,
@@ -1563,6 +1627,8 @@ def run_alignment(
             peak_resolution=config.nrl_peak_resolution,
             regression_min=config.nrl_regression_min,
             regression_max=config.nrl_regression_max,
+            regression_min_order=config.nrl_regression_min_order,
+            regression_max_order=config.nrl_regression_max_order,
             exclusion_start=exclusion_start,
             exclusion_end=exclusion_end,
         )

@@ -13,6 +13,4 @@ nucleosuite chip-suite \
   --scoring-method tns \
   --mode "$MODE" \
   --frag-lower 120 \
-  --frag-upper 500 \
-  --peak-fdr 0.05 \
-  --cluster-fdr 0.05
+  --frag-upper 500

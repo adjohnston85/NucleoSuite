@@ -152,6 +152,20 @@ def _category_overall_prefix(args: argparse.Namespace) -> str:
                 ("nrlmin", config.nrl_regression_min),
                 ("nrlmax", regression_max),
                 (
+                    "nrlorders",
+                    "all"
+                    if config.nrl_regression_min_order is None
+                    and config.nrl_regression_max_order is None
+                    else parameter_range(
+                        0
+                        if config.nrl_regression_min_order is None
+                        else config.nrl_regression_min_order,
+                        "all"
+                        if config.nrl_regression_max_order is None
+                        else config.nrl_regression_max_order,
+                    ),
+                ),
+                (
                     "excl",
                     "none" if exclusion_start is None else parameter_range(exclusion_start, exclusion_end),
                 ),

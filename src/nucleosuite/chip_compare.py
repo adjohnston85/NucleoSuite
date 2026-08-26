@@ -17,15 +17,29 @@ from scipy.stats import t as student_t
 
 from nucleosuite.bigwig_ops import (
     bigwig_chroms,
-    interval_max,
     interval_positive_area,
     open_bigwigs,
+)
+from nucleosuite.chip_aggregate import (
+    common_symmetric_bigwig_limit,
+    run_cluster_aggregate,
 )
 
 
 MANIFEST_NAME = "chip_stage1_manifest.json"
 MANIFEST_SCHEMA = "nucleosuite_chip_stage1"
-MANIFEST_SCHEMA_VERSION = 3
+MANIFEST_SCHEMA_VERSION = 5
+
+
+@dataclass(frozen=True)
+class ClusterRecord:
+    cluster_id: str
+    chrom: str
+    start: int
+    end: int
+    summit: int
+    score: float
+    condition: int
 
 
 @dataclass(frozen=True)
@@ -37,6 +51,8 @@ class Region:
     condition1_support: bool
     condition2_support: bool
     origin: str
+    condition1_cluster_ids: tuple[str, ...] = ()
+    condition2_cluster_ids: tuple[str, ...] = ()
 
 
 def _manifest_path(value: str | Path) -> Path:
@@ -56,7 +72,9 @@ def load_stage1_manifest(value: str | Path) -> tuple[Path, dict[str, object]]:
         raise ValueError(f"Could not read Stage 1 manifest: {path}") from exc
     if payload.get("schema") != MANIFEST_SCHEMA:
         raise ValueError(f"Not a chip-suite Stage 1 manifest: {path}")
-    if int(payload.get("schema_version", -1)) not in {1, 2, MANIFEST_SCHEMA_VERSION}:
+    if int(payload.get("schema_version", -1)) not in {
+        1, 2, 3, 4, MANIFEST_SCHEMA_VERSION
+    }:
         raise ValueError(f"Unsupported Stage 1 manifest schema version: {path}")
     return path, payload
 
@@ -83,7 +101,7 @@ def _require_feature_path(
 def _validate_compatibility(
     first: dict[str, object], second: dict[str, object]
 ) -> dict[str, int]:
-    fields = (
+    fields = [
         "scoring_method",
         "score_track",
         "positive_track",
@@ -91,11 +109,24 @@ def _validate_compatibility(
         "peak_measurement_track",
         "target_mode",
         "control_mode",
-        "frag_lower",
-        "frag_upper",
         "contigs",
         "stage1_statistics",
-    )
+    ]
+    if first.get("target_score_frag_lower") is not None or second.get(
+        "target_score_frag_lower"
+    ) is not None:
+        fields.extend(
+            [
+                "target_score_frag_lower",
+                "target_score_frag_upper",
+                "control_score_frag_lower",
+                "control_score_frag_upper",
+                "coverage_frag_lower",
+                "coverage_frag_upper",
+            ]
+        )
+    else:
+        fields.extend(["frag_lower", "frag_upper"])
     differences = [field for field in fields if first.get(field) != second.get(field)]
     if differences:
         joined = ", ".join(differences)
@@ -206,49 +237,300 @@ def _consensus_peak_regions(
     return regions
 
 
-def _consensus_cluster_regions(
-    first: Sequence[tuple[str, int, int, int]],
-    second: Sequence[tuple[str, int, int, int]],
-) -> list[Region]:
-    def origin(support1: bool, support2: bool) -> str:
-        if support1 and support2:
-            return "overlap_union"
-        return "condition1_only" if support1 else "condition2_only"
+def _read_cluster_records(path: Path, *, condition: int) -> list[ClusterRecord]:
+    records: list[ClusterRecord] = []
+    with path.open("rt", encoding="utf-8") as handle:
+        for line_number, raw in enumerate(handle, 1):
+            line = raw.strip()
+            if not line or line.startswith(("#", "track", "browser")):
+                continue
+            fields = line.split("\t")
+            if len(fields) < 3:
+                raise ValueError(
+                    f"BED line {line_number} in {path} has fewer than 3 columns"
+                )
+            try:
+                start, end = int(fields[1]), int(fields[2])
+                summit = int(fields[6]) if len(fields) >= 7 else start + (end - start) // 2
+                score = (
+                    float(fields[9])
+                    if len(fields) >= 10
+                    else float(fields[4])
+                    if len(fields) >= 5
+                    else 0.0
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    f"Invalid cluster BED values at line {line_number} in {path}"
+                ) from exc
+            if start < 0 or end <= start or not start <= summit < end:
+                raise ValueError(f"Invalid BED interval at line {line_number} in {path}")
+            records.append(
+                ClusterRecord(
+                    cluster_id=(
+                        fields[3]
+                        if len(fields) >= 4 and fields[3]
+                        else f"condition{condition}_cluster_{line_number}"
+                    ),
+                    chrom=fields[0],
+                    start=start,
+                    end=end,
+                    summit=summit,
+                    score=score if math.isfinite(score) else 0.0,
+                    condition=condition,
+                )
+            )
+    records.sort(key=lambda value: (value.chrom, value.start, value.end, value.summit))
+    return records
 
-    tagged = [(*row[:3], True, False) for row in first]
-    tagged.extend((*row[:3], False, True) for row in second)
-    tagged.sort(key=lambda value: (value[0], value[1], value[2]))
-    output: list[Region] = []
-    for chrom, start, end, support1, support2 in tagged:
-        if output and output[-1].chrom == chrom and start <= output[-1].end:
-            previous = output.pop()
-            new_start, new_end = previous.start, max(previous.end, end)
-            combined_support1 = previous.condition1_support or support1
-            combined_support2 = previous.condition2_support or support2
-            output.append(
-                Region(
-                    chrom,
-                    new_start,
-                    new_end,
-                    new_start + (new_end - new_start) // 2,
-                    combined_support1,
-                    combined_support2,
-                    origin(combined_support1, combined_support2),
-                )
-            )
+
+def _consensus_cluster_regions(
+    first: Sequence[ClusterRecord],
+    second: Sequence[ClusterRecord],
+    *,
+    chroms: dict[str, int],
+) -> list[Region]:
+    """Create connected overlap components while preserving every source cluster."""
+
+    tagged = sorted(
+        [*first, *second],
+        key=lambda value: (value.chrom, value.start, value.end, value.condition),
+    )
+    components: list[list[ClusterRecord]] = []
+    current: list[ClusterRecord] = []
+    current_end = -1
+    current_chrom: str | None = None
+    for record in tagged:
+        if current and record.chrom == current_chrom and record.start < current_end:
+            current.append(record)
+            current_end = max(current_end, record.end)
         else:
-            output.append(
-                Region(
-                    chrom,
-                    start,
-                    end,
-                    start + (end - start) // 2,
-                    support1,
-                    support2,
-                    origin(support1, support2),
-                )
+            if current:
+                components.append(current)
+            current = [record]
+            current_chrom = record.chrom
+            current_end = record.end
+    if current:
+        components.append(current)
+
+    output: list[Region] = []
+    for component in components:
+        chrom = component[0].chrom
+        if chrom not in chroms:
+            raise ValueError(f"Cluster contig {chrom!r} is absent from Stage 1 BigWigs")
+        start = max(0, min(record.start for record in component))
+        end = min(chroms[chrom], max(record.end for record in component))
+        if end <= start:
+            continue
+        first_ids = tuple(
+            record.cluster_id for record in component if record.condition == 1
+        )
+        second_ids = tuple(
+            record.cluster_id for record in component if record.condition == 2
+        )
+        support1, support2 = bool(first_ids), bool(second_ids)
+        origin = (
+            "overlap_union"
+            if support1 and support2
+            else "condition1_only"
+            if support1
+            else "condition2_only"
+        )
+        strongest = max(
+            component, key=lambda record: (record.score, -record.summit)
+        )
+        output.append(
+            Region(
+                chrom=chrom,
+                start=start,
+                end=end,
+                summit=strongest.summit,
+                condition1_support=support1,
+                condition2_support=support2,
+                origin=origin,
+                condition1_cluster_ids=first_ids,
+                condition2_cluster_ids=second_ids,
             )
+        )
+    output.sort(key=lambda value: (value.chrom, value.start, value.end))
     return output
+
+
+def _merge_intervals(records: Sequence[ClusterRecord]) -> list[tuple[str, int, int]]:
+    merged: list[tuple[str, int, int]] = []
+    for record in sorted(records, key=lambda value: (value.chrom, value.start, value.end)):
+        if merged and merged[-1][0] == record.chrom and record.start <= merged[-1][2]:
+            chrom, start, end = merged[-1]
+            merged[-1] = (chrom, start, max(end, record.end))
+        else:
+            merged.append((record.chrom, record.start, record.end))
+    return merged
+
+
+def _interval_bp(intervals: Sequence[tuple[str, int, int]]) -> int:
+    return sum(end - start for _chrom, start, end in intervals)
+
+
+def _overlap_bp(
+    first: Sequence[tuple[str, int, int]],
+    second: Sequence[tuple[str, int, int]],
+) -> int:
+    by_chrom_first: dict[str, list[tuple[int, int]]] = {}
+    by_chrom_second: dict[str, list[tuple[int, int]]] = {}
+    for chrom, start, end in first:
+        by_chrom_first.setdefault(chrom, []).append((start, end))
+    for chrom, start, end in second:
+        by_chrom_second.setdefault(chrom, []).append((start, end))
+    total = 0
+    for chrom in set(by_chrom_first) & set(by_chrom_second):
+        left = by_chrom_first[chrom]
+        right = by_chrom_second[chrom]
+        i = j = 0
+        while i < len(left) and j < len(right):
+            total += max(0, min(left[i][1], right[j][1]) - max(left[i][0], right[j][0]))
+            if left[i][1] <= right[j][1]:
+                i += 1
+            else:
+                j += 1
+    return total
+
+
+def _write_cluster_overlap_outputs(
+    first: Sequence[ClusterRecord],
+    second: Sequence[ClusterRecord],
+    regions: Sequence[Region],
+    output_dir: Path,
+    *,
+    condition1_name: str,
+    condition2_name: str,
+) -> dict[str, object]:
+    mapping = output_dir / "cluster_overlap_components.tsv"
+    topology = {"1_to_1": 0, "1_to_many": 0, "many_to_1": 0, "many_to_many": 0}
+    with mapping.open("wt", encoding="utf-8") as handle:
+        handle.write(
+            "cluster_locus_id\tchromosome\tstart\tend\tregion_origin\t"
+            "condition1_cluster_count\tcondition2_cluster_count\t"
+            "condition1_cluster_ids\tcondition2_cluster_ids\trelationship\t"
+            "aggregate_anchor_summit\n"
+        )
+        for index, region in enumerate(regions, 1):
+            first_count = len(region.condition1_cluster_ids)
+            second_count = len(region.condition2_cluster_ids)
+            if first_count and second_count:
+                relationship = (
+                    "1_to_1" if first_count == second_count == 1
+                    else "1_to_many" if first_count == 1
+                    else "many_to_1" if second_count == 1
+                    else "many_to_many"
+                )
+                topology[relationship] += 1
+            else:
+                relationship = region.origin
+            handle.write(
+                f"cluster_locus_{index}\t{region.chrom}\t{region.start}\t{region.end}\t"
+                f"{region.origin}\t{first_count}\t{second_count}\t"
+                f"{';'.join(region.condition1_cluster_ids)}\t"
+                f"{';'.join(region.condition2_cluster_ids)}\t{relationship}\t"
+                f"{region.summit}\n"
+            )
+
+    first_intervals = _merge_intervals(first)
+    second_intervals = _merge_intervals(second)
+    first_bp = _interval_bp(first_intervals)
+    second_bp = _interval_bp(second_intervals)
+    overlap_bp = _overlap_bp(first_intervals, second_intervals)
+    union_bp = first_bp + second_bp - overlap_bp
+    first_only_loci = sum(region.origin == "condition1_only" for region in regions)
+    second_only_loci = sum(region.origin == "condition2_only" for region in regions)
+    shared_loci = sum(region.origin == "overlap_union" for region in regions)
+    first_overlapping_ids = {
+        cluster_id
+        for region in regions
+        if region.origin == "overlap_union"
+        for cluster_id in region.condition1_cluster_ids
+    }
+    second_overlapping_ids = {
+        cluster_id
+        for region in regions
+        if region.origin == "overlap_union"
+        for cluster_id in region.condition2_cluster_ids
+    }
+    summary_values: list[tuple[str, object]] = [
+        ("condition1_name", condition1_name),
+        ("condition2_name", condition2_name),
+        ("condition1_raw_cluster_count", len(first)),
+        ("condition2_raw_cluster_count", len(second)),
+        ("condition1_clusters_with_any_overlap", len(first_overlapping_ids)),
+        ("condition2_clusters_with_any_overlap", len(second_overlapping_ids)),
+        ("condition1_only_cluster_loci", first_only_loci),
+        ("condition2_only_cluster_loci", second_only_loci),
+        ("shared_cluster_loci", shared_loci),
+        ("union_cluster_loci", len(regions)),
+        ("shared_1_to_1_loci", topology["1_to_1"]),
+        ("shared_1_to_many_loci", topology["1_to_many"]),
+        ("shared_many_to_1_loci", topology["many_to_1"]),
+        ("shared_many_to_many_loci", topology["many_to_many"]),
+        ("condition1_cluster_bp", first_bp),
+        ("condition2_cluster_bp", second_bp),
+        ("overlapping_cluster_bp", overlap_bp),
+        ("condition1_unique_cluster_bp", first_bp - overlap_bp),
+        ("condition2_unique_cluster_bp", second_bp - overlap_bp),
+        ("union_cluster_bp", union_bp),
+        (
+            "condition1_cluster_bp_overlapping_percent",
+            100.0 * overlap_bp / first_bp if first_bp else math.nan,
+        ),
+        (
+            "condition2_cluster_bp_overlapping_percent",
+            100.0 * overlap_bp / second_bp if second_bp else math.nan,
+        ),
+        ("cluster_bp_jaccard_percent", 100.0 * overlap_bp / union_bp if union_bp else math.nan),
+    ]
+    summary = output_dir / "cluster_overlap_summary.tsv"
+    with summary.open("wt", encoding="utf-8") as handle:
+        handle.write("metric\tvalue\n")
+        for name, value in summary_values:
+            handle.write(f"{name}\t{_format_number(value) if isinstance(value, float) else value}\n")
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib_venn import venn2
+
+    venn_path = output_dir / "cluster_locus_venn.png"
+    figure, axis = plt.subplots(figsize=(7, 6))
+    venn2(
+        subsets=(first_only_loci, second_only_loci, shared_loci),
+        set_labels=(condition1_name, condition2_name),
+        ax=axis,
+    )
+    axis.set_title("Overlap-connected Stage 1 cluster loci")
+    figure.tight_layout()
+    figure.savefig(venn_path, dpi=300)
+    plt.close(figure)
+    return {
+        "component_mapping": str(mapping.resolve()),
+        "summary": str(summary.resolve()),
+        "venn_plot": str(venn_path.resolve()),
+        "raw_condition1_clusters": len(first),
+        "raw_condition2_clusters": len(second),
+        "shared_cluster_loci": shared_loci,
+        "condition1_only_cluster_loci": first_only_loci,
+        "condition2_only_cluster_loci": second_only_loci,
+        "overlapping_cluster_bp": overlap_bp,
+        "union_cluster_bp": union_bp,
+    }
+
+
+def _write_union_anchor_bed(regions: Sequence[Region], output_path: Path) -> Path:
+    with output_path.open("wt", encoding="utf-8") as handle:
+        for index, region in enumerate(regions, 1):
+            handle.write(
+                f"{region.chrom}\t{region.summit}\t{region.summit + 1}\t"
+                f"cluster_locus_{index}\t0\t.\t{region.summit}\t{region.summit + 1}\n"
+            )
+    return output_path.resolve()
 
 
 def _group_tracks(manifest: dict[str, object]) -> tuple[list[Path], list[Path]]:
@@ -387,6 +669,12 @@ def _moderated_interaction_statistics(
                 "effect": math.nan,
                 "ordinary_pvalue": math.nan,
                 "moderated_pvalue": math.nan,
+                "ordinary_standard_error": math.nan,
+                "moderated_standard_error": math.nan,
+                "ordinary_ci_lower": math.nan,
+                "ordinary_ci_upper": math.nan,
+                "moderated_ci_lower": math.nan,
+                "moderated_ci_upper": math.nan,
                 "residual_variance": math.nan,
                 "posterior_variance": math.nan,
             }
@@ -419,10 +707,15 @@ def _moderated_interaction_statistics(
         else:
             statistic = effect / math.sqrt(residual_variance * contrast_variance)
             ordinary_pvalue = 2.0 * float(student_t.sf(abs(statistic), residual_df))
+        ordinary_standard_error = math.sqrt(residual_variance * contrast_variance)
+        ordinary_critical = float(student_t.ppf(0.975, residual_df))
         fitted.append(
             {
                 "effect": effect,
                 "ordinary_pvalue": ordinary_pvalue,
+                "ordinary_standard_error": ordinary_standard_error,
+                "ordinary_ci_lower": effect - ordinary_critical * ordinary_standard_error,
+                "ordinary_ci_upper": effect + ordinary_critical * ordinary_standard_error,
                 "residual_variance": residual_variance,
             }
         )
@@ -446,7 +739,19 @@ def _moderated_interaction_statistics(
         else:
             posterior_variance = record["residual_variance"]
             pvalue = record["ordinary_pvalue"]
+            total_df = residual_df
+        moderated_standard_error = math.sqrt(
+            posterior_variance * contrast_variance
+        )
+        moderated_critical = float(student_t.ppf(0.975, total_df))
         record["posterior_variance"] = posterior_variance
+        record["moderated_standard_error"] = moderated_standard_error
+        record["moderated_ci_lower"] = (
+            record["effect"] - moderated_critical * moderated_standard_error
+        )
+        record["moderated_ci_upper"] = (
+            record["effect"] + moderated_critical * moderated_standard_error
+        )
         record["moderated_pvalue"] = min(max(pvalue, 0.0), 1.0)
     return fitted, {
         "available": True,
@@ -573,6 +878,12 @@ def _compare_regions(
                 "effect": float(row["log_delta"]),
                 "ordinary_pvalue": math.nan,
                 "moderated_pvalue": math.nan,
+                "ordinary_standard_error": math.nan,
+                "moderated_standard_error": math.nan,
+                "ordinary_ci_lower": math.nan,
+                "ordinary_ci_upper": math.nan,
+                "moderated_ci_lower": math.nan,
+                "moderated_ci_upper": math.nan,
                 "residual_variance": math.nan,
                 "posterior_variance": math.nan,
             }
@@ -616,7 +927,9 @@ def _compare_regions(
         ]
         table.write(
             "chromosome\tstart\tend\tsummit\tcondition1_stage1_support\t"
-            "condition2_stage1_support\tregion_origin\tstatistic\t"
+            "condition2_stage1_support\tregion_origin\t"
+            "condition1_cluster_count\tcondition2_cluster_count\t"
+            "condition1_cluster_ids\tcondition2_cluster_ids\tstatistic\t"
             + "\t".join(replicate_columns)
             + "\tcondition1_treatment_mean\tcondition1_control_mean\t"
             "condition2_treatment_mean\tcondition2_control_mean\t"
@@ -628,7 +941,9 @@ def _compare_regions(
             "condition1_log2_enrichment_lower\tcondition1_log2_enrichment_upper\t"
             "condition2_log2_enrichment_lower\tcondition2_log2_enrichment_upper\t"
             "effect_direction\treplicate_consistency\tordinary_p_value\t"
-            "moderated_p_value\tdifferential_fdr\tresidual_variance\t"
+            "moderated_p_value\tdifferential_fdr\tordinary_standard_error\t"
+            "moderated_standard_error\tordinary_95_ci_lower\tordinary_95_ci_upper\t"
+            "moderated_95_ci_lower\tmoderated_95_ci_upper\tresidual_variance\t"
             "posterior_variance\tstatus\n"
         )
         for index, (row, qvalue) in enumerate(zip(rows, qvalues), 1):
@@ -655,6 +970,10 @@ def _compare_regions(
                 str(region.condition1_support).lower(),
                 str(region.condition2_support).lower(),
                 region.origin,
+                str(len(region.condition1_cluster_ids)),
+                str(len(region.condition2_cluster_ids)),
+                ";".join(region.condition1_cluster_ids),
+                ";".join(region.condition2_cluster_ids),
                 statistic_name,
                 *(
                     _format_number(float(value))
@@ -676,6 +995,12 @@ def _compare_regions(
                 _format_number(float(row["model"]["ordinary_pvalue"])),
                 _format_number(float(row["model"]["moderated_pvalue"])),
                 _format_number(qvalue),
+                _format_number(float(row["model"]["ordinary_standard_error"])),
+                _format_number(float(row["model"]["moderated_standard_error"])),
+                _format_number(float(row["model"]["ordinary_ci_lower"])),
+                _format_number(float(row["model"]["ordinary_ci_upper"])),
+                _format_number(float(row["model"]["moderated_ci_lower"])),
+                _format_number(float(row["model"]["moderated_ci_upper"])),
                 _format_number(float(row["model"]["residual_variance"])),
                 _format_number(float(row["model"]["posterior_variance"])),
                 status,
@@ -718,88 +1043,153 @@ def _compare_regions(
     }
 
 
+def _manifest_pns_tracks(
+    manifest: dict[str, object],
+) -> tuple[Path, list[Path]] | None:
+    mean_value = manifest.get("condition_mean_treatment_pns_divided_by_mean_posPNS")
+    records = manifest.get("treatment_replicates")
+    if not isinstance(mean_value, str) or not mean_value or not isinstance(records, list):
+        return None
+    mean_path = Path(mean_value).resolve()
+    replicate_paths: list[Path] = []
+    for record in records:
+        if not isinstance(record, dict) or not record.get("scaled_pns"):
+            return None
+        replicate_paths.append(Path(str(record["scaled_pns"])).resolve())
+    if not mean_path.is_file() or any(not path.is_file() for path in replicate_paths):
+        return None
+    return mean_path, replicate_paths
+
+
+def _run_shared_cluster_aggregates(
+    first: dict[str, object],
+    second: dict[str, object],
+    regions: Sequence[Region],
+    output_dir: Path,
+) -> dict[str, object]:
+    first_tracks = _manifest_pns_tracks(first)
+    second_tracks = _manifest_pns_tracks(second)
+    if first_tracks is None or second_tracks is None:
+        return {
+            "status": "unavailable",
+            "reason": (
+                "Stage 1 manifest lacks replicate PNS tracks independently divided "
+                "by mean posPNS; rerun Stage 1 with NucleoSuite 0.10.10 or later."
+            ),
+        }
+    aggregate_dir = output_dir / "cluster_aligned_aggregates"
+    aggregate_dir.mkdir(parents=True, exist_ok=True)
+    anchors = _write_union_anchor_bed(
+        regions, aggregate_dir / "union_cluster_locus_anchors.bed"
+    )
+    parameters = first.get("cluster_aggregate_parameters")
+    parameters = parameters if isinstance(parameters, dict) else {}
+    limit = common_symmetric_bigwig_limit([first_tracks[0], second_tracks[0]])
+    common = dict(
+        anchor_bed=anchors,
+        window_half=int(parameters.get("window_half", 1000)),
+        maximum_heatmap_rows=int(parameters.get("maximum_heatmap_rows", 5000)),
+        bootstrap_replicates=int(parameters.get("bootstrap_replicates", 200)),
+        nrl_peak_resolution=float(parameters.get("nrl_peak_resolution", 140.0)),
+        nrl_min_order=int(parameters.get("nrl_min_order", 0)),
+        nrl_max_order=int(parameters.get("nrl_max_order", 3)),
+        vlim=limit,
+    )
+    first_name = str(first.get("condition_name") or "condition1")
+    second_name = str(second.get("condition_name") or "condition2")
+    first_outputs = run_cluster_aggregate(
+        mean_scaled_pns=first_tracks[0],
+        replicate_scaled_pns=first_tracks[1],
+        output_dir=aggregate_dir / "condition1",
+        label=first_name,
+        seed=12345,
+        **common,
+    )
+    second_outputs = run_cluster_aggregate(
+        mean_scaled_pns=second_tracks[0],
+        replicate_scaled_pns=second_tracks[1],
+        output_dir=aggregate_dir / "condition2",
+        label=second_name,
+        seed=12345,
+        **common,
+    )
+    return {
+        "status": "complete",
+        "common_anchor_bed": str(anchors),
+        "common_symmetric_heatmap_limit": limit,
+        "condition1": first_outputs,
+        "condition2": second_outputs,
+    }
+
+
 def compare_stage1(
     condition1_results: str | Path,
     condition2_results: str | Path,
     *,
     outdir: str | Path,
     fdr: float = 0.05,
-    feature_level: str = "both",
-    peak_match_distance: int | None = None,
 ) -> Path:
     if not math.isfinite(fdr) or not 0 <= fdr <= 1:
         raise ValueError("fdr must be between 0 and 1")
-    if feature_level not in {"peaks", "clusters", "both"}:
-        raise ValueError("feature_level must be peaks, clusters or both")
     first_path, first = load_stage1_manifest(condition1_results)
     second_path, second = load_stage1_manifest(condition2_results)
     chroms = _validate_compatibility(first, second)
     output_dir = Path(outdir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    results: dict[str, object] = {}
-    if feature_level in {"peaks", "both"}:
-        first_peaks = _read_bed_regions(
-            _require_feature_path(first, "selected_peaks", "significant_peaks")
-        )
-        second_peaks = _read_bed_regions(
-            _require_feature_path(second, "selected_peaks", "significant_peaks")
-        )
-        distance = (
-            int(peak_match_distance)
-            if peak_match_distance is not None
-            else 0
-        )
-        peak_regions = _consensus_peak_regions(
-            first_peaks,
-            second_peaks,
-            match_distance=distance,
-            chroms=chroms,
-        )
-        results["peaks"] = _compare_regions(
-            peak_regions,
-            first,
-            second,
-            statistic_name="peak_max",
-            statistic=interval_max,
-            output_path=output_dir / "differential_peaks.tsv",
-            fdr=fdr,
-        )
-
-    if feature_level in {"clusters", "both"}:
-        first_clusters = _read_bed_regions(
-            _require_feature_path(first, "selected_clusters", "significant_clusters")
-        )
-        second_clusters = _read_bed_regions(
-            _require_feature_path(second, "selected_clusters", "significant_clusters")
-        )
-        cluster_regions = _consensus_cluster_regions(first_clusters, second_clusters)
-        results["clusters"] = _compare_regions(
+    first_clusters = _read_cluster_records(
+        _require_feature_path(first, "selected_clusters", "significant_clusters"),
+        condition=1,
+    )
+    second_clusters = _read_cluster_records(
+        _require_feature_path(second, "selected_clusters", "significant_clusters"),
+        condition=2,
+    )
+    cluster_regions = _consensus_cluster_regions(
+        first_clusters, second_clusters, chroms=chroms
+    )
+    overlap = _write_cluster_overlap_outputs(
+        first_clusters,
+        second_clusters,
+        cluster_regions,
+        output_dir,
+        condition1_name=str(first.get("condition_name") or "condition1"),
+        condition2_name=str(second.get("condition_name") or "condition2"),
+    )
+    results: dict[str, object] = {
+        "clusters": _compare_regions(
             cluster_regions,
             first,
             second,
-            statistic_name="cluster_positive_area",
+            statistic_name="cluster_positive_coverage_area",
             statistic=interval_positive_area,
             output_path=output_dir / "differential_clusters.tsv",
             fdr=fdr,
         )
+    }
+    aggregate_outputs = _run_shared_cluster_aggregates(
+        first, second, cluster_regions, output_dir
+    )
 
     manifest_path = output_dir / "chip_comparison_manifest.json"
     manifest_path.write_text(
         json.dumps(
             {
                 "schema": "nucleosuite_chip_comparison",
-                "schema_version": 3,
+                "schema_version": 4,
                 "condition1_manifest": str(first_path),
                 "condition2_manifest": str(second_path),
                 "condition1_name": first.get("condition_name"),
                 "condition2_name": second.get("condition_name"),
-                "feature_level": feature_level,
+                "feature_level": "clusters",
                 "peak_discovery_track": first.get("peak_discovery_track"),
                 "measurement_track": first.get("peak_measurement_track"),
                 "statistical_model": "empirical_bayes_log2_factorial_interaction",
                 "coverage_transform": "log2(mean_scaled_coverage_plus_1)",
                 "fdr": fdr,
+                "cluster_overlap": overlap,
+                "cluster_aligned_aggregates": aggregate_outputs,
+                "genomic_randomization_overlap_test": "not_performed",
                 "results": results,
             },
             indent=2,
@@ -817,7 +1207,8 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Compare two completed chip-suite Stage 1 analyses using their "
             "coverage BigWigs scaled to a non-zero mean of 100 and a log2 "
-            "empirical-Bayes interaction model; BAM files are not revisited."
+            "empirical-Bayes interaction model at overlap-connected cluster "
+            "loci; BAM files are not revisited."
         ),
     )
     parser.add_argument(
@@ -832,20 +1223,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--outdir", required=True, help="Output directory.")
     parser.add_argument(
-        "--feature-level",
-        choices=("peaks", "clusters", "both"),
-        default="both",
-        help="Compare Stage 1 peaks, clusters, or both (default: both).",
-    )
-    parser.add_argument(
-        "--peak-match-distance",
-        type=int,
-        help=(
-            "Also merge non-overlapping peaks whose summits are within this distance; "
-            "by default only overlapping peaks are merged."
-        ),
-    )
-    parser.add_argument(
         "--fdr", type=float, default=0.05,
         help=(
             "Moderated differential FDR cutoff for the separate significant "
@@ -856,15 +1233,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run(args: argparse.Namespace) -> int:
-    if args.peak_match_distance is not None and args.peak_match_distance < 0:
-        raise ValueError("--peak-match-distance must be non-negative")
     output = compare_stage1(
         args.condition1_results,
         args.condition2_results,
         outdir=args.outdir,
         fdr=args.fdr,
-        feature_level=args.feature_level,
-        peak_match_distance=args.peak_match_distance,
     )
     print(f"chip_comparison_manifest\t{output}")
     return 0

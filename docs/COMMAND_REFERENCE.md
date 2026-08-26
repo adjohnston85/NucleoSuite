@@ -53,7 +53,7 @@ Each command page describes the calculation, a typical invocation, analysis opti
 - [`cfdna-suite`](commands/cfdna-suite.md) — coordinated cfDNA fragmentomics workflow.
 - [`mnase-suite`](commands/mnase-suite.md) — coordinated MNase-seq workflow.
 - [`chip-suite`](commands/chip-suite.md) — matched ChIP-seq/CUT&RUN/CUT&Tag target-control nucleosome-score workflow.
-- [`chip-compare`](commands/chip-compare.md) — compare two completed chip-suite Stage 1 analyses from their scaled coverage BigWigs.
+- [`chip-compare`](commands/chip-compare.md) — compare Stage 1 cluster loci, overlap, occupied bases and matched PNS aggregates between conditions.
 
 ## Replot and customize figures
 

@@ -3,16 +3,21 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pyBigWig
+import numpy as np
 import pytest
 
 from nucleosuite.chip_compare import (
     _moderated_interaction_statistics,
     compare_stage1,
 )
+from nucleosuite.chip_aggregate import run_cluster_aggregate
 from nucleosuite.chip_peaks import (
+    CompetitivePeak,
+    ReplicatePeakStatistics,
     analyze_chip_peaks,
     analyze_chip_replicate_peaks,
     assign_competition_qvalues,
+    cluster_seeded_gate_peaks,
     compete_peaks,
     compete_peaks_all_controls,
     compete_peaks_with_bigwigs,
@@ -21,6 +26,7 @@ from nucleosuite.chip_suite import (
     _estimate_modes,
     _locate_completed_prefix,
     _resolved_prefix,
+    _scoring_fragment_range,
     _validate,
     build_parser,
     run,
@@ -39,7 +45,44 @@ def _row(start: int, score: float, line: int = 1) -> PeakRow:
     )
 
 
-def test_chip_suite_defaults_to_tns_auto_mode_and_120_500(tmp_path: Path):
+def _cluster_record(index: int, state: str) -> ReplicatePeakStatistics:
+    row = _row(index * 100, 10.0, index + 1)
+    gate = state in {"S", "G"}
+    pvalue = 0.01 if state == "S" else 0.2
+    peak = CompetitivePeak(
+        row=row,
+        chrom="chr1",
+        start=index * 100,
+        end=index * 100 + 80,
+        summit=index * 100 + 40,
+        source="target",
+        winner=gate,
+        matched_score=50.0,
+        signal_score=100.0 if gate else 40.0,
+        competition_score=50.0 if gate else 0.0,
+        qvalue=min(1.0, pvalue * 2),
+    )
+    return ReplicatePeakStatistics(
+        peak=peak,
+        treatment_scores=(100.0, 105.0),
+        control_scores=(50.0, 55.0),
+        treatment_mean=102.5,
+        control_mean=52.5,
+        mean_difference=50.0,
+        minimum_treatment=100.0,
+        maximum_control=55.0,
+        conservative_excess=45.0 if gate else 0.0,
+        conservative_fold_enrichment=101.0 / 56.0,
+        conservative_log2_enrichment=0.85,
+        all_controls_gate=gate,
+        pvalue=pvalue,
+        qvalue=min(1.0, pvalue * 2),
+    )
+
+
+def test_chip_suite_defaults_to_pns_auto_mode_scoring_flank_and_coverage_range(
+    tmp_path: Path,
+):
     target = tmp_path / "target.bam"
     control = tmp_path / "control.bam"
     target.touch(); control.touch()
@@ -50,15 +93,25 @@ def test_chip_suite_defaults_to_tns_auto_mode_and_120_500(tmp_path: Path):
             "--outdir", str(tmp_path / "out"),
         ]
     )
-    assert args.scoring_method == "tns"
+    assert args.scoring_method == "pns"
     assert args.mode == "auto"
-    assert (args.frag_lower, args.frag_upper) == (120, 500)
+    assert args.score_fragment_flank == 30
+    assert args.score_frag_lower is None
+    assert args.score_frag_upper is None
+    assert (args.coverage_frag_lower, args.coverage_frag_upper) == (1, 1000)
     assert args.mode_strategy == "pooled"
     assert args.bam_mode == "replicates"
     assert args.mode_histogram_smoothing == "none"
     assert args.peak_fdr is None
     assert args.cluster_fdr is None
-    assert args.cluster_member_p_value == 0.05
+    assert args.cluster_seed_p_value == 0.05
+    assert args.cluster_max_non_gated_gap == 1
+    assert args.min_cluster_gated_peaks == 2
+    assert args.cluster_aggregate_nrl_resolution == 140
+    assert args.cluster_aggregate_nrl_min_order == 0
+    assert args.cluster_aggregate_nrl_max_order == 3
+    assert not hasattr(args, "compare_feature_level")
+    assert not hasattr(args, "peak_match_distance")
     assert not hasattr(args, "stage1_control_mode")
     assert args.treatment1_bam == [str(target)]
     assert args.control1_bam == [str(control)]
@@ -84,10 +137,22 @@ def test_chip_suite_emits_target_and_control_raw_coverage(tmp_path: Path):
         if command[0] == "pns":
             pns_commands.append(command)
             base = Path(command[command.index("--out-prefix") + 1])
-            prefix = _resolved_prefix(base, "tns", 167, 120, 500)
+            method = command[command.index("--scoring-method") + 1]
+            prefix = _resolved_prefix(base, method, 167, 137, 197)
             prefix.parent.mkdir(parents=True, exist_ok=True)
-            for suffix in ("_tns.bw", "_posTNS.bw", "_coverage.bw"):
+            suffixes = (
+                ("_pns.bw", "_posPNS.bw")
+                if method == "pns"
+                else ("_tns.bw", "_posTNS.bw", "_coverage.bw")
+            )
+            for suffix in suffixes:
                 Path(f"{prefix}{suffix}").touch()
+            return
+        if command[0] == "coverage":
+            base = Path(command[command.index("--out-prefix") + 1])
+            prefix = Path(f"{base}_coverage_lower1_upper1000")
+            prefix.parent.mkdir(parents=True, exist_ok=True)
+            Path(f"{prefix}_coverage.bw").touch()
             return
         assert command[command.index("--call-type") + 1] == "nucleosome"
         peak_prefix = Path(command[command.index("--out-prefix") + 1])
@@ -100,21 +165,27 @@ def test_chip_suite_emits_target_and_control_raw_coverage(tmp_path: Path):
         Path(output).touch()
         return Path(output), 1.0, 1
 
+    selected_clusters = tmp_path / "selected_clusters.bed"
+    selected_clusters.write_text("", encoding="utf-8")
     with (
         patch("nucleosuite.chip_suite._run_nucleosuite", side_effect=fake_command),
         patch("nucleosuite.chip_suite.scale_bigwig_by_reference", side_effect=fake_scale),
             patch(
                 "nucleosuite.chip_suite.analyze_chip_replicate_peaks",
-                return_value={},
+                return_value={"selected_clusters": selected_clusters},
             ) as analyze_mock,
     ):
         assert run(args) == 0
 
     assert len(pns_commands) == 2
+    primary_commands = pns_commands
     assert all(
-        command[command.index("--other-tracks") + 1] == "coverage"
-        and command[command.index("--other-format") + 1] == "bigwig"
-        for command in pns_commands
+        command[command.index("--other-tracks") + 1] == "none"
+        and command[command.index("--other-format") + 1] == "none"
+        and command[command.index("--frag-lower") + 1] == "137"
+        and command[command.index("--frag-upper") + 1] == "197"
+        and "--no-peak-calling" in command
+        for command in primary_commands
     )
     summary = (tmp_path / "out" / "sample_chip_suite_summary.tsv").read_text()
     assert "target_raw_coverage_track\t" in summary
@@ -203,10 +274,29 @@ def test_explicit_chip_mode_does_not_validate_unused_auto_search_bounds(tmp_path
             "--control-bam", str(control),
             "--outdir", str(tmp_path / "out"),
             "--mode", "167",
-            "--frag-upper", "200",
+            "--mode-search-lower", "300",
+            "--mode-search-upper", "200",
         ]
     )
     _validate(args)
+
+
+def test_explicit_chip_score_range_overrides_mode_flank(tmp_path: Path):
+    target = tmp_path / "target.bam"
+    control = tmp_path / "control.bam"
+    target.touch(); control.touch()
+    args = build_parser().parse_args(
+        [
+            "--target-bam", str(target),
+            "--control-bam", str(control),
+            "--outdir", str(tmp_path / "out"),
+            "--mode", "167",
+            "--score-frag-lower", "125",
+            "--score-frag-upper", "205",
+        ]
+    )
+    _validate(args)
+    assert _scoring_fragment_range(args, 167) == (125, 205)
 
 
 def test_chip_suite_locates_parameterized_multicontig_score_outputs(tmp_path: Path):
@@ -450,7 +540,7 @@ def test_stage1_replicate_statistics_calls_fdr_without_control_peaks(tmp_path: P
         target_mean_bigwig=mean_path,
         peak_fdr=0.05,
         cluster_fdr=0.05,
-        minimum_significant_peaks=1,
+        minimum_gate_peaks=1,
     )
 
     annotated = outputs["annotated_peaks"].read_text().strip().split("\t")
@@ -484,7 +574,7 @@ def test_stage1_single_replicate_reports_unavailable_fdr(tmp_path: Path):
         target_replicate_bigwigs=[treatment],
         control_replicate_bigwigs=[control],
         target_mean_bigwig=mean_path,
-        minimum_significant_peaks=1,
+        minimum_gate_peaks=1,
     )
 
     assert outputs["annotated_peaks"].read_text().strip().endswith("\t.")
@@ -492,7 +582,57 @@ def test_stage1_single_replicate_reports_unavailable_fdr(tmp_path: Path):
     assert outputs["significant_clusters"].read_text() == ""
 
 
-def test_stage1_clusters_require_gate_and_member_p_below_005(tmp_path: Path):
+def test_cluster_aggregate_writes_combined_heatmap_profiles_and_directional_nrl(
+    tmp_path: Path,
+):
+    length = 1200
+    positions = np.arange(length)
+    signal1 = (
+        4.0 * np.cos(2.0 * np.pi * (positions - 400) / 180.0)
+        + 5.0 * np.exp(-0.5 * ((positions - 400) / 20.0) ** 2)
+    ).tolist()
+    signal2 = (
+        3.5 * np.cos(2.0 * np.pi * (positions - 800) / 180.0)
+        + 4.5 * np.exp(-0.5 * ((positions - 800) / 20.0) ** 2)
+    ).tolist()
+    mean = ((np.asarray(signal1) + np.asarray(signal2)) / 2.0).tolist()
+    paths = [tmp_path / "rep1.bw", tmp_path / "rep2.bw", tmp_path / "mean.bw"]
+    for path, values in zip(paths, (signal1, signal2, mean)):
+        _write_bigwig(path, values)
+    anchors = tmp_path / "anchors.bed"
+    anchors.write_text(
+        "chr1\t400\t401\tcluster1\t1\t.\t400\t401\n"
+        "chr1\t800\t801\tcluster2\t1\t.\t800\t801\n",
+        encoding="utf-8",
+    )
+
+    outputs = run_cluster_aggregate(
+        mean_scaled_pns=paths[2],
+        replicate_scaled_pns=paths[:2],
+        anchor_bed=anchors,
+        output_dir=tmp_path / "aggregate",
+        label="treatment",
+        window_half=300,
+        maximum_heatmap_rows=10,
+        bootstrap_replicates=5,
+        nrl_peak_resolution=140,
+        nrl_min_order=0,
+        nrl_max_order=3,
+    )
+
+    assert outputs["status"] == "complete"
+    combined = outputs["combined"]
+    assert Path(combined["heatmap"]).is_file()
+    assert Path(combined["heatmap_matrix"]).is_file()
+    assert Path(combined["nrl_summary"]).is_file()
+    nrl_summary = Path(combined["nrl_summary"]).read_text().splitlines()
+    assert "regression_min_peak_order" in nrl_summary[0]
+    assert "\t0\t3\t" in nrl_summary[1]
+    assert Path(outputs["replicate_overlay_plot"]).is_file()
+    assert Path(outputs["bootstrap_profile"]).is_file()
+
+
+def test_stage1_clusters_use_p_seeds_and_all_gated_members(tmp_path: Path):
     target_bed = tmp_path / "target_candidates.bed"
     target_bed.write_text(
         "chr1\t20\t60\tpeak1\t8\t.\t40\t41\n"
@@ -524,8 +664,8 @@ def test_stage1_clusters_require_gate_and_member_p_below_005(tmp_path: Path):
         target_replicate_bigwigs=treatment_paths,
         control_replicate_bigwigs=control_paths,
         target_mean_bigwig=mean_path,
-        cluster_member_pvalue=0.05,
-        minimum_significant_peaks=2,
+        cluster_seed_pvalue=0.05,
+        minimum_gate_peaks=2,
     )
 
     statistics = outputs["competition_table"].read_text().splitlines()
@@ -535,8 +675,59 @@ def test_stage1_clusters_require_gate_and_member_p_below_005(tmp_path: Path):
     assert float(rows[0][header.index("p_value")]) < 0.05
     assert float(rows[1][header.index("p_value")]) > 0.05
     assert float(rows[2][header.index("p_value")]) < 0.05
-    cluster = outputs["cluster_table"].read_text().splitlines()[1].split("\t")
-    assert cluster[:4] == ["chr1", "20", "220", "2"]
+    lines = outputs["cluster_table"].read_text().splitlines()
+    cluster_header = lines[0].split("\t")
+    cluster = lines[1].split("\t")
+    assert cluster[:4] == ["chip_cluster_1", "chr1", "20", "220"]
+    assert cluster[cluster_header.index("seed_peak_count")] == "2"
+    assert cluster[cluster_header.index("gate_member_count")] == "3"
+    assert cluster[cluster_header.index("bridged_non_gated_peak_count")] == "0"
+
+
+def test_seeded_clusters_end_at_last_gated_member_and_require_a_seed():
+    records = [_cluster_record(index, state) for index, state in enumerate("SGxxGSG")]
+    clusters = cluster_seeded_gate_peaks(records)
+    assert [[peak.summit for peak in cluster.significant_peaks] for cluster in clusters] == [
+        [40, 140],
+        [440, 540, 640],
+    ]
+    assert [(cluster.start, cluster.end) for cluster in clusters] == [(0, 180), (400, 680)]
+    assert [cluster.bridged_non_gated_peak_count for cluster in clusters] == [0, 0]
+
+    records = [_cluster_record(index, state) for index, state in enumerate("GSGxxGG")]
+    clusters = cluster_seeded_gate_peaks(records)
+    assert len(clusters) == 1
+    assert [peak.summit for peak in clusters[0].significant_peaks] == [40, 140, 240]
+
+
+def test_seeded_clusters_bridge_one_non_gated_peak_without_counting_it():
+    records = [_cluster_record(index, state) for index, state in enumerate("SxG")]
+    clusters = cluster_seeded_gate_peaks(records)
+    assert len(clusters) == 1
+    cluster = clusters[0]
+    assert [peak.summit for peak in cluster.significant_peaks] == [40, 240]
+    assert cluster.bridged_non_gated_peak_count == 1
+    assert cluster.seed_peak_count == 1
+    assert cluster.score == 90.0
+
+    assert cluster_seeded_gate_peaks([_cluster_record(0, "S")]) == []
+    assert cluster_seeded_gate_peaks(
+        [_cluster_record(0, "G"), _cluster_record(1, "G")]
+    ) == []
+
+
+def test_seeded_clusters_enforce_1000_bp_adjacent_gated_summit_limit():
+    at_limit = cluster_seeded_gate_peaks(
+        [_cluster_record(0, "S"), _cluster_record(10, "G")],
+        max_cluster_gap=1000,
+    )
+    assert len(at_limit) == 1
+
+    beyond_limit = cluster_seeded_gate_peaks(
+        [_cluster_record(0, "S"), _cluster_record(11, "G")],
+        max_cluster_gap=1000,
+    )
+    assert beyond_limit == []
 
 
 def test_stage2_empirical_bayes_moderates_region_variances():
@@ -691,22 +882,21 @@ def test_chip_compare_uses_scaled_bigwig_replicates_without_bams(tmp_path: Path)
     comparison = compare_stage1(first, second, outdir=tmp_path / "comparison")
 
     payload = json.loads(comparison.read_text())
-    assert payload["results"]["peaks"]["inferential_fdr_available"] is True
-    row = (tmp_path / "comparison" / "differential_peaks.tsv").read_text().splitlines()[1]
+    assert payload["feature_level"] == "clusters"
+    assert "peaks" not in payload["results"]
+    assert payload["results"]["clusters"]["inferential_fdr_available"] is True
+    row = (tmp_path / "comparison" / "differential_clusters.tsv").read_text().splitlines()[1]
     fields = row.split("\t")
     assert fields[-1] == "significant_gain"
-    header = (tmp_path / "comparison" / "differential_peaks.tsv").read_text().splitlines()[0].split("\t")
+    header = (tmp_path / "comparison" / "differential_clusters.tsv").read_text().splitlines()[0].split("\t")
     assert fields[header.index("region_origin")] == "overlap_union"
     gain_fields = (
-        tmp_path / "comparison" / "differential_peaks_fdr0.05_gains.bed"
+        tmp_path / "comparison" / "differential_clusters_fdr0.05_gains.bed"
     ).read_text().strip().split("\t")
     assert gain_fields[-1] == "overlap_union"
-    cluster_lines = (
-        tmp_path / "comparison" / "differential_clusters.tsv"
-    ).read_text().splitlines()
-    cluster_header = cluster_lines[0].split("\t")
-    cluster_row = cluster_lines[1].split("\t")
-    assert cluster_row[cluster_header.index("region_origin")] == "overlap_union"
+    assert Path(payload["cluster_overlap"]["summary"]).is_file()
+    assert Path(payload["cluster_overlap"]["venn_plot"]).is_file()
+    assert payload["cluster_aligned_aggregates"]["status"] == "unavailable"
 
 
 def test_chip_compare_uses_unpaired_unequal_four_group_interaction(tmp_path: Path):
@@ -734,88 +924,128 @@ def test_chip_compare_uses_unpaired_unequal_four_group_interaction(tmp_path: Pat
     comparison = compare_stage1(first, second, outdir=tmp_path / "comparison")
 
     payload = json.loads(comparison.read_text())
-    assert payload["results"]["peaks"]["inferential_fdr_available"] is True
-    lines = (tmp_path / "comparison" / "differential_peaks.tsv").read_text().splitlines()
+    assert payload["results"]["clusters"]["inferential_fdr_available"] is True
+    lines = (tmp_path / "comparison" / "differential_clusters.tsv").read_text().splitlines()
     header = lines[0].split("\t")
     row = lines[1].split("\t")
     assert "condition1_treatment_replicate_3" in header
     assert "condition1_control_replicate_3" not in header
     assert "condition2_control_replicate_3" in header
-    assert row[header.index("raw_interaction_difference")] == "18"
+    assert row[header.index("raw_interaction_difference")] == "1800"
     assert float(row[header.index("log2_interaction_difference")]) > 0
     assert row[header.index("replicate_consistency")] == "robust_gain"
     assert row[-1] == "significant_gain"
 
 
-def test_chip_compare_uses_union_for_overlapping_peak_coordinates(tmp_path: Path):
+def test_chip_compare_uses_connected_union_for_overlapping_cluster_coordinates(tmp_path: Path):
     length = 300
     values = [[0.0] * length for _ in range(2)]
     first = _stage1_manifest(tmp_path / "first", "first", values, values)
     second = _stage1_manifest(tmp_path / "second", "second", values, values)
-    (tmp_path / "first" / "peaks.bed").write_text(
-        "chr1\t80\t150\tpeak1\t10\t.\t120\t121\t0.01\n", encoding="utf-8"
+    (tmp_path / "first" / "clusters.bed").write_text(
+        "chr1\t80\t150\tcluster1\t10\t.\t120\t121\t0.01\n", encoding="utf-8"
     )
-    (tmp_path / "second" / "peaks.bed").write_text(
-        "chr1\t120\t200\tpeak2\t10\t.\t160\t161\t0.01\n", encoding="utf-8"
+    (tmp_path / "second" / "clusters.bed").write_text(
+        "chr1\t120\t200\tcluster2\t10\t.\t160\t161\t0.01\n", encoding="utf-8"
     )
 
-    compare_stage1(first, second, outdir=tmp_path / "comparison", feature_level="peaks")
+    compare_stage1(first, second, outdir=tmp_path / "comparison")
 
-    row = (tmp_path / "comparison" / "differential_peaks.tsv").read_text().splitlines()[1]
-    fields = row.split("\t")
+    lines = (tmp_path / "comparison" / "differential_clusters.tsv").read_text().splitlines()
+    header, fields = lines[0].split("\t"), lines[1].split("\t")
     assert fields[:3] == ["chr1", "80", "200"]
-    assert fields[4:6] == ["true", "true"]
-    assert fields[6] == "overlap_union"
+    assert fields[header.index("condition1_stage1_support")] == "true"
+    assert fields[header.index("condition2_stage1_support")] == "true"
+    assert fields[header.index("region_origin")] == "overlap_union"
+    assert fields[header.index("condition1_cluster_ids")] == "cluster1"
+    assert fields[header.index("condition2_cluster_ids")] == "cluster2"
 
 
-def test_chip_compare_retains_condition_specific_peak_regions(tmp_path: Path):
+def test_chip_compare_retains_condition_specific_cluster_regions(tmp_path: Path):
     length = 300
     values = [[0.0] * length for _ in range(2)]
     first = _stage1_manifest(tmp_path / "first", "first", values, values)
     second = _stage1_manifest(tmp_path / "second", "second", values, values)
-    (tmp_path / "first" / "peaks.bed").write_text(
-        "chr1\t80\t120\tpeak1\t10\t.\t100\t101\t0.01\n", encoding="utf-8"
+    (tmp_path / "first" / "clusters.bed").write_text(
+        "chr1\t80\t120\tcluster1\t10\t.\t100\t101\t0.01\n", encoding="utf-8"
     )
-    (tmp_path / "second" / "peaks.bed").write_text(
-        "chr1\t180\t220\tpeak2\t10\t.\t200\t201\t0.01\n", encoding="utf-8"
+    (tmp_path / "second" / "clusters.bed").write_text(
+        "chr1\t180\t220\tcluster2\t10\t.\t200\t201\t0.01\n", encoding="utf-8"
     )
 
-    compare_stage1(first, second, outdir=tmp_path / "comparison", feature_level="peaks")
+    compare_stage1(first, second, outdir=tmp_path / "comparison")
 
-    rows = (tmp_path / "comparison" / "differential_peaks.tsv").read_text().splitlines()[1:]
-    coordinates = [row.split("\t")[:7] for row in rows]
+    lines = (tmp_path / "comparison" / "differential_clusters.tsv").read_text().splitlines()
+    header = lines[0].split("\t")
+    coordinates = []
+    for line in lines[1:]:
+        row = line.split("\t")
+        coordinates.append(
+            [
+                *row[:4],
+                row[header.index("condition1_stage1_support")],
+                row[header.index("condition2_stage1_support")],
+                row[header.index("region_origin")],
+            ]
+        )
     assert coordinates == [
         ["chr1", "80", "120", "100", "true", "false", "condition1_only"],
         ["chr1", "180", "220", "200", "false", "true", "condition2_only"],
     ]
 
 
-def test_chip_compare_labels_proximity_unions(tmp_path: Path):
+def test_chip_compare_does_not_merge_nearby_nonoverlapping_clusters(tmp_path: Path):
     length = 300
     values = [[0.0] * length for _ in range(2)]
     first = _stage1_manifest(tmp_path / "first", "first", values, values)
     second = _stage1_manifest(tmp_path / "second", "second", values, values)
-    (tmp_path / "first" / "peaks.bed").write_text(
-        "chr1\t80\t120\tpeak1\t10\t.\t100\t101\t0.01\n", encoding="utf-8"
+    (tmp_path / "first" / "clusters.bed").write_text(
+        "chr1\t80\t120\tcluster1\t10\t.\t100\t101\t0.01\n", encoding="utf-8"
     )
-    (tmp_path / "second" / "peaks.bed").write_text(
-        "chr1\t130\t170\tpeak2\t10\t.\t140\t141\t0.01\n", encoding="utf-8"
-    )
-
-    manifest = compare_stage1(
-        first,
-        second,
-        outdir=tmp_path / "comparison",
-        feature_level="peaks",
-        peak_match_distance=50,
+    (tmp_path / "second" / "clusters.bed").write_text(
+        "chr1\t130\t170\tcluster2\t10\t.\t140\t141\t0.01\n", encoding="utf-8"
     )
 
-    lines = (tmp_path / "comparison" / "differential_peaks.tsv").read_text().splitlines()
+    manifest = compare_stage1(first, second, outdir=tmp_path / "comparison")
+
+    lines = (tmp_path / "comparison" / "differential_clusters.tsv").read_text().splitlines()
     header = lines[0].split("\t")
-    row = lines[1].split("\t")
-    assert row[:3] == ["chr1", "80", "170"]
-    assert row[header.index("region_origin")] == "proximity_union"
+    origins = [row.split("\t")[header.index("region_origin")] for row in lines[1:]]
+    assert origins == ["condition1_only", "condition2_only"]
     payload = json.loads(manifest.read_text())
-    assert payload["results"]["peaks"]["region_origin_counts"] == {
-        "proximity_union": 1
+    assert payload["results"]["clusters"]["region_origin_counts"] == {
+        "condition1_only": 1,
+        "condition2_only": 1,
     }
+    summary = Path(payload["cluster_overlap"]["summary"]).read_text()
+    assert "overlapping_cluster_bp\t0" in summary
+
+
+def test_chip_compare_preserves_one_to_many_cluster_overlap_and_base_counts(
+    tmp_path: Path,
+):
+    values = [[0.0] * 300 for _ in range(2)]
+    first = _stage1_manifest(tmp_path / "first", "first", values, values)
+    second = _stage1_manifest(tmp_path / "second", "second", values, values)
+    (tmp_path / "first" / "clusters.bed").write_text(
+        "chr1\t40\t240\tfirst_1\t10\t.\t100\t101\t0.01\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "second" / "clusters.bed").write_text(
+        "chr1\t50\t110\tsecond_1\t8\t.\t80\t81\t0.01\n"
+        "chr1\t170\t230\tsecond_2\t9\t.\t200\t201\t0.01\n",
+        encoding="utf-8",
+    )
+
+    manifest = compare_stage1(first, second, outdir=tmp_path / "comparison")
+    payload = json.loads(manifest.read_text())
+    mapping = Path(payload["cluster_overlap"]["component_mapping"]).read_text().splitlines()
+    header, row = mapping[0].split("\t"), mapping[1].split("\t")
+    assert row[header.index("relationship")] == "1_to_many"
+    assert row[header.index("condition1_cluster_ids")] == "first_1"
+    assert row[header.index("condition2_cluster_ids")] == "second_1;second_2"
+    summary = Path(payload["cluster_overlap"]["summary"]).read_text()
+    assert "condition1_cluster_bp\t200" in summary
+    assert "condition2_cluster_bp\t120" in summary
+    assert "overlapping_cluster_bp\t120" in summary
+    assert "union_cluster_bp\t200" in summary

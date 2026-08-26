@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import argparse
+
 from nucleosuite.cli.common import (
     add_mode_estimation_arguments,
     add_bam_fragment_arguments,
@@ -136,6 +138,15 @@ def register(subparsers):
             "breakpoint peaks are unchanged (default: off)."
         ),
     )
+    parser.add_argument(
+        "--peak-calling",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Call nucleosome and breakpoint intervals while producing score tracks "
+            "(default: enabled; --no-peak-calling writes tracks without either callset)."
+        ),
+    )
     parser.set_defaults(command_runner=run)
 
 
@@ -165,6 +176,8 @@ def run(args):
             )
         if args.pns_mode == "off":
             raise ValueError("--peak-coverage-threshold requires --pns-mode on")
+        if not args.peak_calling:
+            raise ValueError("--peak-coverage-threshold requires peak calling")
     all_score_tracks = set(PNS_TRACKS) | set(BNS_TRACKS) | set(TNS_TRACKS)
     args.pns_tracks = normalise_track_list(
         args.pns_tracks, all_score_tracks, "--score-tracks"

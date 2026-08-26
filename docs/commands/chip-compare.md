@@ -2,77 +2,93 @@
 
 ## What this command does
 
-`chip-compare` performs Stage 2 separately from BAM processing. It reads two completed `chip-suite` Stage 1 manifests, validates their scoring compatibility, constructs shared peak and/or cluster intervals, and tests the treatment-by-condition interaction using the recorded coverage BigWigs scaled to a non-zero mean of 100.
+`chip-compare` performs cluster-only Stage 2 analysis from two completed `chip-suite` Stage 1 manifests. It compares target-specific cluster enrichment between biological conditions, summarizes observed cluster overlap and occupied bases, and creates coordinate-matched cluster-centred PNS aggregates. It reads saved BigWigs and does not revisit BAM files.
 
 ## Why use it
 
-Use this command when the two conditions were processed in separate Stage 1 runs, when Stage 2 needs to be repeated with a different feature set or cutoff, or when the original BAMs should not be revisited.
-
-## Typical run
+Use it when the two conditions were processed separately or when Stage 2 needs to be repeated with another differential FDR cutoff.
 
 ```bash
 nucleosuite chip-compare \
   --condition1-results wild_type_stage1 \
   --condition2-results mutant_stage1 \
-  --outdir mutant_vs_wild_type
+  --outdir mutant_vs_wild_type \
+  --fdr 0.05
 ```
 
-Each argument may name a Stage 1 directory or its `chip_stage1_manifest.json` directly. The scoring method, treatment and control modes, fragment limits, contig selection, and BigWig chromosome definitions must match.
+Each results argument may name a Stage 1 directory or its `chip_stage1_manifest.json`.
 
-## Comparison statistics
+## How and why the comparison works
 
-### 1. Validate compatible Stage 1 analyses
+### 1. Validate comparable Stage 1 analyses
 
-The command first checks the scoring method, resolved modes, fragment limits, contigs, peak-measurement method, and BigWig chromosome definitions. These settings must agree because otherwise the two Stage 1 feature sets would have been discovered or measured using different geometries.
+The scoring method, resolved treatment/control modes, fragment limits, contig selection, Stage 1 measurement method, statistical method, and BigWig chromosome definitions must agree. This prevents differential results from mixing callsets discovered with different scoring geometries or measurements made on incompatible coordinate systems.
 
-### 2. Construct one shared region set
+### 2. Construct overlap-connected cluster loci
 
-The candidate set is the union of gate-selected Stage 1 peaks from either condition. At cluster level, it is the union of Stage 1 clusters made from peaks that passed both the all-controls gate and the configured member p-value. The union is used because failure to select a feature in one condition does not prove that its signal is zero. Retaining the region allows its actual scaled coverage to be measured in both conditions.
+Stage 2 compares clusters, not individual nucleosome peaks. All selected Stage 1 clusters from both conditions are sorted by coordinate. Directly or transitively overlapping clusters form one **cluster locus**. Non-overlapping clusters remain separate even if they are close.
 
-Overlapping peaks use the union of their Stage 1 coordinates so every replicate is summarized across one common interval. Condition-specific peaks retain their own coordinates. `--peak-match-distance` can additionally combine nearby non-overlapping peaks that plausibly represent the same shifted feature.
+This connected-component rule preserves genuine one-to-many and many-to-many relationships. For example:
 
-The `region_origin` field records how each comparison interval was formed:
+```text
+condition 1:  └──────── cluster A ────────┘
+condition 2:    └─ cluster B ─┘  └─ C ─┘
+Stage 2 locus: └────────── A+B+C ──────────┘   (1-to-many)
+```
 
-| Value | Meaning |
-| --- | --- |
-| `overlap_union` | overlapping Stage 1 regions from both conditions were combined |
-| `proximity_union` | non-overlapping peaks were combined using `--peak-match-distance` |
-| `condition1_only` | the region came only from condition 1 Stage 1 |
-| `condition2_only` | the region came only from condition 2 Stage 1 |
+Forcing a one-to-one match would discard either B or C or make the result depend on an arbitrary matching order. `cluster_overlap_components.tsv` therefore retains every contributing cluster ID and labels shared loci as `1_to_1`, `1_to_many`, `many_to_1`, or `many_to_many`.
 
-`--feature-level peaks`, `clusters`, or `both` controls which outputs are produced.
+`region_origin` is:
 
-### 3. Measure all four replicate groups
+- `overlap_union` when the component contains clusters from both conditions;
+- `condition1_only` when it contains only condition 1 clusters; or
+- `condition2_only` when it contains only condition 2 clusters.
 
-Every region produces four independent replicate vectors: condition 1 treatment, condition 1 control, condition 2 treatment, and condition 2 control. Peaks use maximum scaled coverage because it captures local enrichment without strongly depending on interval width. Clusters use positive scaled-coverage area because a broader cluster represents both signal magnitude and enriched extent.
+A condition-specific cluster is still measured in every BigWig from the other condition. Failure to call a cluster is not treated as proof of zero signal.
 
-### 4. Transform replicate measurements
+### 3. Measure cluster enrichment in four replicate groups
 
-Each replicate measurement is transformed before inference:
+Each Stage 1 coverage BigWig was independently scaled to a non-zero mean of 100. For every cluster locus $R$, `chip-compare` sums only positive scaled coverage in each replicate:
 
 ```math
-Y=\log_2(\mathrm{scaled\ coverage}+1).
+A_i(R)=\sum_{x\in R}\max(Cov_{100,i}(x),0).
 ```
 
-Coverage enrichment is multiplicative and tends to become more variable as its magnitude increases. The log transformation makes fold-like changes comparable across the signal range. Adding 1 permits a region with zero measured coverage while having little effect near the mean-scaled value of 100.
+Positive area is used because a cluster is an extended domain: both signal magnitude and enriched span are relevant. The four independent replicate vectors are condition 1 treatment ($T_1$), condition 1 control ($C_1$), condition 2 treatment ($T_2$), and condition 2 control ($C_2$). Treatment and control files are not paired by command-line order and group sizes may differ.
 
-### 5. Test the condition-by-treatment interaction
-
-The factorial model contains condition, treatment/control status, and their interaction. Its tested coefficient is
+Each area is transformed as
 
 ```math
-\Delta_{log}=(\bar Y_{T_2}-\bar Y_{C_2})-(\bar Y_{T_1}-\bar Y_{C_1}).
+Y=\log_2(A+1).
 ```
 
-Control subtraction within each condition accounts for condition-specific background. Comparing those two enrichments tests whether target-specific enrichment changes between conditions rather than simply testing whether the treatment tracks differ.
+The logarithm makes multiplicative differences more comparable between weak and strong loci. The pseudocount permits loci with zero positive area.
 
-Ordinary region-by-region variance estimates are unreliable with two or three replicates. `chip-compare` therefore estimates a shared variance prior across the full region set and combines it with each region's residual variance. The resulting empirical-Bayes moderated t test borrows precision across regions without treating them as biological replicates. Both the ordinary and moderated p-values are reported, but Benjamini-Hochberg correction uses the moderated p-values.
+### 4. Test the treatment-by-condition interaction
 
-At least two replicates are required in every group. Merged or undersampled inputs receive descriptive log and raw effects without differential p-values or FDR. `--fdr 0.05` controls the separate significant gain and loss BEDs; the complete TSV and all-direction BEDs are always written.
+A four-group factorial model contains condition, treatment/control status, and their interaction. The tested coefficient is
 
-### 6. Annotate replicate-consistent direction
+```math
+\Delta=(\bar Y_{T_2}-\bar Y_{C_2})-(\bar Y_{T_1}-\bar Y_{C_1}).
+```
 
-For condition $k$, the possible log enrichment range is
+The first subtraction estimates target-specific enrichment within each condition. The second subtraction asks whether that target-over-control enrichment changes between conditions. This avoids mistaking a general background or coverage change for a target-specific biological change.
+
+The ordinary p-value is a two-sided t test of the interaction coefficient using the locus-specific residual variance and factorial-model residual degrees of freedom. A positive coefficient is a gain in condition 2 and a negative coefficient is a loss.
+
+With only two or three replicates, locus-specific variance estimates are noisy. NucleoSuite therefore estimates a scaled-inverse-chi-square variance prior across all cluster loci and calculates
+
+```math
+s_{post,R}^2=\frac{d_0s_0^2+d_Rs_R^2}{d_0+d_R}.
+```
+
+The moderated p-value uses the posterior variance $s_{post,R}^2$ and $d_0+d_R$ degrees of freedom. This borrows information about variance across loci without treating loci as biological replicates. Benjamini-Hochberg correction is applied across all moderated cluster-locus p-values. At least two biological replicates are required in every group; otherwise effect sizes and directions are reported without inferential p-values or FDR.
+
+The complete table also reports ordinary and moderated standard errors and 95% confidence intervals. `--fdr 0.05` controls only the separate significant gain/loss BEDs; every locus remains in `differential_clusters.tsv` and the all-direction BEDs.
+
+### 5. Report a conservative replicate-separation label
+
+For condition $k$,
 
 ```math
 L_k=\min(Y_{T_k})-\max(Y_{C_k}),
@@ -80,12 +96,40 @@ L_k=\min(Y_{T_k})-\max(Y_{C_k}),
 U_k=\max(Y_{T_k})-\min(Y_{C_k}).
 ```
 
-`robust_gain` requires $L_2>U_1$, so every treatment-control contrast in condition 2 exceeds every contrast in condition 1. `robust_loss` requires $U_2<L_1$. Otherwise the region is `not_replicate_separated`. This stringent annotation is useful for 2×2 designs, but it is descriptive and does not replace moderated FDR for a formal differential call.
+`robust_gain` requires $L_2>U_1$; `robust_loss` requires $U_2<L_1$. These labels mean every possible treatment-control contrast is ordered in the same direction. They are descriptive consistency annotations, not replacements for the moderated p-value or FDR.
+
+### 6. Summarize observed cluster overlap
+
+`cluster_locus_venn.png` shows condition 1-only, shared, and condition 2-only **overlap-connected loci**. The Venn uses loci rather than raw cluster counts because one cluster can overlap several clusters in the other condition. `cluster_overlap_summary.tsv` separately reports:
+
+- raw cluster counts for each condition;
+- clusters with any cross-condition overlap;
+- shared and condition-only locus counts;
+- one-to-one, one-to-many, many-to-one, and many-to-many shared loci;
+- non-overlapping bases occupied by each condition's cluster union;
+- overlapping, condition-unique, and union cluster bases;
+- the percentage of each condition's occupied bases that overlaps; and
+- base-pair Jaccard percentage.
+
+These are descriptive summaries of the observed callsets. This build does not perform a genomic randomization test of whether overlap exceeds chance.
+
+### 7. Create matched cluster-centred PNS aggregates
+
+For each shared or condition-specific locus, the common anchor is the strongest coverage-scored member peak among all contributing Stage 1 clusters. Both conditions are aligned to the same ordered anchors, so heatmap rows refer to identical loci.
+
+Each treatment replicate's PNS was independently divided by the finite, non-zero mean of its matching `posPNS` before averaging. Scaling before averaging prevents a deeper replicate from determining the condition-mean PNS. PNS is used for this positioning view; scaled coverage remains the statistical measurement.
+
+The matched outputs include condition-specific heatmaps with one common symmetric colour range, replicate and replicate-combined mean profiles, cluster-bootstrap 95% bands, and directional NRLs. Defaults are ±1,000 bp around the anchor, 140 bp peak resolution, central peak order 0 included, and regression through peak orders 0–3 with no central exclusion. Each Stage 1 directory also contains an own-cluster aggregate; the Stage 2 matched aggregate is intended for direct visual comparison between conditions.
 
 ## Outputs
 
-The output directory contains `differential_peaks.tsv` and/or `differential_clusters.tsv`, directional BED files, and `chip_comparison_manifest.json`. Tables include Stage 1 support, `region_origin`, every raw replicate score, raw and log group means, raw and log interaction effects, enrichment-range bounds, effect direction, replicate consistency, ordinary and moderated p-values, differential FDR, residual and posterior variances, and status.
+The output directory contains:
 
-For each feature level, the command writes all gains, all losses, robust gains, robust losses, FDR-significant gains, and FDR-significant losses as separate BEDs. Directional BED records append `region_origin` after differential FDR. The comparison manifest records the empirical-Bayes prior, model degrees of freedom, output paths, and counts by origin.
+- `differential_clusters.tsv`;
+- all, robust, and FDR-significant gain/loss BEDs;
+- `cluster_overlap_components.tsv`;
+- `cluster_overlap_summary.tsv` and `cluster_locus_venn.png`;
+- `cluster_aligned_aggregates/` with common anchors, heatmaps, profiles, confidence bands, and NRL outputs; and
+- `chip_comparison_manifest.json` with all paths, model metadata, overlap counts, and aggregate settings.
 
 [Back to the command reference](../COMMAND_REFERENCE.md)

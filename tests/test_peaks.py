@@ -129,6 +129,19 @@ def test_pns_cli_peak_coverage_filter_is_off_by_default_and_configurable():
     assert selected.peak_coverage_threshold == 2.0
 
 
+def test_pns_peak_calling_can_be_disabled_without_disabling_score_tracks():
+    from nucleosuite.cli.main import build_parser
+
+    parser = build_parser()
+    default = parser.parse_args(["pns", "--bam", "sample.bam"])
+    tracks_only = parser.parse_args(
+        ["pns", "--bam", "sample.bam", "--no-peak-calling"]
+    )
+    assert default.peak_calling is True
+    assert tracks_only.peak_calling is False
+    assert tracks_only.pns_mode == "on"
+
+
 def test_pns_peak_coverage_filter_uses_bed_column7_position():
     coverage = np.zeros(30, dtype=float)
     coverage[15] = 2.0

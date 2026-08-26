@@ -42,6 +42,9 @@ class PeakCluster:
     summit: int
     max_peak_score: float
     qvalue: float = 1.0
+    seed_peak_count: int = 0
+    bridged_non_gated_peak_count: int = 0
+    minimum_seed_pvalue: float = math.nan
 
 
 @dataclass(frozen=True)
@@ -467,6 +470,114 @@ def assign_cluster_qvalues(
     ]
 
 
+def cluster_seeded_gate_peaks(
+    statistics: Sequence[ReplicatePeakStatistics],
+    *,
+    seed_pvalue: float = 0.05,
+    maximum_non_gated_gap: int = 1,
+    max_cluster_gap: int = 1000,
+    minimum_gate_peaks: int = 2,
+) -> list[PeakCluster]:
+    """Build clusters by expanding p-value seeds through gate-passing peaks.
+
+    A seed must pass the all-controls gate and the configured one-sided p-value
+    threshold. Starting from a seed, the cluster extends in both directions
+    through gate-passing peaks regardless of their p-values. Up to
+    ``maximum_non_gated_gap`` consecutive non-gated peaks may bridge two gated
+    members. A non-gated peak is never a member, endpoint, or score
+    contributor. Gate-only components without a seed are discarded.
+    """
+
+    if not math.isfinite(seed_pvalue) or not 0 <= seed_pvalue <= 1:
+        raise ValueError("Seed p-value must be between 0 and 1")
+    if maximum_non_gated_gap < 0:
+        raise ValueError("Maximum non-gated gap must be non-negative")
+    if max_cluster_gap < 1 or minimum_gate_peaks < 1:
+        raise ValueError("Maximum cluster gap and minimum gate-peak count must be positive")
+
+    ordered = sorted(
+        statistics,
+        key=lambda record: (
+            record.peak.chrom,
+            record.peak.summit,
+            record.peak.start,
+            record.peak.end,
+        ),
+    )
+    clusters: list[PeakCluster] = []
+    current: list[ReplicatePeakStatistics] = []
+    pending_non_gated = 0
+    bridged_non_gated = 0
+    current_chrom: str | None = None
+
+    def is_seed(record: ReplicatePeakStatistics) -> bool:
+        return (
+            record.all_controls_gate
+            and math.isfinite(record.pvalue)
+            and record.pvalue < seed_pvalue
+        )
+
+    def finish() -> None:
+        nonlocal current, pending_non_gated, bridged_non_gated
+        seeds = [record for record in current if is_seed(record)]
+        if len(current) >= minimum_gate_peaks and seeds:
+            member_peaks = tuple(record.peak for record in current)
+            best = max(
+                current,
+                key=lambda record: (
+                    _signal_score(record.peak),
+                    record.conservative_excess,
+                    -record.peak.summit,
+                ),
+            )
+            finite_seed_qvalues = [
+                record.qvalue for record in seeds if math.isfinite(record.qvalue)
+            ]
+            clusters.append(
+                PeakCluster(
+                    chrom=current[0].peak.chrom,
+                    start=min(record.peak.start for record in current),
+                    end=max(record.peak.end for record in current),
+                    significant_peaks=member_peaks,
+                    score=float(sum(record.conservative_excess for record in current)),
+                    summit=best.peak.summit,
+                    max_peak_score=max(_signal_score(record.peak) for record in current),
+                    qvalue=(
+                        max(finite_seed_qvalues)
+                        if finite_seed_qvalues
+                        else math.nan
+                    ),
+                    seed_peak_count=len(seeds),
+                    bridged_non_gated_peak_count=bridged_non_gated,
+                    minimum_seed_pvalue=min(record.pvalue for record in seeds),
+                )
+            )
+        current = []
+        pending_non_gated = 0
+        bridged_non_gated = 0
+
+    for record in ordered:
+        peak = record.peak
+        if current_chrom is not None and peak.chrom != current_chrom:
+            finish()
+        current_chrom = peak.chrom
+        if record.all_controls_gate:
+            if current and peak.summit - current[-1].peak.summit > max_cluster_gap:
+                finish()
+            if current:
+                current.append(record)
+                bridged_non_gated += pending_non_gated
+            else:
+                current = [record]
+            pending_non_gated = 0
+        elif current:
+            pending_non_gated += 1
+            if pending_non_gated > maximum_non_gated_gap:
+                finish()
+    finish()
+    return clusters
+
+
 def analyze_chip_peaks(
     target_path: str | Path,
     control_path: str | Path,
@@ -672,11 +783,11 @@ def analyze_chip_replicate_peaks(
     summit_column: int = 7,
     peak_pvalue: float | None = None,
     peak_fdr: float | None = None,
-    cluster_member_pvalue: float = 0.05,
+    cluster_seed_pvalue: float = 0.05,
     cluster_fdr: float | None = None,
-    cluster_break: int = 5,
+    cluster_max_non_gated_gap: int = 1,
     max_cluster_gap: int = 1000,
-    minimum_significant_peaks: int = 2,
+    minimum_gate_peaks: int = 2,
 ) -> dict[str, Path]:
     """Test treatment-defined candidates from replicate scaled coverage.
 
@@ -692,7 +803,7 @@ def analyze_chip_replicate_peaks(
     for name, value in (
         ("peak_pvalue", peak_pvalue),
         ("peak_fdr", peak_fdr),
-        ("cluster_member_pvalue", cluster_member_pvalue),
+        ("cluster_seed_pvalue", cluster_seed_pvalue),
         ("cluster_fdr", cluster_fdr),
     ):
         if value is not None and (not math.isfinite(value) or not 0 <= value <= 1):
@@ -827,48 +938,39 @@ def analyze_chip_replicate_peaks(
                 f"{_format_optional(record.pvalue)}\t{_format_optional(record.qvalue)}\n"
             )
 
-    cluster_candidates = []
-    for record in statistics:
-        selected = (
-            record.all_controls_gate
-            and math.isfinite(record.pvalue)
-            and record.pvalue < cluster_member_pvalue
-        )
-        cluster_candidates.append(replace(record.peak, winner=selected))
-    clusters = cluster_peaks(
-        cluster_candidates,
-        significance_score=0.0,
-        require_qvalue=None,
-        cluster_break=cluster_break,
+    clusters = cluster_seeded_gate_peaks(
+        statistics,
+        seed_pvalue=cluster_seed_pvalue,
+        maximum_non_gated_gap=cluster_max_non_gated_gap,
         max_cluster_gap=max_cluster_gap,
-        minimum_significant_peaks=minimum_significant_peaks,
+        minimum_gate_peaks=minimum_gate_peaks,
     )
-    clusters = [
-        replace(
-            cluster,
-            qvalue=max(
-                (peak.qvalue for peak in cluster.significant_peaks), default=math.nan
-            ),
-        )
-        for cluster in clusters
+    cluster_table = directory / "target_clusters_seeded.tsv"
+    cluster_tokens = [
+        "all_controls_gated",
+        f"seed_p{cluster_seed_pvalue:g}",
+        f"gap{cluster_max_non_gated_gap}",
+        f"min{minimum_gate_peaks}",
     ]
-    cluster_table = directory / "target_clusters_member_fdr.tsv"
-    cluster_tokens = ["all_controls_gated", f"member_p{cluster_member_pvalue:g}"]
     if cluster_fdr is not None:
-        cluster_tokens.append(f"maximum_member_fdr{cluster_fdr:g}")
+        cluster_tokens.append(f"maximum_seed_fdr{cluster_fdr:g}")
     significant_clusters = directory / f"target_clusters_{'_'.join(cluster_tokens)}.bed"
     with cluster_table.open("wt", encoding="utf-8") as table, significant_clusters.open(
         "wt", encoding="utf-8"
     ) as bed:
         table.write(
-            "chromosome\tstart\tend\tsignificant_peak_count\tcluster_score\t"
-            "max_peak_score\tsummit\tmaximum_member_fdr\n"
+            "cluster_id\tchromosome\tstart\tend\tseed_peak_count\tgate_member_count\t"
+            "bridged_non_gated_peak_count\tcluster_score\tmax_peak_score\t"
+            "strongest_peak_summit\tminimum_seed_p_value\tmaximum_seed_fdr\n"
         )
         for index, cluster in enumerate(clusters, 1):
+            cluster_id = f"chip_cluster_{index}"
             table.write(
-                f"{cluster.chrom}\t{cluster.start}\t{cluster.end}\t"
-                f"{len(cluster.significant_peaks)}\t{cluster.score:.12g}\t"
+                f"{cluster_id}\t{cluster.chrom}\t{cluster.start}\t{cluster.end}\t"
+                f"{cluster.seed_peak_count}\t{len(cluster.significant_peaks)}\t"
+                f"{cluster.bridged_non_gated_peak_count}\t{cluster.score:.12g}\t"
                 f"{cluster.max_peak_score:.12g}\t{cluster.summit}\t"
+                f"{_format_optional(cluster.minimum_seed_pvalue)}\t"
                 f"{_format_optional(cluster.qvalue)}\n"
             )
             passes_cluster_fdr = cluster_fdr is None or (
@@ -877,9 +979,10 @@ def analyze_chip_replicate_peaks(
             if passes_cluster_fdr:
                 bed.write(
                     f"{cluster.chrom}\t{cluster.start}\t{cluster.end}\t"
-                    f"chip_cluster_{index}\t{cluster.score:.6f}\t.\t"
+                    f"{cluster_id}\t{cluster.score:.6f}\t.\t"
                     f"{cluster.summit}\t{cluster.summit + 1}\t"
-                    f"{_format_optional(cluster.qvalue)}\n"
+                    f"{_format_optional(cluster.qvalue)}\t"
+                    f"{cluster.max_peak_score:.12g}\n"
                 )
 
     return {

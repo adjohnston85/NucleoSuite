@@ -83,6 +83,8 @@ PNS, BNS and TNS use the same peak caller. The caller retains positive regions t
 
 Breakpoint calls apply the same region logic to the sign-inverted scoring signal, so negative regions become positive for the caller.
 
+Use `--no-peak-calling` when only the score and auxiliary tracks are needed. This avoids constructing both the nucleosome and breakpoint callsets while leaving PNS/BNS/TNS calculation and track output unchanged. `chip-suite` uses this mode for per-replicate track generation and performs its one required treatment peak call later on the condition-mean discovery track.
+
 See [PNS peak calling](../ALGORITHMS.md#pns-peak-calling) for the exact definition.
 
 ## Optional coverage filtering of nucleosome peaks

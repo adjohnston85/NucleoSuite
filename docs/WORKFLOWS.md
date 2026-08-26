@@ -92,15 +92,15 @@ nucleosuite distances sample_methodpns_mode167_lower137_upper197_smooth0x2_nucle
 ```mermaid
 flowchart TB
     A[Condition 1 treatment/control BAMs] --> B[chip-suite Stage 1]
-    B --> C[Scaled BigWigs, gated peaks and p-defined clusters]
+    B --> C[Scaled BigWigs, gated peaks and seeded clusters]
     D[Condition 2 treatment/control BAMs] --> E[chip-suite Stage 1]
-    E --> F[Scaled BigWigs, gated peaks and p-defined clusters]
+    E --> F[Scaled BigWigs, gated peaks and seeded clusters]
     C --> G[chip-compare Stage 2]
     F --> G
-    G --> H[Differential peaks and clusters]
+    G --> H[Differential cluster loci, overlap summaries and matched aggregates]
 ```
 
-[`chip-suite`](commands/chip-suite.md) defaults to TNS and 120–500 bp fragments. Each replicate TNS track is first divided by its own mean `posTNS`, which prevents a deeper replicate from dominating the condition average. The normalized treatment tracks are averaged to create one consensus discovery signal, ensuring that every replicate is evaluated over the same candidate intervals. Stage 1 calls treatment nucleosome peaks only; control and breakpoint peaks are not called. Raw coverage BigWigs are retained, and separate coverage BigWigs are scaled to a non-zero mean of 100 so peak abundance is comparable across samples. The maximum scaled coverage within each candidate is retained for every replicate because it captures local enrichment without strongly depending on interval width. Every treatment must exceed every control for a peak to pass by default. One-sided Welch p-values and BH FDR are reported as optional exploratory filters, while clusters use gate-passing members with p < 0.05. Treatment and control groups are independent and may differ in size; `--bam-mode merged` pools each group. Stage 2 uses a log-scale empirical-Bayes interaction model. An explicit mode bypasses automatic mode estimation:
+[`chip-suite`](commands/chip-suite.md) defaults to PNS discovery over the resolved mode ±30 bp and generates coverage separately from 1–1,000 bp fragments. The narrow discovery range focuses the positioning score on nucleosome-sized fragments; the broad coverage range retains fragment abundance for measurement. Each replicate PNS is first divided by its own mean `posPNS`, which prevents a deeper replicate from dominating the condition average. The normalized treatment tracks are averaged to create one consensus discovery signal, ensuring that every replicate is evaluated over the same candidate intervals. Stage 1 calls treatment nucleosome peaks only; per-replicate and breakpoint calls are disabled. Raw coverage BigWigs are retained, and separate coverage BigWigs are scaled to a non-zero mean of 100 so peak abundance is comparable across samples. The maximum scaled coverage within each candidate is retained for every replicate because it captures local enrichment without strongly depending on interval width. Every treatment must exceed every control for a peak to pass by default. One-sided Welch p-values and BH FDR are reported as optional exploratory filters. Clusters use gated p < 0.05 peaks as seeds, extend through neighbouring gated peaks regardless of their p-values, and may bridge one non-gated candidate. At least two gated members are required and adjacent gated-member summits must be no more than 1,000 bp apart. The normalized treatment PNS is averaged for strongest-member-aligned heatmaps, confidence bands and directional NRLs. Treatment and control groups are independent and may differ in size; `--bam-mode merged` pools each group. Stage 2 compares overlap-connected clusters only with a log-scale empirical-Bayes interaction model and adds Venn/base-occupancy summaries and matched PNS aggregates. An explicit mode bypasses automatic mode estimation:
 
 ```bash
 nucleosuite chip-suite \
