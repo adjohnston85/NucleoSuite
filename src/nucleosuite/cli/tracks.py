@@ -10,8 +10,8 @@ from nucleosuite.cli.common import add_interval_output_arguments
 
 
 TRACK_HELP = (
-    "Track names may include pns, posPNS, pns_smoothed, wps, "
-    "wps_smoothed, mWPS, sm_mWPS, coverage, dyad, fragment_ends, "
+    "Track names may include pns, posPNS, pns_smoothed, bns, posBNS, bns_smoothed, "
+    "tns, posTNS, tns_smoothed, wps, wps_smoothed, mWPS, sm_mWPS, coverage, dyad, fragment_ends, "
     "fragment_left_ends, fragment_right_ends, pns_peaks, wps_peaks, dinuc_profile, ww_types and type_dyads."
 )
 
@@ -135,7 +135,15 @@ def register(subparsers):
     from nucleosuite.parallel import add_parallel_arguments
     add_parallel_arguments(parser, combine_resources=True, resumable=True)
 
-    # PNS settings shared by every PNS-enabled range.
+    parser.add_argument(
+        "--scoring-method", choices=("pns", "bns", "tns"), default="pns",
+        help=(
+            "Nucleosome score generated for scoring-enabled ranges. Request the "
+            "matching method-specific track names in --fragment-range (default: pns)."
+        ),
+    )
+
+    # Nucleosome-score settings shared by every score-enabled range.
     parser.add_argument("--pns-mode-length", type=int, default=167, help="Modal protected-DNA length defining PNS probability triangles for every PNS range (default: 167 bp).")
     parser.add_argument("--pns-smooth-window", type=int, default=0, help="Savitzky-Golay PNS smoothing window; 0 disables smoothing (default: 0).")
     parser.add_argument("--pns-smooth-order", type=int, default=2, help="PNS Savitzky-Golay polynomial order (default: 2).")

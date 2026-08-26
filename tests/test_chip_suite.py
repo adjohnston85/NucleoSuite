@@ -88,8 +88,8 @@ def test_chip_suite_defaults_to_pns_auto_mode_scoring_flank_and_coverage_range(
     target.touch(); control.touch()
     args = build_parser().parse_args(
         [
-            "--target-bam", str(target),
-            "--control-bam", str(control),
+            "--treatment1-bam", str(target),
+            "--control1-bam", str(control),
             "--outdir", str(tmp_path / "out"),
         ]
     )
@@ -105,8 +105,8 @@ def test_chip_suite_defaults_to_pns_auto_mode_scoring_flank_and_coverage_range(
     assert args.peak_fdr is None
     assert args.cluster_fdr is None
     assert args.cluster_seed_p_value == 0.05
-    assert args.cluster_max_non_gated_gap == 1
-    assert args.min_cluster_gated_peaks == 2
+    assert args.cluster_max_non_member_gap == 1
+    assert args.min_cluster_members == 2
     assert args.cluster_aggregate_nrl_resolution == 140
     assert args.cluster_aggregate_nrl_min_order == 0
     assert args.cluster_aggregate_nrl_max_order == 3
@@ -117,43 +117,42 @@ def test_chip_suite_defaults_to_pns_auto_mode_scoring_flank_and_coverage_range(
     assert args.control1_bam == [str(control)]
 
 
-def test_chip_suite_emits_target_and_control_raw_coverage(tmp_path: Path):
+def test_chip_suite_emits_score_and_coverage_in_one_tracks_pass_per_group(tmp_path: Path):
     target = tmp_path / "target.bam"
     control = tmp_path / "control.bam"
     target.touch(); control.touch()
     args = build_parser().parse_args(
         [
-            "--target-bam", str(target),
-            "--control-bam", str(control),
+            "--treatment1-bam", str(target),
+            "--control1-bam", str(control),
             "--outdir", str(tmp_path / "out"),
             "--sample-name", "sample",
             "--mode", "167",
             "--contigs", "chr1",
         ]
     )
-    pns_commands: list[list[str]] = []
+    tracks_commands: list[list[str]] = []
 
     def fake_command(command: list[str]) -> None:
-        if command[0] == "pns":
-            pns_commands.append(command)
-            base = Path(command[command.index("--out-prefix") + 1])
-            method = command[command.index("--scoring-method") + 1]
-            prefix = _resolved_prefix(base, method, 167, 137, 197)
-            prefix.parent.mkdir(parents=True, exist_ok=True)
-            suffixes = (
-                ("_pns.bw", "_posPNS.bw")
-                if method == "pns"
-                else ("_tns.bw", "_posTNS.bw", "_coverage.bw")
-            )
-            for suffix in suffixes:
-                Path(f"{prefix}{suffix}").touch()
+        if command[0] == "tracks":
+            tracks_commands.append(command)
+            spec_path = Path(command[command.index("--spec-file") + 1])
+            lines = spec_path.read_text(encoding="utf-8").splitlines()[1:]
+            assert len(lines) == 2
+            score_fields = lines[0].split("\t")
+            coverage_fields = lines[1].split("\t")
+            assert score_fields[0] == "137-197"
+            assert score_fields[2] == "pns,posPNS"
+            assert coverage_fields[0] == "1-1000"
+            assert coverage_fields[2] == "coverage"
+            score_prefix = Path(score_fields[1])
+            coverage_prefix = Path(coverage_fields[1])
+            score_prefix.parent.mkdir(parents=True, exist_ok=True)
+            Path(f"{score_prefix}_pns.bw").touch()
+            Path(f"{score_prefix}_posPNS.bw").touch()
+            Path(f"{coverage_prefix}_coverage.bw").touch()
             return
-        if command[0] == "coverage":
-            base = Path(command[command.index("--out-prefix") + 1])
-            prefix = Path(f"{base}_coverage_lower1_upper1000")
-            prefix.parent.mkdir(parents=True, exist_ok=True)
-            Path(f"{prefix}_coverage.bw").touch()
-            return
+        assert command[0] == "call-peaks"
         assert command[command.index("--call-type") + 1] == "nucleosome"
         peak_prefix = Path(command[command.index("--out-prefix") + 1])
         peak_prefix.parent.mkdir(parents=True, exist_ok=True)
@@ -162,6 +161,7 @@ def test_chip_suite_emits_target_and_control_raw_coverage(tmp_path: Path):
         )
 
     def fake_scale(_score, _reference, output, **_kwargs):
+        Path(output).parent.mkdir(parents=True, exist_ok=True)
         Path(output).touch()
         return Path(output), 1.0, 1
 
@@ -170,37 +170,31 @@ def test_chip_suite_emits_target_and_control_raw_coverage(tmp_path: Path):
     with (
         patch("nucleosuite.chip_suite._run_nucleosuite", side_effect=fake_command),
         patch("nucleosuite.chip_suite.scale_bigwig_by_reference", side_effect=fake_scale),
-            patch(
-                "nucleosuite.chip_suite.analyze_chip_replicate_peaks",
-                return_value={"selected_clusters": selected_clusters},
-            ) as analyze_mock,
+        patch(
+            "nucleosuite.chip_suite.analyze_chip_replicate_peaks",
+            return_value={"selected_clusters": selected_clusters},
+        ) as analyze_mock,
     ):
         assert run(args) == 0
 
-    assert len(pns_commands) == 2
-    primary_commands = pns_commands
-    assert all(
-        command[command.index("--other-tracks") + 1] == "none"
-        and command[command.index("--other-format") + 1] == "none"
-        and command[command.index("--frag-lower") + 1] == "137"
-        and command[command.index("--frag-upper") + 1] == "197"
-        and "--no-peak-calling" in command
-        for command in primary_commands
-    )
+    assert len(tracks_commands) == 2
+    assert all(command[0] == "tracks" for command in tracks_commands)
+    assert all("--output-dir" in command for command in tracks_commands)
+    assert all(command[command.index("--scoring-method") + 1] == "pns" for command in tracks_commands)
     summary = (tmp_path / "out" / "sample_chip_suite_summary.tsv").read_text()
     assert "target_raw_coverage_track\t" in summary
     assert "control_raw_coverage_track\t" in summary
     assert "condition_mean_treatment_coverage\t" in summary
     assert "condition_mean_control_coverage\t" in summary
     call = analyze_mock.call_args.kwargs
+    assert call["gate_mode"] == "mean"
+    assert call["cluster_member_mode"] == "seed-and-gated"
     assert len(call["target_replicate_bigwigs"]) == 1
     assert len(call["control_replicate_bigwigs"]) == 1
-    manifest = json.loads(
-        (tmp_path / "out" / "chip_stage1_manifest.json").read_text()
-    )
+    manifest = json.loads((tmp_path / "out" / "chip_stage1_manifest.json").read_text())
     assert manifest["control_candidate_peaks"] is None
-    assert manifest["stage1_selection"] == "all_treatments_exceed_all_controls"
-    assert manifest["stage1_statistics"] == "exploratory_one_sided_welch_bh_all_candidates"
+    assert manifest["stage1_selection"] == "mean_treatment_exceeds_mean_control"
+    assert manifest["condition_mean_treatment_cluster_aggregate_score"]
 
 
 def test_explicit_chip_mode_overrides_automatic_estimation(tmp_path: Path):
@@ -209,8 +203,8 @@ def test_explicit_chip_mode_overrides_automatic_estimation(tmp_path: Path):
     target.touch(); control.touch()
     args = build_parser().parse_args(
         [
-            "--target-bam", str(target),
-            "--control-bam", str(control),
+            "--treatment1-bam", str(target),
+            "--control1-bam", str(control),
             "--outdir", str(tmp_path / "out"),
             "--mode", "167",
         ]
@@ -226,8 +220,8 @@ def test_chip_auto_mode_prints_treatment_control_and_pooled_estimates(
     target.touch(); control.touch()
     args = build_parser().parse_args(
         [
-            "--target-bam", str(target),
-            "--control-bam", str(control),
+            "--treatment1-bam", str(target),
+            "--control1-bam", str(control),
             "--outdir", str(tmp_path / "out"),
         ]
     )
@@ -270,8 +264,8 @@ def test_explicit_chip_mode_does_not_validate_unused_auto_search_bounds(tmp_path
     target.touch(); control.touch()
     args = build_parser().parse_args(
         [
-            "--target-bam", str(target),
-            "--control-bam", str(control),
+            "--treatment1-bam", str(target),
+            "--control1-bam", str(control),
             "--outdir", str(tmp_path / "out"),
             "--mode", "167",
             "--mode-search-lower", "300",
@@ -287,8 +281,8 @@ def test_explicit_chip_score_range_overrides_mode_flank(tmp_path: Path):
     target.touch(); control.touch()
     args = build_parser().parse_args(
         [
-            "--target-bam", str(target),
-            "--control-bam", str(control),
+            "--treatment1-bam", str(target),
+            "--control1-bam", str(control),
             "--outdir", str(tmp_path / "out"),
             "--mode", "167",
             "--score-frag-lower", "125",
@@ -540,7 +534,7 @@ def test_stage1_replicate_statistics_calls_fdr_without_control_peaks(tmp_path: P
         target_mean_bigwig=mean_path,
         peak_fdr=0.05,
         cluster_fdr=0.05,
-        minimum_gate_peaks=1,
+        minimum_cluster_members=1,
     )
 
     annotated = outputs["annotated_peaks"].read_text().strip().split("\t")
@@ -574,7 +568,7 @@ def test_stage1_single_replicate_reports_unavailable_fdr(tmp_path: Path):
         target_replicate_bigwigs=[treatment],
         control_replicate_bigwigs=[control],
         target_mean_bigwig=mean_path,
-        minimum_gate_peaks=1,
+        minimum_cluster_members=1,
     )
 
     assert outputs["annotated_peaks"].read_text().strip().endswith("\t.")
@@ -665,7 +659,7 @@ def test_stage1_clusters_use_p_seeds_and_all_gated_members(tmp_path: Path):
         control_replicate_bigwigs=control_paths,
         target_mean_bigwig=mean_path,
         cluster_seed_pvalue=0.05,
-        minimum_gate_peaks=2,
+        minimum_cluster_members=2,
     )
 
     statistics = outputs["competition_table"].read_text().splitlines()
@@ -681,7 +675,7 @@ def test_stage1_clusters_use_p_seeds_and_all_gated_members(tmp_path: Path):
     assert cluster[:4] == ["chip_cluster_1", "chr1", "20", "220"]
     assert cluster[cluster_header.index("seed_peak_count")] == "2"
     assert cluster[cluster_header.index("gate_member_count")] == "3"
-    assert cluster[cluster_header.index("bridged_non_gated_peak_count")] == "0"
+    assert cluster[cluster_header.index("bridged_non_member_peak_count")] == "0"
 
 
 def test_seeded_clusters_end_at_last_gated_member_and_require_a_seed():
@@ -692,7 +686,7 @@ def test_seeded_clusters_end_at_last_gated_member_and_require_a_seed():
         [440, 540, 640],
     ]
     assert [(cluster.start, cluster.end) for cluster in clusters] == [(0, 180), (400, 680)]
-    assert [cluster.bridged_non_gated_peak_count for cluster in clusters] == [0, 0]
+    assert [cluster.bridged_non_member_peak_count for cluster in clusters] == [0, 0]
 
     records = [_cluster_record(index, state) for index, state in enumerate("GSGxxGG")]
     clusters = cluster_seeded_gate_peaks(records)
@@ -706,7 +700,7 @@ def test_seeded_clusters_bridge_one_non_gated_peak_without_counting_it():
     assert len(clusters) == 1
     cluster = clusters[0]
     assert [peak.summit for peak in cluster.significant_peaks] == [40, 240]
-    assert cluster.bridged_non_gated_peak_count == 1
+    assert cluster.bridged_non_member_peak_count == 1
     assert cluster.seed_peak_count == 1
     assert cluster.score == 90.0
 

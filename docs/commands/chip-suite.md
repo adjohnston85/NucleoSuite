@@ -4,7 +4,7 @@
 
 `chip-suite` performs control-aware nucleosome-score analysis for ChIP-seq, CUT&RUN, or CUT&Tag. A run with condition 1 treatment and control BAMs performs Stage 1 only. Supplying all four condition groups performs Stage 1 independently for both conditions and then compares their enrichments in Stage 2.
 
-PNS is the default discovery score. Its fragment range is resolved separately for treatment and control as the selected mode ±30 bp. Use `--scoring-method bns` or `--scoring-method tns` when another kernel is required. Coverage is generated in a separate pass from all accepted positive-length fragments up to 1,000 bp by default.
+PNS is the default discovery score. Its fragment range is resolved separately for treatment and control as the selected mode ±30 bp. Use `--scoring-method bns` or `--scoring-method tns` when another kernel is required. The mode-centred score/positive-score pair and broad 1–1,000 bp coverage are generated together by `tracks` in one fragment pass per replicate.
 
 ## Why use it
 
@@ -21,7 +21,6 @@ nucleosuite chip-suite \
   --cores 8
 ```
 
-The older names `--target-bam` and `--control-bam` remain aliases for `--treatment1-bam` and `--control1-bam`.
 
 Stage 1 separates **peak discovery** from **peak measurement**. TNS, BNS, or PNS defines where candidate peaks occur. Scaled fragment coverage then provides the replicate values used for treatment-versus-control filtering and statistics. Keeping these roles separate avoids treating the height of a model-derived positioning score as if it were direct fragment abundance.
 
@@ -36,7 +35,7 @@ The narrow, mode-centred range focuses the discovery score on fragments most con
 
 The centred score locates protected-DNA structure. The positive track measures the overall amount of method-specific score support and is used only as the normalization reference. Raw broad-range coverage is retained so the original sequencing-depth scale remains available.
 
-Treatment replicates also retain PNS and `posPNS` for the cluster-centred aggregate analysis below. With the default PNS discovery method, the same tracks are reused. When TNS or BNS is selected, this is a separate PNS pass over the same mode-centred scoring range. Track generation disables interval calling: `chip-suite` calls the required treatment nucleosome candidates once from the consensus discovery track and does not produce per-replicate nucleosome or breakpoint callsets.
+The selected scoring method is used throughout the workflow. PNS uses `pns`/`posPNS`, BNS uses `bns`/`posBNS`, and TNS uses `tns`/`posTNS`. The same method-specific normalized treatment tracks used for discovery are reused for cluster-centred profiles, heatmaps and directional NRLs; selecting BNS or TNS does not trigger an additional PNS pass. Score tracks from the mode-centred range and broad 1–1,000 bp coverage are generated together by `tracks` in one fragment pass. `chip-suite` then calls treatment nucleosome candidates once from the consensus discovery track and does not produce per-replicate nucleosome or breakpoint callsets.
 
 ### 2. Normalize and average treatment score tracks for discovery
 
@@ -74,45 +73,50 @@ The maximum is used because it captures the strongest local fragment enrichment 
 
 Column 5 of the annotated BED is replaced with the maximum of the condition-mean treatment `Cov100` track over the same interval. This provides one convenient display score, while `target_peak_replicate_statistics.tsv` retains every individual replicate value used in the test.
 
-### 5. Require consistent treatment-over-control enrichment
+### 5. Apply the treatment-control gate
 
-A treatment peak is eligible to proceed only when
+The default gate is mean treatment greater than mean control:
 
 ```math
-\min_i T_i(R)>\max_j C_j(R).
+\mathrm{mean}_i T_i(R)>\mathrm{mean}_j C_j(R).
 ```
 
-This all-versus-all gate requires every treatment replicate to exceed every control replicate. It is intentionally conservative: one weak treatment or one strong control prevents the candidate from passing. Input ordering does not affect the decision because treatment and control are compared as independent groups rather than paired files.
+This allows replicate-level variation while requiring the average treatment signal to exceed the average control signal. Use `--stage1-gate-mode all-controls` for the more conservative rule
+
+```math
+\min_i T_i(R)>\max_j C_j(R),
+```
+
+which requires every treatment replicate to exceed every control replicate. Treatment and control are independent groups rather than paired files, so input ordering does not affect either gate.
 
 ### 6. Select Stage 1 peaks and annotate statistical evidence
 
 A one-sided Welch test compares the full treatment and control replicate vectors for every candidate. Welch's test is used because treatment and control replicates need not have equal variances or equal group sizes. The one-sided alternative matches the Stage 1 question: is treatment greater than control? Benjamini-Hochberg correction is calculated across all candidates and retained as an annotation.
 
-By default, the all-controls gate alone selects individual peaks for Stage 2. This default is intentional. A nucleosome-scale analysis may test hundreds of thousands of correlated candidates, while two or three biological replicates provide little power for a separate Welch test at every nucleosome. Requiring genome-wide FDR by default can therefore discard every peak even when its treatment values consistently exceed all controls. The p-value and FDR remain in the outputs so they can be inspected without being presented as stronger evidence than the replicate design supports.
+By default, the selected treatment-control gate alone selects individual peaks for Stage 2. This default is intentional. A nucleosome-scale analysis may test hundreds of thousands of correlated candidates, while two or three biological replicates provide little power for a separate Welch test at every nucleosome. Requiring genome-wide FDR by default can therefore discard every peak even when treatment is consistently enriched over control. The p-value and FDR remain in the outputs so they can be inspected without being presented as stronger evidence than the replicate design supports.
 
-`--stage1-p-value` optionally adds an exploratory raw-p cutoff, and `--peak-fdr` optionally adds an FDR cutoff. Neither is applied unless requested. The output BED preserves the discovery-track coordinates and other fields, uses the condition-mean treatment coverage maximum as column 5, and appends FDR. `target_peak_replicate_statistics.tsv` reports every replicate maximum, group means, the conservative `min(T)-max(C)` excess, conservative fold and log2 enrichment calculated with a pseudocount of 1, the gate and selection results, p-value, and FDR. At least two treatment and two control biological replicates are required to calculate p-values and FDR. Runs with fewer than three replicates in either group print a warning that these annotations are exploratory.
+`--stage1-p-value` optionally adds an exploratory raw-p cutoff, and `--peak-fdr` optionally adds an FDR cutoff. Neither is applied unless requested. The output BED preserves the discovery-track coordinates and other fields, uses the condition-mean treatment coverage maximum as column 5, and appends FDR. `target_peak_replicate_statistics.tsv` reports every replicate maximum, group means, mean treatment-minus-control difference, the conservative `min(T)-max(C)` excess and fold/log2 enrichment with pseudocount 1, both gate results, the selected gate/excess, Stage 2 selection status, p-value, and FDR. At least two treatment and two control biological replicates are required to calculate p-values and FDR. Runs with fewer than three replicates in either group print a warning that these annotations are exploratory.
 
 ### 7. Form Stage 1 clusters
 
-Clusters are seeded by the strongest statistical evidence and then extended through consistently treatment-enriched neighbouring peaks. A **seed** must satisfy both:
+Clusters are seeded by the strongest statistical evidence and then extended through consistently treatment-enriched neighbouring peaks. A **seed** must pass the selected treatment-control gate and satisfy
 
 ```math
-\min_i T_i(R)>\max_j C_j(R)
-\quad\text{and}\quad p(R)<0.05.
+p(R)<0.05.
 ```
 
-The all-controls gate ensures that the seed is stronger in every treatment replicate than in every control replicate. The nominal p-value supplies a reproducible point from which to begin the cluster. Change the default seed threshold with `--cluster-seed-p-value`.
+With the default mean gate this means mean treatment > mean control; with `--stage1-gate-mode all-controls` it means every treatment replicate exceeds every control replicate. The nominal p-value supplies a reproducible point from which to begin the cluster. Change the default seed threshold with `--cluster-seed-p-value`.
 
-After finding a seed, `chip-suite` looks upstream and downstream through the ordered treatment candidates. Any neighbouring peak that passes the all-controls gate can extend the cluster even when its own p-value is at least 0.05. This separates the evidence needed to **start** a domain from the evidence used to define its **extent**: local replicate variability should not cut a coherent run of consistently treatment-over-control nucleosomes into many small pieces.
+After finding a seed, `chip-suite` looks upstream and downstream through the ordered treatment candidates. Any neighbouring peak that passes the selected treatment-control gate can extend the cluster even when its own p-value is at least 0.05. This separates the evidence needed to **start** a domain from the evidence used to define its **extent**: local replicate variability should not cut a coherent run of consistently treatment-over-control nucleosomes into many small pieces.
 
-The default permits one consecutive non-gated candidate to bridge two gated members (`--cluster-max-non-gated-gap 1`). The bridged peak is not a member, never becomes a cluster endpoint, and contributes no score. It only prevents one isolated gate failure from splitting the surrounding gated run. Two consecutive non-gated candidates stop extension. Adjacent gated members must also have summits no more than 1,000 bp apart (`--max-cluster-gap 1000`); a separation greater than 1,000 bp splits the run regardless of gate status.
+The default permits one consecutive non-member candidate to bridge two included members (`--cluster-max-non-member-gap 1`). In `seed-and-gated` mode, non-members are gate-failing `x` peaks; in `significant-only` mode, both `G` and `x` are non-members. Bridging candidates never become endpoints or score contributors. A run of non-members longer than the configured limit ends the current cluster; later eligible peaks can start a new seeded cluster. Adjacent included-member summits must also be no more than 1,000 bp apart (`--max-cluster-gap 1000`).
 
 The notation in these diagrams is:
 
 ```text
-S = seed: all-controls gate passes and p < 0.05
-G = extension: all-controls gate passes; no p-value requirement
-x = all-controls gate fails
+S = seed: selected treatment-control gate passes and p < 0.05
+G = extension: selected treatment-control gate passes; no p-value requirement
+x = selected treatment-control gate fails
 . = not a cluster member
 ```
 
@@ -145,23 +149,25 @@ state:    G S G x x G G
 cluster:  1 1 1 . . . .
 ```
 
-The right-hand `G G` is discarded because it contains no `S`. A lone `S` is also discarded because `--min-cluster-gated-peaks` defaults to 2. Expansion from nearby seeds produces one cluster when the expansions connect; it does not emit overlapping duplicate clusters.
+The right-hand `G G` is discarded because it contains no `S`. A lone `S` is also discarded because `--min-cluster-members` defaults to 2. Expansion from nearby seeds produces one cluster when the expansions connect; it does not emit overlapping duplicate clusters.
 
-Cluster coordinates run from the start of the first gated member to the end of the last gated member. The cluster score is the sum of `minimum treatment - maximum control` across gated members only. The cluster table records seed count, total gated-member count, successfully bridged non-gated count, minimum seed p-value, maximum seed FDR, score, and strongest-peak summit. The strongest peak is the gated member with the largest maximum on the condition-mean treatment coverage track; conservative excess and genomic position break ties. Coverage supplies the ranking because it is the direct abundance measurement already used as the reported peak score. `--cluster-fdr` can optionally filter the maximum seed FDR, but no cluster FDR cutoff is applied by default.
+With `--cluster-member-mode significant-only`, `G` and `x` are both non-members for gap counting. For example, with the default `--cluster-max-non-member-gap 1`, `S G S` may form one cluster, but `S G x S` is split because two consecutive non-members separate the significant peaks.
+
+Cluster coordinates run from the start of the first included member to the end of the last included member. With the default `--stage1-gate-mode mean`, each member contributes `mean treatment - mean control` to the cluster score. With `--stage1-gate-mode all-controls`, each member instead contributes `minimum treatment - maximum control`. The default `--cluster-member-mode seed-and-gated` treats both `S` and `G` peaks as members; `--cluster-member-mode significant-only` restricts membership and scoring to `S` peaks. `--cluster-max-non-member-gap` controls how many consecutive non-members may bridge included members; a longer run ends the current cluster and later eligible peaks are evaluated as a new cluster. Bridging candidates never contribute to the cluster boundary or score. The strongest peak is the included member with the largest maximum on the condition-mean treatment coverage track; selected treatment-over-control excess and genomic position break ties. `--cluster-fdr` can optionally filter the maximum seed FDR, but no cluster FDR cutoff is applied by default.
 
 `chip-suite` calls nucleosome peaks only. It does not call or retain breakpoint peaks because Stage 1 and Stage 2 use positive nucleosome-score candidates.
 
 Because every cluster requires at least one p-value-defined seed, merged mode and groups lacking two biological replicates do not produce Stage 1 clusters. Gate-selected individual peaks are still written.
 
-### 8. Aggregate PNS around the strongest peak in each cluster
+### 8. Aggregate the selected nucleosome score around the strongest peak in each cluster
 
-For each treatment replicate, PNS is divided by the finite, non-zero mean of its matching `posPNS` track:
+For each treatment replicate, the selected score is divided by the finite, non-zero mean of its matching positive-score track:
 
 ```math
-PNS_{scaled,i}(x)=\frac{PNS_i(x)}{\mathrm{mean}(posPNS_i(x)\mid posPNS_i(x)>0)}.
+S_{scaled,i}(x)=\frac{S_i(x)}{\mathrm{mean}(posS_i(x)\mid posS_i(x)>0)}.
 ```
 
-This normalization is done per replicate before averaging because unnormalized PNS magnitude increases with usable fragment depth. Averaging the independently normalized PNS tracks gives each replicate equal weight and produces the **replicate-combined scaled PNS** used for the aggregate. This differs from coverage-to-100 scaling: scaled coverage measures peak abundance and supports treatment/control statistics, whereas scaled PNS shows nucleosome positioning around the selected cluster anchor.
+This normalization is done per replicate before averaging because raw score magnitude increases with usable fragment depth. Averaging independently normalized method-matched score tracks gives each replicate equal weight. This differs from coverage-to-100 scaling: scaled coverage measures peak abundance and supports treatment/control statistics, whereas the normalized PNS, BNS or TNS signal shows nucleosome positioning around the selected cluster anchor.
 
 Each cluster is aligned at the TNS/BNS/PNS summit of its strongest coverage-scored member. Keeping the discovery summit rather than replacing it with the coordinate of the coverage maximum preserves the nucleosome-position estimate while using direct coverage only to decide which member is strongest.
 
@@ -178,7 +184,7 @@ nucleosuite chip-suite \
   --outdir wt_stage1
 ```
 
-Each replicate is scored and normalized separately before the discovery tracks are averaged. This gives the replicates equal footing during candidate discovery. Replicate-specific scaled coverage supplies the all-controls gate and exploratory one-sided Welch annotations; condition-mean treatment coverage supplies the single reported BED score. All tracks are retained in `chip_stage1_manifest.json` so Stage 2 can reuse the exact replicate measurements without returning to the BAM files.
+Each replicate is scored and normalized separately before the discovery tracks are averaged. This gives the replicates equal footing during candidate discovery. Replicate-specific scaled coverage supplies the selected treatment-control gate and exploratory one-sided Welch annotations; condition-mean treatment coverage supplies the single reported BED score. All tracks are retained in `chip_stage1_manifest.json` so Stage 2 can reuse the exact replicate measurements without returning to the BAM files.
 
 Use `--bam-mode merged` to pass every treatment BAM as one logical treatment sample and every control BAM as one logical control sample. This matches the usual NucleoSuite multi-BAM pooling behaviour. Merged mode provides Stage 2 effect sizes and gain/loss direction, but not biological-replicate p-values or FDR.
 
@@ -233,7 +239,7 @@ Stage 2 also writes a descriptive Venn diagram of condition-only and shared clus
 
 For a coordinate-matched visual comparison, Stage 2 aligns both conditions to the same union-locus anchor set and uses the same symmetric heatmap colour range. The anchor is the strongest coverage-scored Stage 1 member peak among clusters contributing to that locus. These matched heatmaps supplement the condition's own-cluster aggregates generated during Stage 1.
 
-Stage 2 never returns to the BAM files. The saved scaled-coverage BigWigs supply differential measurements, and the saved replicate PNS tracks divided by mean `posPNS` supply aggregate positioning signal.
+Stage 2 never returns to the BAM files. The saved scaled-coverage BigWigs supply differential measurements, and the saved method-matched normalized PNS, BNS or TNS tracks supply aggregate positioning signal.
 
 ## Automatic fragment mode
 
@@ -261,8 +267,8 @@ Automatic estimation can be bypassed:
 
 ```bash
 nucleosuite chip-suite \
-  --target-bam target.bam \
-  --control-bam control.bam \
+  --treatment1-bam target.bam \
+  --control1-bam control.bam \
   --outdir chip_results \
   --mode 167
 ```
@@ -274,11 +280,11 @@ For Stage 1 analyses that will later be compared with `chip-compare`, using the 
 A one-condition run writes:
 
 - `00_setup/`: mode and normalization reports;
-- `01_score_tracks/`: mode-centred discovery score and positive-score BigWigs, treatment PNS/`posPNS`, and separate unscaled 1–1,000 bp coverage BigWigs;
-- `02_mean_scaled_tracks/`: positive-score-normalized discovery tracks, replicate and condition-mean coverage scaled to 100, and treatment PNS divided by replicate-specific mean `posPNS`;
+- `01_score_tracks/`: method-specific mode-centred score/positive-score BigWigs plus unscaled 1–1,000 bp coverage BigWigs generated in the same `tracks` pass;
+- `02_mean_scaled_tracks/`: method-specific positive-score-normalized score tracks and replicate/condition-mean coverage scaled to 100;
 - `03_peak_calls/`: treatment-defined nucleosome candidate peaks;
 - `04_peak_fdr/`: replicate statistics, annotated and gate-selected peaks, and seeded clusters;
-- `05_cluster_aggregate/`: strongest-member anchors, replicate and combined scaled-PNS profiles, heatmap, bootstrap confidence band, and directional NRL outputs;
+- `05_cluster_aggregate/`: strongest-member anchors, replicate and combined normalized-score profiles, heatmap, bootstrap confidence band, and directional NRL outputs;
 - `chip_stage1_manifest.json`: reusable Stage 1 metadata and scaled-track paths.
 
 A two-condition run writes the two Stage 1 trees under `01_condition1_stage1/` and `02_condition2_stage1/`. `03_condition_comparison/` contains cluster-only differential tables and BEDs, overlap-component mapping, Venn and occupied-base summaries, and matched union-locus aggregate heatmaps.

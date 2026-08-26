@@ -46,7 +46,7 @@ Dinucleotide profiles do not split even-length fragments between alternative cen
 
 ## Empirical FDR
 
-An estimate of the fraction of retained discoveries expected to be false. `pns-peak-fdr` uses peak-score counts from fragment-randomized runs and reports monotonic empirical q-values. `chip-suite` Stage 1 uses one-sided Welch p-values from replicate maximum scaled coverage followed by Benjamini-Hochberg correction across all treatment candidates, but uses the all-controls gate rather than FDR as its default selector. `chip-compare` applies BH correction to empirical-Bayes moderated four-group interaction tests across overlap-connected cluster loci; its Venn and occupied-base summaries are descriptive rather than FDR analyses.
+An estimate of the fraction of retained discoveries expected to be false. `pns-peak-fdr` uses peak-score counts from fragment-randomized runs and reports monotonic empirical q-values. `chip-suite` Stage 1 uses one-sided Welch p-values from replicate maximum scaled coverage followed by Benjamini-Hochberg correction across all treatment candidates, but uses the mean treatment > mean control gate rather than FDR as its default selector; an all-controls gate remains available. `chip-compare` applies BH correction to empirical-Bayes moderated four-group interaction tests across overlap-connected cluster loci; its Venn and occupied-base summaries are descriptive rather than FDR analyses.
 
 ## Flanking spacing
 

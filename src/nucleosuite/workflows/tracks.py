@@ -67,13 +67,20 @@ from nucleosuite.workflows.common import (
 PEAK_TOKENS = frozenset({"pns_peaks", "wps_peaks"})
 SEQUENCE_TOKENS = frozenset({"dinuc_profile", "ww_types", "type_dyads"})
 PNS_TOKENS = frozenset({"pns", "posPNS", "pns_smoothed", "pns_peaks"})
+BNS_TOKENS = frozenset({"bns", "posBNS", "bns_smoothed"})
+TNS_TOKENS = frozenset({"tns", "posTNS", "tns_smoothed"})
+SCORING_TOKENS = PNS_TOKENS | BNS_TOKENS | TNS_TOKENS
 WPS_TOKENS = frozenset({"wps", "wps_smoothed", "mWPS", "sm_mWPS", "wps_peaks"})
 BASIC_TOKENS = frozenset(basic_tracks.BASIC_TRACKS)
-OUTPUT_TOKENS = BASIC_TOKENS | (PNS_TOKENS - PEAK_TOKENS) | (WPS_TOKENS - PEAK_TOKENS)
+OUTPUT_TOKENS = BASIC_TOKENS | (SCORING_TOKENS - PEAK_TOKENS) | (WPS_TOKENS - PEAK_TOKENS)
 VALID_TOKENS = OUTPUT_TOKENS | PEAK_TOKENS | SEQUENCE_TOKENS
 ALIASES = {
     "pospns": "posPNS",
     "positive-pns": "posPNS",
+    "posbns": "posBNS",
+    "positive-bns": "posBNS",
+    "postns": "posTNS",
+    "positive-tns": "posTNS",
     "pns-smoothed": "pns_smoothed",
     "pns-peaks": "pns_peaks",
     "wps-smoothed": "wps_smoothed",
@@ -254,11 +261,12 @@ def load_specs(args) -> list[OutputSpec]:
 
 
 def _range_states(specs: list[OutputSpec], args) -> dict[FragmentRange, RangeState]:
+    scoring_method = getattr(args, "scoring_method", "pns")
     states: dict[FragmentRange, RangeState] = {}
     for spec in specs:
         state = states.setdefault(spec.fragment_range, RangeState(spec.fragment_range))
         state.need_basic_range |= bool(set(spec.tracks) & BASIC_TOKENS) and spec.basic_scope == "range"
-        state.need_pns |= bool(set(spec.tracks) & PNS_TOKENS)
+        state.need_pns |= bool(set(spec.tracks) & SCORING_TOKENS)
         state.need_wps |= bool(set(spec.tracks) & WPS_TOKENS)
         state.need_dinuc |= "dinuc_profile" in spec.tracks or "ww_types" in spec.tracks
         state.need_ww_types |= "ww_types" in spec.tracks or "type_dyads" in spec.tracks
@@ -267,7 +275,7 @@ def _range_states(specs: list[OutputSpec], args) -> dict[FragmentRange, RangeSta
         lengths = range(state.fragment_range.lower, state.fragment_range.upper + 1)
         if state.need_pns:
             state.pns_distributions = pns_scoring.precompute_distributions(
-                lengths, args.pns_mode_length
+                lengths, args.pns_mode_length, scoring_method=scoring_method
             )
         if state.need_dinuc:
             groups = ALL_OUTPUT_GROUPS if state.need_ww_types else ("all",)
@@ -475,6 +483,19 @@ def _sequence_features_for_fragment(
 def run(args) -> int:
     set_random_seed(args.seed)
     specs = load_specs(args)
+    scoring_method = getattr(args, "scoring_method", "pns")
+    method_tokens = {
+        "pns": {"pns", "posPNS", "pns_smoothed"},
+        "bns": {"bns", "posBNS", "bns_smoothed"},
+        "tns": {"tns", "posTNS", "tns_smoothed"},
+    }
+    requested_scoring = set().union(*(set(spec.tracks) & (SCORING_TOKENS - {"pns_peaks"}) for spec in specs))
+    invalid_scoring = requested_scoring - method_tokens[scoring_method]
+    if invalid_scoring:
+        raise ValueError(
+            "Requested score tracks do not match --scoring-method "
+            f"{scoring_method}: {', '.join(sorted(invalid_scoring))}"
+        )
     if any(set(spec.tracks) & SEQUENCE_TOKENS for spec in specs) and not args.fasta:
         raise ValueError("dinuc_profile, ww_types and type_dyads require --fasta")
     if any("wps_peaks" in spec.tracks for spec in specs) and args.wps_peak_track == "sm_mWPS":
@@ -585,7 +606,9 @@ def run(args) -> int:
                     # is not selected as an output track.
                     basic_by_range[key] = basic_tracks.new_arrays(reference_length)
                 if state.need_pns:
-                    pns_by_range[key] = pns_scoring.new_arrays(reference_length)
+                    pns_by_range[key] = pns_scoring.new_arrays(
+                        reference_length, scoring_method=scoring_method
+                    )
                 if state.need_wps:
                     wps_by_range[key] = wps_scoring.new_array(reference_length)
                 if state.need_type_dyads:
@@ -645,6 +668,7 @@ def run(args) -> int:
                             args.pns_mode_length,
                             centred,
                             positive,
+                            scoring_method=scoring_method,
                         )
                     if state.need_wps:
                         wps_scoring.add_fragment(
@@ -697,6 +721,7 @@ def run(args) -> int:
                             region.adjusted_start,
                             args.pns_smooth_window,
                             args.pns_smooth_order,
+                            scoring_method=scoring_method,
                         )
                     )
                 if state.need_wps:

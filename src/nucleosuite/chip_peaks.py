@@ -43,7 +43,7 @@ class PeakCluster:
     max_peak_score: float
     qvalue: float = 1.0
     seed_peak_count: int = 0
-    bridged_non_gated_peak_count: int = 0
+    bridged_non_member_peak_count: int = 0
     minimum_seed_pvalue: float = math.nan
 
 
@@ -474,105 +474,100 @@ def cluster_seeded_gate_peaks(
     statistics: Sequence[ReplicatePeakStatistics],
     *,
     seed_pvalue: float = 0.05,
-    maximum_non_gated_gap: int = 1,
+    gate_mode: str = "mean",
+    member_mode: str = "seed-and-gated",
+    maximum_non_member_gap: int = 1,
     max_cluster_gap: int = 1000,
-    minimum_gate_peaks: int = 2,
+    minimum_member_peaks: int = 2,
 ) -> list[PeakCluster]:
-    """Build clusters by expanding p-value seeds through gate-passing peaks.
+    """Build seeded clusters using the selected treatment-control gate.
 
-    A seed must pass the all-controls gate and the configured one-sided p-value
-    threshold. Starting from a seed, the cluster extends in both directions
-    through gate-passing peaks regardless of their p-values. Up to
-    ``maximum_non_gated_gap`` consecutive non-gated peaks may bridge two gated
-    members. A non-gated peak is never a member, endpoint, or score
-    contributor. Gate-only components without a seed are discarded.
+    ``gate_mode='mean'`` uses mean treatment > mean control and scores each
+    member by mean treatment minus mean control. ``all-controls`` uses the
+    conservative minimum-treatment > maximum-control rule. In
+    ``seed-and-gated`` mode, significant seeds and other gate-passing peaks are
+    members. In ``significant-only`` mode, only significant seeds are members.
+    Up to ``maximum_non_member_gap`` consecutive non-members may bridge two
+    included members; a longer run ends the current cluster.
     """
-
     if not math.isfinite(seed_pvalue) or not 0 <= seed_pvalue <= 1:
         raise ValueError("Seed p-value must be between 0 and 1")
-    if maximum_non_gated_gap < 0:
-        raise ValueError("Maximum non-gated gap must be non-negative")
-    if max_cluster_gap < 1 or minimum_gate_peaks < 1:
-        raise ValueError("Maximum cluster gap and minimum gate-peak count must be positive")
+    if gate_mode not in {"mean", "all-controls"}:
+        raise ValueError("gate_mode must be mean or all-controls")
+    if member_mode not in {"seed-and-gated", "significant-only"}:
+        raise ValueError("member_mode must be seed-and-gated or significant-only")
+    if maximum_non_member_gap < 0:
+        raise ValueError("Maximum non-member gap must be non-negative")
+    if max_cluster_gap < 1 or minimum_member_peaks < 1:
+        raise ValueError("Maximum cluster gap and minimum member count must be positive")
+
+    def passes_gate(record: ReplicatePeakStatistics) -> bool:
+        return record.mean_difference > 0 if gate_mode == "mean" else record.all_controls_gate
+
+    def excess(record: ReplicatePeakStatistics) -> float:
+        return record.mean_difference if gate_mode == "mean" else record.conservative_excess
+
+    def is_seed(record: ReplicatePeakStatistics) -> bool:
+        return passes_gate(record) and math.isfinite(record.pvalue) and record.pvalue < seed_pvalue
+
+    def is_member(record: ReplicatePeakStatistics) -> bool:
+        return is_seed(record) if member_mode == "significant-only" else passes_gate(record)
 
     ordered = sorted(
         statistics,
-        key=lambda record: (
-            record.peak.chrom,
-            record.peak.summit,
-            record.peak.start,
-            record.peak.end,
-        ),
+        key=lambda record: (record.peak.chrom, record.peak.summit, record.peak.start, record.peak.end),
     )
     clusters: list[PeakCluster] = []
     current: list[ReplicatePeakStatistics] = []
-    pending_non_gated = 0
-    bridged_non_gated = 0
+    pending_non_members = 0
+    bridged_non_members = 0
     current_chrom: str | None = None
 
-    def is_seed(record: ReplicatePeakStatistics) -> bool:
-        return (
-            record.all_controls_gate
-            and math.isfinite(record.pvalue)
-            and record.pvalue < seed_pvalue
-        )
-
     def finish() -> None:
-        nonlocal current, pending_non_gated, bridged_non_gated
+        nonlocal current, pending_non_members, bridged_non_members
         seeds = [record for record in current if is_seed(record)]
-        if len(current) >= minimum_gate_peaks and seeds:
-            member_peaks = tuple(record.peak for record in current)
+        if len(current) >= minimum_member_peaks and seeds:
             best = max(
                 current,
-                key=lambda record: (
-                    _signal_score(record.peak),
-                    record.conservative_excess,
-                    -record.peak.summit,
-                ),
+                key=lambda record: (_signal_score(record.peak), excess(record), -record.peak.summit),
             )
-            finite_seed_qvalues = [
-                record.qvalue for record in seeds if math.isfinite(record.qvalue)
-            ]
+            finite_seed_qvalues = [record.qvalue for record in seeds if math.isfinite(record.qvalue)]
             clusters.append(
                 PeakCluster(
                     chrom=current[0].peak.chrom,
                     start=min(record.peak.start for record in current),
                     end=max(record.peak.end for record in current),
-                    significant_peaks=member_peaks,
-                    score=float(sum(record.conservative_excess for record in current)),
+                    significant_peaks=tuple(record.peak for record in current),
+                    score=float(sum(excess(record) for record in current)),
                     summit=best.peak.summit,
                     max_peak_score=max(_signal_score(record.peak) for record in current),
-                    qvalue=(
-                        max(finite_seed_qvalues)
-                        if finite_seed_qvalues
-                        else math.nan
-                    ),
+                    qvalue=max(finite_seed_qvalues) if finite_seed_qvalues else math.nan,
                     seed_peak_count=len(seeds),
-                    bridged_non_gated_peak_count=bridged_non_gated,
+                    bridged_non_member_peak_count=bridged_non_members,
                     minimum_seed_pvalue=min(record.pvalue for record in seeds),
                 )
             )
         current = []
-        pending_non_gated = 0
-        bridged_non_gated = 0
+        pending_non_members = 0
+        bridged_non_members = 0
 
     for record in ordered:
         peak = record.peak
         if current_chrom is not None and peak.chrom != current_chrom:
             finish()
         current_chrom = peak.chrom
-        if record.all_controls_gate:
+        if is_member(record):
             if current and peak.summit - current[-1].peak.summit > max_cluster_gap:
                 finish()
             if current:
+                bridged_non_members += pending_non_members
                 current.append(record)
-                bridged_non_gated += pending_non_gated
             else:
                 current = [record]
-            pending_non_gated = 0
+            pending_non_members = 0
         elif current:
-            pending_non_gated += 1
-            if pending_non_gated > maximum_non_gated_gap:
+            pending_non_members += 1
+            if pending_non_members > maximum_non_member_gap:
                 finish()
     finish()
     return clusters
@@ -785,29 +780,33 @@ def analyze_chip_replicate_peaks(
     peak_fdr: float | None = None,
     cluster_seed_pvalue: float = 0.05,
     cluster_fdr: float | None = None,
-    cluster_max_non_gated_gap: int = 1,
+    gate_mode: str = "mean",
+    cluster_member_mode: str = "seed-and-gated",
+    cluster_max_non_member_gap: int = 1,
     max_cluster_gap: int = 1000,
-    minimum_gate_peaks: int = 2,
+    minimum_cluster_members: int = 2,
 ) -> dict[str, Path]:
-    """Test treatment-defined candidates from replicate scaled coverage.
+    """Test treatment-defined candidates from replicate normalized coverage.
 
-    No control peaks are called.  Each treatment candidate is measured in all
-    treatment and control tracks.  The all-controls gate requires the minimum
-    treatment maximum to exceed the maximum control maximum.  One-sided Welch
-    p-values are calculated for every candidate before BH correction.  The
-    default Stage 1 selection is the all-controls gate alone; p-value and FDR
-    cutoffs are optional because small replicate groups do not support a
-    useful genome-wide FDR for hundreds of thousands of nucleosome tests.
+    Candidate maxima are measured in every treatment and control replicate.
+    The default gate requires mean treatment > mean control. The optional
+    all-controls gate requires every treatment replicate to exceed every control
+    replicate. Welch p-values and BH FDR are reported independently of the gate.
     """
-
     for name, value in (
-        ("peak_pvalue", peak_pvalue),
-        ("peak_fdr", peak_fdr),
-        ("cluster_seed_pvalue", cluster_seed_pvalue),
-        ("cluster_fdr", cluster_fdr),
+        ("peak_pvalue", peak_pvalue), ("peak_fdr", peak_fdr),
+        ("cluster_seed_pvalue", cluster_seed_pvalue), ("cluster_fdr", cluster_fdr),
     ):
         if value is not None and (not math.isfinite(value) or not 0 <= value <= 1):
             raise ValueError(f"{name} must be between 0 and 1")
+    if gate_mode not in {"mean", "all-controls"}:
+        raise ValueError("gate_mode must be mean or all-controls")
+    if cluster_member_mode not in {"seed-and-gated", "significant-only"}:
+        raise ValueError("cluster_member_mode must be seed-and-gated or significant-only")
+    if cluster_max_non_member_gap < 0:
+        raise ValueError("cluster_max_non_member_gap must be non-negative")
+    if minimum_cluster_members < 1:
+        raise ValueError("minimum_cluster_members must be positive")
     if not target_replicate_bigwigs or not control_replicate_bigwigs:
         raise ValueError("Treatment and control replicate BigWigs are required")
 
@@ -815,182 +814,144 @@ def analyze_chip_replicate_peaks(
     peaks = _to_competitive(target_rows, "target", summit_column)
     paths = [*target_replicate_bigwigs, *control_replicate_bigwigs, target_mean_bigwig]
     handles = open_bigwigs(paths)
-    treatment_handles = handles[: len(target_replicate_bigwigs)]
-    control_handles = handles[
-        len(target_replicate_bigwigs) :
-        len(target_replicate_bigwigs) + len(control_replicate_bigwigs)
-    ]
+    treatment_handles = handles[:len(target_replicate_bigwigs)]
+    control_handles = handles[len(target_replicate_bigwigs):len(target_replicate_bigwigs)+len(control_replicate_bigwigs)]
     mean_handle = handles[-1]
     statistics: list[ReplicatePeakStatistics] = []
     try:
         for peak in peaks:
-            treatment_scores = tuple(
-                max(interval_max(handle, peak.chrom, peak.start, peak.end), 0.0)
-                for handle in treatment_handles
-            )
-            control_scores = tuple(
-                max(interval_max(handle, peak.chrom, peak.start, peak.end), 0.0)
-                for handle in control_handles
-            )
+            treatment_scores = tuple(max(interval_max(h, peak.chrom, peak.start, peak.end), 0.0) for h in treatment_handles)
+            control_scores = tuple(max(interval_max(h, peak.chrom, peak.start, peak.end), 0.0) for h in control_handles)
             treatment_mean = float(np.mean(treatment_scores))
             control_mean = float(np.mean(control_scores))
+            mean_difference = treatment_mean - control_mean
             minimum_treatment = min(treatment_scores)
             maximum_control = max(control_scores)
-            excess = max(minimum_treatment - maximum_control, 0.0)
+            conservative_difference = minimum_treatment - maximum_control
+            conservative_excess = max(conservative_difference, 0.0)
             fold_enrichment = (minimum_treatment + 1.0) / (maximum_control + 1.0)
-            gate = minimum_treatment > maximum_control
-            mean_score = max(
-                interval_max(mean_handle, peak.chrom, peak.start, peak.end), 0.0
-            )
+            all_controls_gate = minimum_treatment > maximum_control
+            selected_gate = mean_difference > 0 if gate_mode == "mean" else all_controls_gate
+            selected_excess = mean_difference if gate_mode == "mean" else conservative_difference
+            mean_score = max(interval_max(mean_handle, peak.chrom, peak.start, peak.end), 0.0)
             measured_peak = replace(
                 peak,
-                winner=gate,
-                matched_score=maximum_control,
+                winner=selected_gate,
+                matched_score=control_mean if gate_mode == "mean" else maximum_control,
                 signal_score=mean_score,
-                competition_score=excess,
+                competition_score=max(selected_excess, 0.0),
                 treatment_replicate_scores=treatment_scores,
                 control_replicate_scores=control_scores,
             )
-            statistics.append(
-                ReplicatePeakStatistics(
-                    peak=measured_peak,
-                    treatment_scores=treatment_scores,
-                    control_scores=control_scores,
-                    treatment_mean=treatment_mean,
-                    control_mean=control_mean,
-                    mean_difference=treatment_mean - control_mean,
-                    minimum_treatment=minimum_treatment,
-                    maximum_control=maximum_control,
-                    conservative_excess=excess,
-                    conservative_fold_enrichment=fold_enrichment,
-                    conservative_log2_enrichment=math.log2(fold_enrichment),
-                    all_controls_gate=gate,
-                    pvalue=_one_sided_welch_greater(treatment_scores, control_scores),
-                )
-            )
+            statistics.append(ReplicatePeakStatistics(
+                peak=measured_peak,
+                treatment_scores=treatment_scores,
+                control_scores=control_scores,
+                treatment_mean=treatment_mean,
+                control_mean=control_mean,
+                mean_difference=mean_difference,
+                minimum_treatment=minimum_treatment,
+                maximum_control=maximum_control,
+                conservative_excess=conservative_excess,
+                conservative_fold_enrichment=fold_enrichment,
+                conservative_log2_enrichment=math.log2(fold_enrichment),
+                all_controls_gate=all_controls_gate,
+                pvalue=_one_sided_welch_greater(treatment_scores, control_scores),
+            ))
     finally:
         for handle in handles:
             handle.close()
 
     qvalues = _bh_qvalues([record.pvalue for record in statistics])
-    statistics = [
-        replace(record, qvalue=qvalue, peak=replace(record.peak, qvalue=qvalue))
-        for record, qvalue in zip(statistics, qvalues)
-    ]
+    statistics = [replace(record, qvalue=q, peak=replace(record.peak, qvalue=q)) for record, q in zip(statistics, qvalues)]
+
+    def selected_gate(record: ReplicatePeakStatistics) -> bool:
+        return record.mean_difference > 0 if gate_mode == "mean" else record.all_controls_gate
+
+    def selected_excess(record: ReplicatePeakStatistics) -> float:
+        return record.mean_difference if gate_mode == "mean" else record.conservative_excess
 
     directory = Path(output_dir)
     directory.mkdir(parents=True, exist_ok=True)
     annotated = directory / "target_peaks_replicate_fdr.bed"
-    selection_tokens = ["all_controls_gated"]
-    if peak_pvalue is not None:
-        selection_tokens.append(f"p{peak_pvalue:g}")
-    if peak_fdr is not None:
-        selection_tokens.append(f"fdr{peak_fdr:g}")
+    selection_tokens = [f"gate_{gate_mode}"]
+    if peak_pvalue is not None: selection_tokens.append(f"p{peak_pvalue:g}")
+    if peak_fdr is not None: selection_tokens.append(f"fdr{peak_fdr:g}")
     significant = directory / f"target_peaks_{'_'.join(selection_tokens)}.bed"
     statistics_table = directory / "target_peak_replicate_statistics.tsv"
-    with annotated.open("wt", encoding="utf-8") as all_handle, significant.open(
-        "wt", encoding="utf-8"
-    ) as significant_handle:
+    with annotated.open("wt", encoding="utf-8") as all_handle, significant.open("wt", encoding="utf-8") as sig_handle:
         for record in statistics:
             fields = list(record.peak.row.fields)
             fields[score_column - 1] = f"{_signal_score(record.peak):.12g}"
             text = "\t".join((*fields, _format_optional(record.qvalue))) + "\n"
             all_handle.write(text)
-            passes_pvalue = peak_pvalue is None or (
-                math.isfinite(record.pvalue) and record.pvalue <= peak_pvalue
-            )
-            passes_fdr = peak_fdr is None or (
-                math.isfinite(record.qvalue) and record.qvalue <= peak_fdr
-            )
-            if record.all_controls_gate and passes_pvalue and passes_fdr:
-                significant_handle.write(text)
+            passes_p = peak_pvalue is None or (math.isfinite(record.pvalue) and record.pvalue <= peak_pvalue)
+            passes_q = peak_fdr is None or (math.isfinite(record.qvalue) and record.qvalue <= peak_fdr)
+            if selected_gate(record) and passes_p and passes_q:
+                sig_handle.write(text)
 
     with statistics_table.open("wt", encoding="utf-8") as handle:
         handle.write(
-            "chromosome\tstart\tend\tsummit\tdiscovery_score\t"
-            "condition_mean_scaled_coverage_max\ttreatment_replicate_maxima\t"
-            "control_replicate_maxima\ttreatment_mean\tcontrol_mean\t"
-            "treatment_minus_control\tminimum_treatment\tmaximum_control\t"
-            "conservative_excess\tconservative_fold_enrichment_pseudocount1\t"
-            "conservative_log2_enrichment_pseudocount1\t"
-            "all_treatments_exceed_all_controls\tselected_for_stage2\t"
-            "p_value\tfdr\n"
+            "chromosome	start	end	summit	discovery_score	condition_mean_scaled_coverage_max	"
+            "treatment_replicate_maxima	control_replicate_maxima	treatment_mean	control_mean	"
+            "treatment_minus_control	minimum_treatment	maximum_control	conservative_excess	"
+            "conservative_fold_enrichment_pseudocount1	conservative_log2_enrichment_pseudocount1	"
+            "mean_treatment_exceeds_mean_control	all_treatments_exceed_all_controls	gate_mode	"
+            "selected_gate\tselected_excess\tselected_for_stage2\tp_value\tfdr\n"
         )
         for record in statistics:
+            passes_p = peak_pvalue is None or (math.isfinite(record.pvalue) and record.pvalue <= peak_pvalue)
+            passes_q = peak_fdr is None or (math.isfinite(record.qvalue) and record.qvalue <= peak_fdr)
+            selected = selected_gate(record) and passes_p and passes_q
             peak = record.peak
-            selected = record.all_controls_gate
-            if peak_pvalue is not None:
-                selected = selected and math.isfinite(record.pvalue) and record.pvalue <= peak_pvalue
-            if peak_fdr is not None:
-                selected = selected and math.isfinite(record.qvalue) and record.qvalue <= peak_fdr
             handle.write(
-                f"{peak.chrom}\t{peak.start}\t{peak.end}\t{peak.summit}\t"
-                f"{peak.row.score:.12g}\t{_signal_score(peak):.12g}\t"
-                + ";".join(f"{value:.12g}" for value in record.treatment_scores)
-                + "\t"
-                + ";".join(f"{value:.12g}" for value in record.control_scores)
-                + f"\t{record.treatment_mean:.12g}\t{record.control_mean:.12g}\t"
-                f"{record.mean_difference:.12g}\t{record.minimum_treatment:.12g}\t"
-                f"{record.maximum_control:.12g}\t{record.conservative_excess:.12g}\t"
-                f"{record.conservative_fold_enrichment:.12g}\t"
-                f"{record.conservative_log2_enrichment:.12g}\t"
-                f"{str(record.all_controls_gate).lower()}\t{str(selected).lower()}\t"
+                f"{peak.chrom}	{peak.start}	{peak.end}	{peak.summit}	{peak.row.score:.12g}	{_signal_score(peak):.12g}	"
+                + ";".join(f"{v:.12g}" for v in record.treatment_scores) + "	"
+                + ";".join(f"{v:.12g}" for v in record.control_scores)
+                + f"	{record.treatment_mean:.12g}	{record.control_mean:.12g}	{record.mean_difference:.12g}	"
+                f"{record.minimum_treatment:.12g}	{record.maximum_control:.12g}	{record.conservative_excess:.12g}	"
+                f"{record.conservative_fold_enrichment:.12g}	{record.conservative_log2_enrichment:.12g}	"
+                f"{str(record.mean_difference > 0).lower()}	{str(record.all_controls_gate).lower()}	{gate_mode}	"
+                f"{str(selected_gate(record)).lower()}	{selected_excess(record):.12g}	{str(selected).lower()}	"
                 f"{_format_optional(record.pvalue)}\t{_format_optional(record.qvalue)}\n"
             )
 
     clusters = cluster_seeded_gate_peaks(
         statistics,
         seed_pvalue=cluster_seed_pvalue,
-        maximum_non_gated_gap=cluster_max_non_gated_gap,
+        gate_mode=gate_mode,
+        member_mode=cluster_member_mode,
+        maximum_non_member_gap=cluster_max_non_member_gap,
         max_cluster_gap=max_cluster_gap,
-        minimum_gate_peaks=minimum_gate_peaks,
+        minimum_member_peaks=minimum_cluster_members,
     )
     cluster_table = directory / "target_clusters_seeded.tsv"
-    cluster_tokens = [
-        "all_controls_gated",
-        f"seed_p{cluster_seed_pvalue:g}",
-        f"gap{cluster_max_non_gated_gap}",
-        f"min{minimum_gate_peaks}",
-    ]
-    if cluster_fdr is not None:
-        cluster_tokens.append(f"maximum_seed_fdr{cluster_fdr:g}")
+    cluster_tokens = [f"gate_{gate_mode}", cluster_member_mode, f"seed_p{cluster_seed_pvalue:g}", f"gap{cluster_max_non_member_gap}", f"min{minimum_cluster_members}"]
+    if cluster_fdr is not None: cluster_tokens.append(f"maximum_seed_fdr{cluster_fdr:g}")
     significant_clusters = directory / f"target_clusters_{'_'.join(cluster_tokens)}.bed"
-    with cluster_table.open("wt", encoding="utf-8") as table, significant_clusters.open(
-        "wt", encoding="utf-8"
-    ) as bed:
+    with cluster_table.open("wt", encoding="utf-8") as table, significant_clusters.open("wt", encoding="utf-8") as bed:
         table.write(
-            "cluster_id\tchromosome\tstart\tend\tseed_peak_count\tgate_member_count\t"
-            "bridged_non_gated_peak_count\tcluster_score\tmax_peak_score\t"
-            "strongest_peak_summit\tminimum_seed_p_value\tmaximum_seed_fdr\n"
+            "cluster_id	chromosome	start	end	seed_peak_count	member_count	bridged_non_member_peak_count	"
+            "cluster_score\tmax_peak_score\tstrongest_peak_summit\tminimum_seed_p_value\tmaximum_seed_fdr\n"
         )
         for index, cluster in enumerate(clusters, 1):
             cluster_id = f"chip_cluster_{index}"
             table.write(
-                f"{cluster_id}\t{cluster.chrom}\t{cluster.start}\t{cluster.end}\t"
-                f"{cluster.seed_peak_count}\t{len(cluster.significant_peaks)}\t"
-                f"{cluster.bridged_non_gated_peak_count}\t{cluster.score:.12g}\t"
+                f"{cluster_id}	{cluster.chrom}	{cluster.start}	{cluster.end}	{cluster.seed_peak_count}	"
+                f"{len(cluster.significant_peaks)}	{cluster.bridged_non_member_peak_count}	{cluster.score:.12g}	"
                 f"{cluster.max_peak_score:.12g}\t{cluster.summit}\t"
-                f"{_format_optional(cluster.minimum_seed_pvalue)}\t"
-                f"{_format_optional(cluster.qvalue)}\n"
+                f"{_format_optional(cluster.minimum_seed_pvalue)}\t{_format_optional(cluster.qvalue)}\n"
             )
-            passes_cluster_fdr = cluster_fdr is None or (
-                math.isfinite(cluster.qvalue) and cluster.qvalue <= cluster_fdr
-            )
+            passes_cluster_fdr = cluster_fdr is None or (math.isfinite(cluster.qvalue) and cluster.qvalue <= cluster_fdr)
             if passes_cluster_fdr:
                 bed.write(
-                    f"{cluster.chrom}\t{cluster.start}\t{cluster.end}\t"
-                    f"{cluster_id}\t{cluster.score:.6f}\t.\t"
+                    f"{cluster.chrom}	{cluster.start}	{cluster.end}	{cluster_id}	{cluster.score:.6f}	.	"
                     f"{cluster.summit}\t{cluster.summit + 1}\t"
-                    f"{_format_optional(cluster.qvalue)}\t"
-                    f"{cluster.max_peak_score:.12g}\n"
+                    f"{_format_optional(cluster.qvalue)}\t{cluster.max_peak_score:.12g}\n"
                 )
-
     return {
-        "annotated_peaks": annotated,
-        "selected_peaks": significant,
-        "significant_peaks": significant,
-        "competition_table": statistics_table,
-        "cluster_table": cluster_table,
-        "selected_clusters": significant_clusters,
-        "significant_clusters": significant_clusters,
+        "annotated_peaks": annotated, "selected_peaks": significant, "significant_peaks": significant,
+        "competition_table": statistics_table, "cluster_table": cluster_table,
+        "selected_clusters": significant_clusters, "significant_clusters": significant_clusters,
     }
+

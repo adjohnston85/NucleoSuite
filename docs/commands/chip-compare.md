@@ -2,7 +2,7 @@
 
 ## What this command does
 
-`chip-compare` performs cluster-only Stage 2 analysis from two completed `chip-suite` Stage 1 manifests. It compares target-specific cluster enrichment between biological conditions, summarizes observed cluster overlap and occupied bases, and creates coordinate-matched cluster-centred PNS aggregates. It reads saved BigWigs and does not revisit BAM files.
+`chip-compare` performs cluster-only Stage 2 analysis from two completed `chip-suite` Stage 1 manifests. It compares target-specific cluster enrichment between biological conditions, summarizes observed cluster overlap and occupied bases, and creates coordinate-matched cluster-centred method-specific score aggregates. It reads saved BigWigs and does not revisit BAM files.
 
 ## Why use it
 
@@ -113,11 +113,11 @@ U_k=\max(Y_{T_k})-\min(Y_{C_k}).
 
 These are descriptive summaries of the observed callsets. This build does not perform a genomic randomization test of whether overlap exceeds chance.
 
-### 7. Create matched cluster-centred PNS aggregates
+### 7. Create matched cluster-centred method-specific score aggregates
 
 For each shared or condition-specific locus, the common anchor is the strongest coverage-scored member peak among all contributing Stage 1 clusters. Both conditions are aligned to the same ordered anchors, so heatmap rows refer to identical loci.
 
-Each treatment replicate's PNS was independently divided by the finite, non-zero mean of its matching `posPNS` before averaging. Scaling before averaging prevents a deeper replicate from determining the condition-mean PNS. PNS is used for this positioning view; scaled coverage remains the statistical measurement.
+Each treatment replicate's selected score was independently divided by the finite, non-zero mean of its matching positive-score track before averaging. PNS uses `posPNS`, BNS uses `posBNS`, and TNS uses `posTNS`. Scaling before averaging prevents a deeper replicate from determining the condition mean. The selected Stage 1 scoring method is reused for this positioning view; scaled coverage remains the statistical measurement.
 
 The matched outputs include condition-specific heatmaps with one common symmetric colour range, replicate and replicate-combined mean profiles, cluster-bootstrap 95% bands, and directional NRLs. Defaults are ±1,000 bp around the anchor, 140 bp peak resolution, central peak order 0 included, and regression through peak orders 0–3 with no central exclusion. Each Stage 1 directory also contains an own-cluster aggregate; the Stage 2 matched aggregate is intended for direct visual comparison between conditions.
 

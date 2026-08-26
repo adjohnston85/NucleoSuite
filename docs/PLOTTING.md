@@ -244,4 +244,3 @@ Those options are explained on the relevant command page and work alongside the 
 ## Plot metadata sidecars
 
 Every generated plot is accompanied by a `*_metadata.tsv` sidecar. The sidecar records the NucleoSuite version, plot path, complete command invocation, and the full parsed parameter set. Automatic filenames are intentionally limited to at most three central analysis-parameter tokens; use the metadata sidecar for the complete provenance of a figure.
-

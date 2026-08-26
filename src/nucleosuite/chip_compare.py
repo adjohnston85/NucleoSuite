@@ -1043,22 +1043,40 @@ def _compare_regions(
     }
 
 
-def _manifest_pns_tracks(
+def _manifest_score_tracks(
     manifest: dict[str, object],
-) -> tuple[Path, list[Path]] | None:
-    mean_value = manifest.get("condition_mean_treatment_pns_divided_by_mean_posPNS")
+) -> tuple[Path, list[Path], str, str] | None:
+    """Return method-matched normalized treatment score tracks for aggregates.
+
+    NucleoSuite 0.10.11 stores generic score paths. A narrow PNS-only fallback
+    is retained so Stage 2 can still read 0.10.10 Stage 1 manifests.
+    """
+
+    method = str(manifest.get("scoring_method") or "pns").lower()
+    positive_track = str(manifest.get("positive_track") or ({
+        "pns": "posPNS", "bns": "posBNS", "tns": "posTNS"
+    }.get(method, "posPNS")))
+    mean_value = manifest.get("condition_mean_treatment_cluster_aggregate_score")
     records = manifest.get("treatment_replicates")
+    replicate_field = "scaled_score"
+
+    if not isinstance(mean_value, str) or not mean_value:
+        if method != "pns":
+            return None
+        mean_value = manifest.get("condition_mean_treatment_pns_divided_by_mean_posPNS")
+        replicate_field = "scaled_pns"
+
     if not isinstance(mean_value, str) or not mean_value or not isinstance(records, list):
         return None
     mean_path = Path(mean_value).resolve()
     replicate_paths: list[Path] = []
     for record in records:
-        if not isinstance(record, dict) or not record.get("scaled_pns"):
+        if not isinstance(record, dict) or not record.get(replicate_field):
             return None
-        replicate_paths.append(Path(str(record["scaled_pns"])).resolve())
+        replicate_paths.append(Path(str(record[replicate_field])).resolve())
     if not mean_path.is_file() or any(not path.is_file() for path in replicate_paths):
         return None
-    return mean_path, replicate_paths
+    return mean_path, replicate_paths, method, positive_track
 
 
 def _run_shared_cluster_aggregates(
@@ -1067,14 +1085,14 @@ def _run_shared_cluster_aggregates(
     regions: Sequence[Region],
     output_dir: Path,
 ) -> dict[str, object]:
-    first_tracks = _manifest_pns_tracks(first)
-    second_tracks = _manifest_pns_tracks(second)
+    first_tracks = _manifest_score_tracks(first)
+    second_tracks = _manifest_score_tracks(second)
     if first_tracks is None or second_tracks is None:
         return {
             "status": "unavailable",
             "reason": (
-                "Stage 1 manifest lacks replicate PNS tracks independently divided "
-                "by mean posPNS; rerun Stage 1 with NucleoSuite 0.10.10 or later."
+                "Stage 1 manifest lacks method-matched normalized replicate score tracks; "
+                "rerun Stage 1 with NucleoSuite 0.10.11 or later."
             ),
         }
     aggregate_dir = output_dir / "cluster_aligned_aggregates"
@@ -1098,18 +1116,22 @@ def _run_shared_cluster_aggregates(
     first_name = str(first.get("condition_name") or "condition1")
     second_name = str(second.get("condition_name") or "condition2")
     first_outputs = run_cluster_aggregate(
-        mean_scaled_pns=first_tracks[0],
-        replicate_scaled_pns=first_tracks[1],
+        mean_scaled_score=first_tracks[0],
+        replicate_scaled_scores=first_tracks[1],
         output_dir=aggregate_dir / "condition1",
         label=first_name,
+        scoring_method=first_tracks[2],
+        positive_track=first_tracks[3],
         seed=12345,
         **common,
     )
     second_outputs = run_cluster_aggregate(
-        mean_scaled_pns=second_tracks[0],
-        replicate_scaled_pns=second_tracks[1],
+        mean_scaled_score=second_tracks[0],
+        replicate_scaled_scores=second_tracks[1],
         output_dir=aggregate_dir / "condition2",
         label=second_name,
+        scoring_method=second_tracks[2],
+        positive_track=second_tracks[3],
         seed=12345,
         **common,
     )

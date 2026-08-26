@@ -181,14 +181,12 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--treatment1-bam", "--target-bam",
-        dest="treatment1_bam", nargs="+", required=True,
-        help="Condition 1 treatment BAM file(s); --target-bam is a compatibility alias.",
+        "--treatment1-bam", dest="treatment1_bam", nargs="+", required=True,
+        help="Condition 1 treatment BAM file(s).",
     )
     parser.add_argument(
-        "--control1-bam", "--control-bam",
-        dest="control1_bam", nargs="+", required=True,
-        help="Condition 1 control BAM file(s); --control-bam is a compatibility alias.",
+        "--control1-bam", dest="control1_bam", nargs="+", required=True,
+        help="Condition 1 control BAM file(s).",
     )
     parser.add_argument(
         "--treatment2-bam", nargs="+",
@@ -230,11 +228,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Default scoring range extends this many bp below and above the resolved mode (default: 30).",
     )
     parser.add_argument(
-        "--score-frag-lower", "--frag-lower", dest="score_frag_lower", type=int,
+        "--score-frag-lower", dest="score_frag_lower", type=int,
         help="Explicit scoring-fragment lower bound; supply with --score-frag-upper to override mode +/- flank.",
     )
     parser.add_argument(
-        "--score-frag-upper", "--frag-upper", dest="score_frag_upper", type=int,
+        "--score-frag-upper", dest="score_frag_upper", type=int,
         help="Explicit scoring-fragment upper bound; supply with --score-frag-lower to override mode +/- flank.",
     )
     parser.add_argument(
@@ -278,7 +276,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--stage1-p-value", type=float,
         help=(
             "Optional exploratory one-sided Stage 1 p-value cutoff. By default, "
-            "the all-controls gate alone selects peaks."
+            "the selected treatment-control gate alone selects peaks."
         ),
     )
     parser.add_argument(
@@ -298,31 +296,34 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--cluster-seed-p-value", type=float, default=0.05,
         help=(
-            "One-sided p-value required, together with the all-controls gate, "
+            "One-sided p-value required, together with the selected treatment-control gate, "
             "for a treatment peak to seed a cluster (default: 0.05)."
         ),
     )
-    parser.add_argument(
-        "--cluster-member-p-value", dest="cluster_seed_p_value", type=float,
-        default=argparse.SUPPRESS, help=argparse.SUPPRESS,
-    )
     parser.add_argument("--differential-fdr", type=float, default=0.05, help="Stage 2 differential FDR cutoff (default: 0.05).")
     parser.add_argument(
-        "--cluster-max-non-gated-gap", type=int, default=1,
-        help="Consecutive non-gated peaks that may bridge gated cluster members (default: 1).",
+        "--stage1-gate-mode", choices=("mean", "all-controls"), default="mean",
+        help=(
+            "Treatment-control gate: mean compares group means; all-controls "
+            "requires every treatment replicate to exceed every control replicate (default: mean)."
+        ),
     )
     parser.add_argument(
-        "--cluster-break", dest="cluster_max_non_gated_gap", type=int,
-        default=argparse.SUPPRESS, help=argparse.SUPPRESS,
+        "--cluster-member-mode", choices=("seed-and-gated", "significant-only"),
+        default="seed-and-gated",
+        help=(
+            "Cluster S+G gate-passing members or only statistically significant S peaks "
+            "(default: seed-and-gated)."
+        ),
+    )
+    parser.add_argument(
+        "--cluster-max-non-member-gap", type=int, default=1,
+        help="Consecutive non-member candidates that may bridge included members (default: 1).",
     )
     parser.add_argument("--max-cluster-gap", type=int, default=1000, help="Maximum distance between adjacent gated-member summits (default: 1000 bp).")
     parser.add_argument(
-        "--min-cluster-gated-peaks", type=int, default=2,
-        help="Minimum total gate-passing members per seeded cluster (default: 2).",
-    )
-    parser.add_argument(
-        "--min-significant-peaks", dest="min_cluster_gated_peaks", type=int,
-        default=argparse.SUPPRESS, help=argparse.SUPPRESS,
+        "--min-cluster-members", type=int, default=2,
+        help="Minimum included members per seeded cluster (default: 2).",
     )
     parser.add_argument(
         "--cluster-aggregate-window-half", type=int, default=1000,
@@ -350,7 +351,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--skip-cluster-aggregate", action="store_true",
-        help="Skip cluster-aligned PNS profiles, heatmaps and directional NRLs.",
+        help="Skip cluster-aligned score profiles, heatmaps and directional NRLs.",
     )
     parser.add_argument("--dry-run", action="store_true", help="Validate and report planned stages without processing BAMs.")
     return parser
@@ -399,10 +400,10 @@ def _validate(args: argparse.Namespace) -> None:
             raise ValueError("Automatic mode-stability limits must be non-negative")
     if args.cores < 1 or args.max_duplicates < 0:
         raise ValueError("--cores must be positive and --max-duplicates non-negative")
-    if args.cluster_max_non_gated_gap < 0:
-        raise ValueError("--cluster-max-non-gated-gap must be non-negative")
-    if min(args.max_cluster_gap, args.min_cluster_gated_peaks) < 1:
-        raise ValueError("Cluster gap and minimum gated-peak count must be positive")
+    if args.cluster_max_non_member_gap < 0:
+        raise ValueError("--cluster-max-non-member-gap must be non-negative")
+    if min(args.max_cluster_gap, args.min_cluster_members) < 1:
+        raise ValueError("Cluster gap and minimum member count must be positive")
     if args.cluster_aggregate_window_half < 1:
         raise ValueError("--cluster-aggregate-window-half must be positive")
     if args.cluster_aggregate_max_heatmap_rows < 1:
@@ -565,22 +566,30 @@ def _generate_and_scale(
 ) -> dict[str, object]:
     score_lower, score_upper = _scoring_fragment_range(args, mode)
     reporter.stage(
-        f"Generating {label} score tracks from {score_lower}-{score_upper} bp fragments"
+        f"Generating {label} {score_track}/{positive_track} from {score_lower}-{score_upper} bp "
+        f"and coverage from {args.coverage_frag_lower}-{args.coverage_frag_upper} bp in one tracks pass"
     )
-    base = tracks_dir / f"{args.sample_name}_{label}_{args.scoring_method}_discovery"
+    score_base = (tracks_dir / f"{args.sample_name}_{label}_{args.scoring_method}_discovery").resolve()
+    coverage_base = (tracks_dir / f"{args.sample_name}_{label}_coverage_all_fragments").resolve()
+    spec_path = setup_dir / f"{args.sample_name}_{label}_tracks_spec.tsv"
+    with spec_path.open("wt", encoding="utf-8") as handle:
+        handle.write("fragment_range\toutput_prefix\ttracks\tbasic_scope\n")
+        handle.write(
+            f"{score_lower}-{score_upper}\t{score_base}\t"
+            f"{score_track},{positive_track}\trange\n"
+        )
+        handle.write(
+            f"{args.coverage_frag_lower}-{args.coverage_frag_upper}\t"
+            f"{coverage_base}\tcoverage\trange\n"
+        )
     command = [
-        "pns", "--bam", *bam_paths,
+        "tracks", "--bam", *bam_paths,
+        "--spec-file", str(spec_path),
+        "--output-dir", str(tracks_dir.resolve()),
         "--scoring-method", args.scoring_method,
-        "--mode-length", str(mode),
-        "--frag-lower", str(score_lower),
-        "--frag-upper", str(score_upper),
-        "--score-tracks", score_track, positive_track,
-        "--other-tracks", "none",
-        "--pns-format", "bigwig",
-        "--other-format", "none",
+        "--pns-mode-length", str(mode),
+        "--output-format", "bigwig",
         "--interval-format", "bed",
-        "--no-peak-calling",
-        "--out-prefix", str(base),
         "--contigs", *args.contigs,
         "--max-duplicates", str(args.max_duplicates),
         "--dedup-scope", args.dedup_scope,
@@ -590,61 +599,24 @@ def _generate_and_scale(
     if args.blacklist_bed:
         command.extend(["--blacklist-bed", args.blacklist_bed])
     _run_nucleosuite(command)
-
-    direct_prefix = _resolved_prefix(
-        base, args.scoring_method, mode, score_lower, score_upper
-    )
-    prefix = _locate_completed_prefix(
-        base,
-        direct_prefix,
-        (f"_{score_track}.bw", f"_{positive_track}.bw"),
-    )
-    score_path = Path(f"{prefix}_{score_track}.bw").resolve()
-    positive_path = Path(f"{prefix}_{positive_track}.bw").resolve()
-    coverage_base = tracks_dir / f"{args.sample_name}_{label}_coverage_all_fragments"
-    reporter.stage(
-        f"Generating {label} raw coverage from {args.coverage_frag_lower}-"
-        f"{args.coverage_frag_upper} bp fragments"
-    )
-    coverage_command = [
-        "coverage", "--bam", *bam_paths,
-        "--frag-lower", str(args.coverage_frag_lower),
-        "--frag-upper", str(args.coverage_frag_upper),
-        "--output-format", "bigwig",
-        "--out-prefix", str(coverage_base),
-        "--contigs", *args.contigs,
-        "--max-duplicates", str(args.max_duplicates),
-        "--dedup-scope", args.dedup_scope,
-        "--cores", str(args.cores),
-        "--seed", str(seed + 1),
-    ]
-    if args.blacklist_bed:
-        coverage_command.extend(["--blacklist-bed", args.blacklist_bed])
-    _run_nucleosuite(coverage_command)
-    direct_coverage_prefix = _resolved_coverage_prefix(
-        coverage_base, args.coverage_frag_lower, args.coverage_frag_upper
+    score_prefix = _locate_completed_prefix(
+        score_base, score_base, (f"_{score_track}.bw", f"_{positive_track}.bw")
     )
     coverage_prefix = _locate_completed_prefix(
-        coverage_base, direct_coverage_prefix, ("_coverage.bw",)
+        coverage_base, coverage_base, ("_coverage.bw",)
     )
+    score_path = Path(f"{score_prefix}_{score_track}.bw").resolve()
+    positive_path = Path(f"{score_prefix}_{positive_track}.bw").resolve()
     coverage_path = Path(f"{coverage_prefix}_coverage.bw").resolve()
-    scaled_path = (
-        scaled_dir / f"{args.sample_name}_{label}_{score_track}_divided_by_mean_{positive_track}.bw"
-    ).resolve()
+    scaled_path = (scaled_dir / f"{args.sample_name}_{label}_{score_track}_divided_by_mean_{positive_track}.bw").resolve()
     reporter.stage(f"Scaling {label} {score_track} by mean {positive_track}")
     _scaled, reference_mean, reference_count = scale_bigwig_by_reference(
         score_path, positive_path, scaled_path, scale=1.0, reporter=reporter
     )
-    scaled_coverage_path = (
-        scaled_dir / f"{args.sample_name}_{label}_coverage_divided_by_mean_x100.bw"
-    ).resolve()
+    scaled_coverage_path = (scaled_dir / f"{args.sample_name}_{label}_coverage_divided_by_mean_x100.bw").resolve()
     reporter.stage(f"Scaling {label} coverage to a non-zero mean of 100")
     _coverage_scaled, coverage_mean, coverage_count = scale_bigwig_by_reference(
-        coverage_path,
-        coverage_path,
-        scaled_coverage_path,
-        scale=100.0,
-        reporter=reporter,
+        coverage_path, coverage_path, scaled_coverage_path, scale=100.0, reporter=reporter
     )
     with (setup_dir / f"{args.sample_name}_{label}_score_scaling.tsv").open(
         "wt", encoding="utf-8"
@@ -666,94 +638,14 @@ def _generate_and_scale(
         handle.write(f"coverage_scaled_to_mean_100\t{scaled_coverage_path}\n")
     return {
         "bams": [str(Path(path).resolve()) for path in bam_paths],
-        "score": str(score_path),
-        "positive_score": str(positive_path),
-        "coverage": str(coverage_path),
-        "scaled_score": str(scaled_path),
-        "scaled_coverage": str(scaled_coverage_path),
+        "score": str(score_path), "positive_score": str(positive_path), "coverage": str(coverage_path),
+        "scaled_score": str(scaled_path), "scaled_coverage": str(scaled_coverage_path),
         "positive_score_mean": float(reference_mean),
         "positive_score_finite_nonzero_bases": int(reference_count),
-        "coverage_nonzero_mean": float(coverage_mean),
-        "coverage_finite_nonzero_bases": int(coverage_count),
-        "score_frag_lower": score_lower,
-        "score_frag_upper": score_upper,
-        "coverage_frag_lower": int(args.coverage_frag_lower),
-        "coverage_frag_upper": int(args.coverage_frag_upper),
-    }
-
-
-def _generate_pns_for_aggregate(
-    *,
-    args: argparse.Namespace,
-    reporter: ProgressReporter,
-    bam_paths: Sequence[str],
-    label: str,
-    mode: int,
-    tracks_dir: Path,
-    scaled_dir: Path,
-    setup_dir: Path,
-    seed: int,
-) -> dict[str, object]:
-    """Generate the PNS/posPNS pair used only for cluster-centred aggregates."""
-
-    reporter.stage(f"Generating {label} PNS and posPNS aggregate tracks")
-    score_lower, score_upper = _scoring_fragment_range(args, mode)
-    base = tracks_dir / f"{args.sample_name}_{label}_pns_aggregate"
-    command = [
-        "pns", "--bam", *bam_paths,
-        "--scoring-method", "pns",
-        "--mode-length", str(mode),
-        "--frag-lower", str(score_lower),
-        "--frag-upper", str(score_upper),
-        "--score-tracks", "pns", "posPNS",
-        "--other-tracks", "none",
-        "--pns-format", "bigwig",
-        "--other-format", "none",
-        "--interval-format", "bed",
-        "--no-peak-calling",
-        "--out-prefix", str(base),
-        "--contigs", *args.contigs,
-        "--max-duplicates", str(args.max_duplicates),
-        "--dedup-scope", args.dedup_scope,
-        "--cores", str(args.cores),
-        "--seed", str(seed),
-    ]
-    if args.blacklist_bed:
-        command.extend(["--blacklist-bed", args.blacklist_bed])
-    _run_nucleosuite(command)
-    direct_prefix = _resolved_prefix(
-        base, "pns", mode, score_lower, score_upper
-    )
-    prefix = _locate_completed_prefix(
-        base, direct_prefix, ("_pns.bw", "_posPNS.bw")
-    )
-    pns_path = Path(f"{prefix}_pns.bw").resolve()
-    pos_pns_path = Path(f"{prefix}_posPNS.bw").resolve()
-    scaled_path = (
-        scaled_dir / f"{args.sample_name}_{label}_pns_divided_by_mean_posPNS.bw"
-    ).resolve()
-    reporter.stage(f"Scaling {label} PNS by mean posPNS for cluster aggregates")
-    _scaled, reference_mean, reference_count = scale_bigwig_by_reference(
-        pns_path, pos_pns_path, scaled_path, scale=1.0, reporter=reporter
-    )
-    report = setup_dir / f"{args.sample_name}_{label}_aggregate_pns_scaling.tsv"
-    with report.open("wt", encoding="utf-8") as handle:
-        handle.write("field\tvalue\n")
-        handle.write(f"pns_track\t{pns_path}\n")
-        handle.write(f"score_fragment_range\t{score_lower}-{score_upper}\n")
-        handle.write(f"posPNS_reference_track\t{pos_pns_path}\n")
-        handle.write(f"posPNS_reference_mean\t{reference_mean:.12g}\n")
-        handle.write(f"finite_nonzero_posPNS_bases\t{reference_count}\n")
-        handle.write(f"scaled_pns_track\t{scaled_path}\n")
-    return {
-        "pns": str(pns_path),
-        "pos_pns": str(pos_pns_path),
-        "scaled_pns": str(scaled_path),
-        "pos_pns_mean": float(reference_mean),
-        "pos_pns_finite_nonzero_bases": int(reference_count),
-        "pns_scaling_report": str(report.resolve()),
-        "score_frag_lower": score_lower,
-        "score_frag_upper": score_upper,
+        "coverage_nonzero_mean": float(coverage_mean), "coverage_finite_nonzero_bases": int(coverage_count),
+        "score_frag_lower": score_lower, "score_frag_upper": score_upper,
+        "coverage_frag_lower": int(args.coverage_frag_lower), "coverage_frag_upper": int(args.coverage_frag_upper),
+        "tracks_spec": str(spec_path.resolve()),
     }
 
 
@@ -848,7 +740,6 @@ def _run_stage1(
     control_scaled: list[Path] = []
     target_scaled_coverage: list[Path] = []
     control_scaled_coverage: list[Path] = []
-    target_scaled_pns: list[Path] = []
 
     def generate_group(
         groups: Sequence[Sequence[str]],
@@ -856,11 +747,10 @@ def _run_stage1(
         role: str,
         mode: int,
         seed_start: int,
-    ) -> tuple[list[dict[str, object]], list[Path], list[Path], list[Path]]:
+    ) -> tuple[list[dict[str, object]], list[Path], list[Path]]:
         records: list[dict[str, object]] = []
         scaled_scores: list[Path] = []
         scaled_coverages: list[Path] = []
-        scaled_pns_tracks: list[Path] = []
         for index, bam_group in enumerate(groups, 1):
             suffix = "" if len(groups) == 1 else f"_rep{index}"
             generated = _generate_and_scale(
@@ -876,34 +766,6 @@ def _run_stage1(
                 positive_track=positive_track,
                 seed=seed_start + index,
             )
-            if role == "target":
-                if args.scoring_method == "pns":
-                    generated.update(
-                        {
-                            "pns": generated["score"],
-                            "pos_pns": generated["positive_score"],
-                            "scaled_pns": generated["scaled_score"],
-                            "pos_pns_mean": generated["positive_score_mean"],
-                            "pos_pns_finite_nonzero_bases": generated[
-                                "positive_score_finite_nonzero_bases"
-                            ],
-                        }
-                    )
-                else:
-                    generated.update(
-                        _generate_pns_for_aggregate(
-                            args=args,
-                            reporter=reporter,
-                            bam_paths=bam_group,
-                            label=f"{role}{suffix}",
-                            mode=mode,
-                            tracks_dir=tracks_dir,
-                            scaled_dir=scaled_dir,
-                            setup_dir=setup_dir,
-                            seed=seed_start + index + 10_000,
-                        )
-                    )
-                scaled_pns_tracks.append(Path(str(generated["scaled_pns"])))
             scaled_scores.append(Path(str(generated["scaled_score"])))
             scaled_coverages.append(Path(str(generated["scaled_coverage"])))
             records.append(
@@ -927,35 +789,21 @@ def _run_stage1(
                     "score_frag_upper": generated["score_frag_upper"],
                     "coverage_frag_lower": generated["coverage_frag_lower"],
                     "coverage_frag_upper": generated["coverage_frag_upper"],
-                    **(
-                        {
-                            "pns": generated["pns"],
-                            "pos_pns": generated["pos_pns"],
-                            "scaled_pns": generated["scaled_pns"],
-                            "pos_pns_mean": generated["pos_pns_mean"],
-                            "pos_pns_finite_nonzero_bases": generated[
-                                "pos_pns_finite_nonzero_bases"
-                            ],
-                        }
-                        if role == "target"
-                        else {}
-                    ),
                 }
             )
-        return records, scaled_scores, scaled_coverages, scaled_pns_tracks
+        return records, scaled_scores, scaled_coverages
 
     (
         treatment_records,
         target_scaled,
         target_scaled_coverage,
-        target_scaled_pns,
     ) = generate_group(
         target_groups,
         role="target",
         mode=target_mode,
         seed_start=args.seed + seed_offset + 100,
     )
-    control_records, control_scaled, control_scaled_coverage, _ = generate_group(
+    control_records, control_scaled, control_scaled_coverage = generate_group(
         control_groups,
         role="control",
         mode=control_mode,
@@ -965,7 +813,6 @@ def _run_stage1(
     if len(target_scaled) == 1:
         mean_target = target_scaled[0]
         mean_target_coverage = target_scaled_coverage[0]
-        mean_target_pns = target_scaled_pns[0]
     else:
         reporter.stage(f"Averaging {condition_name} replicate-scaled treatment tracks")
         mean_target = average_bigwigs(
@@ -977,17 +824,6 @@ def _run_stage1(
             target_scaled_coverage,
             scaled_dir / f"{args.sample_name}_condition_mean_target_coverage_x100.bw",
         )
-        if args.scoring_method == "pns":
-            mean_target_pns = mean_target
-        else:
-            reporter.stage(
-                f"Averaging {condition_name} replicate PNS tracks after independent posPNS scaling"
-            )
-            mean_target_pns = average_bigwigs(
-                target_scaled_pns,
-                scaled_dir
-                / f"{args.sample_name}_condition_mean_target_pns_divided_by_mean_posPNS.bw",
-            )
 
     if len(control_scaled) == 1:
         mean_control = control_scaled[0]
@@ -1017,7 +853,7 @@ def _run_stage1(
         print(
             "WARNING: Stage 1 has fewer than three biological replicates in at "
             "least one group; Welch p-values and FDR are exploratory. Peak "
-            "selection defaults to the all-controls gate.",
+            "selection defaults to the mean treatment > mean control gate.",
             file=sys.stderr,
         )
     outputs = analyze_chip_replicate_peaks(
@@ -1030,9 +866,11 @@ def _run_stage1(
         peak_fdr=args.peak_fdr,
         cluster_seed_pvalue=args.cluster_seed_p_value,
         cluster_fdr=args.cluster_fdr,
-        cluster_max_non_gated_gap=args.cluster_max_non_gated_gap,
+        gate_mode=args.stage1_gate_mode,
+        cluster_member_mode=args.cluster_member_mode,
+        cluster_max_non_member_gap=args.cluster_max_non_member_gap,
         max_cluster_gap=args.max_cluster_gap,
-        minimum_gate_peaks=args.min_cluster_gated_peaks,
+        minimum_cluster_members=args.min_cluster_members,
     )
 
     anchor_bed = write_cluster_anchor_bed(
@@ -1046,11 +884,13 @@ def _run_stage1(
         }
     else:
         aggregate_outputs = run_cluster_aggregate(
-            mean_scaled_pns=mean_target_pns,
-            replicate_scaled_pns=target_scaled_pns,
+            mean_scaled_score=mean_target,
+            replicate_scaled_scores=target_scaled,
             anchor_bed=anchor_bed,
             output_dir=aggregate_dir,
             label=condition_name,
+            scoring_method=args.scoring_method,
+            positive_track=positive_track,
             window_half=args.cluster_aggregate_window_half,
             maximum_heatmap_rows=args.cluster_aggregate_max_heatmap_rows,
             bootstrap_replicates=args.cluster_aggregate_bootstrap,
@@ -1091,10 +931,12 @@ def _run_stage1(
         "stage1_p_value": args.stage1_p_value,
         "peak_fdr": args.peak_fdr,
         "cluster_seed_p_value": args.cluster_seed_p_value,
-        "cluster_max_non_gated_gap": args.cluster_max_non_gated_gap,
-        "minimum_cluster_gate_peaks": args.min_cluster_gated_peaks,
+        "cluster_max_non_member_gap": args.cluster_max_non_member_gap,
+        "minimum_cluster_members": args.min_cluster_members,
         "cluster_fdr": args.cluster_fdr,
-        "stage1_selection": "all_treatments_exceed_all_controls",
+        "stage1_gate_mode": args.stage1_gate_mode,
+        "cluster_member_mode": args.cluster_member_mode,
+        "stage1_selection": ("mean_treatment_exceeds_mean_control" if args.stage1_gate_mode == "mean" else "all_treatments_exceed_all_controls"),
         "stage1_statistics": "exploratory_one_sided_welch_bh_all_candidates",
         "treatment_replicates": treatment_records,
         "control_replicates": control_records,
@@ -1102,9 +944,7 @@ def _run_stage1(
         "condition_mean_control_score": str(mean_control.resolve()),
         "condition_mean_treatment_coverage": str(mean_target_coverage.resolve()),
         "condition_mean_control_coverage": str(mean_control_coverage.resolve()),
-        "condition_mean_treatment_pns_divided_by_mean_posPNS": str(
-            mean_target_pns.resolve()
-        ),
+        "condition_mean_treatment_cluster_aggregate_score": str(mean_target.resolve()),
         "cluster_anchor_bed": str(anchor_bed),
         "cluster_aggregate": aggregate_outputs,
         "cluster_aggregate_parameters": {
@@ -1164,7 +1004,7 @@ def _run_stage1(
         handle.write(f"condition_mean_control_score\t{mean_control}\n")
         handle.write(f"condition_mean_treatment_coverage\t{mean_target_coverage}\n")
         handle.write(f"condition_mean_control_coverage\t{mean_control_coverage}\n")
-        handle.write(f"condition_mean_treatment_scaled_pns\t{mean_target_pns}\n")
+        handle.write(f"condition_mean_treatment_cluster_aggregate_score\t{mean_target}\n")
         handle.write(f"cluster_anchor_bed\t{anchor_bed}\n")
         handle.write(
             f"cluster_aggregate_status\t{aggregate_outputs.get('status')}\n"
@@ -1172,11 +1012,13 @@ def _run_stage1(
         handle.write(f"stage1_p_value\t{args.stage1_p_value}\n")
         handle.write(f"peak_fdr\t{args.peak_fdr}\n")
         handle.write(f"cluster_seed_p_value\t{args.cluster_seed_p_value}\n")
+        handle.write(f"stage1_gate_mode\t{args.stage1_gate_mode}\n")
+        handle.write(f"cluster_member_mode\t{args.cluster_member_mode}\n")
         handle.write(
-            f"cluster_max_non_gated_gap\t{args.cluster_max_non_gated_gap}\n"
+            f"cluster_max_non_member_gap\t{args.cluster_max_non_member_gap}\n"
         )
         handle.write(
-            f"minimum_cluster_gate_peaks\t{args.min_cluster_gated_peaks}\n"
+            f"minimum_cluster_members\t{args.min_cluster_members}\n"
         )
         handle.write(f"cluster_fdr\t{args.cluster_fdr}\n")
         for name, path in outputs.items():
@@ -1209,7 +1051,7 @@ def run(args: argparse.Namespace) -> int:
             f"{args.coverage_frag_upper}"
         )
         print(
-            "stages\tstage1-treatment-candidates-all-controls-gate"
+            f"stages\tstage1-treatment-candidates-{args.stage1_gate_mode}-gate"
             + (",stage2-log2-moderated-four-group-interaction-bh" if has_second else "")
         )
         return 0

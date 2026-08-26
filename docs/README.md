@@ -9,8 +9,6 @@ Choose a command by the analysis to perform and the output you need.
 - [Workflows](WORKFLOWS.md) — see how commands fit together in cfDNA, MNase-seq, ChIP-seq/CUT&RUN/CUT&Tag, empirical peak FDR, peak spacing, categorized [`flank-spacing`](commands/flank-spacing.md), chromatin-state, and gene-centred analyses.
 - [Command reference](COMMAND_REFERENCE.md) — links to every command page.
 - [`chip-compare`](commands/chip-compare.md) — compare two completed ChIP Stage 1 analyses without returning to BAMs.
-- [Version 0.10.1 release notes](RELEASE_NOTES_0.10.1.md) — fixes multicontig output discovery in `chip-suite`.
-- [Version 0.10.0 release notes](RELEASE_NOTES_0.10.0.md) — summarizes the new workflows, interfaces, and compatibility changes.
 
 ## Understanding the calculations
 

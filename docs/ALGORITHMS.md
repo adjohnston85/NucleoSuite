@@ -388,13 +388,19 @@ T_i(R)=\max_{x\in R}Cov_{100,T_i}(x),
 C_j(R)=\max_{x\in R}Cov_{100,C_j}(x).
 ```
 
-The all-controls gate retains a candidate only if
+The default treatment-control gate retains a candidate when
+
+```math
+\mathrm{mean}_i T_i(R)>\mathrm{mean}_j C_j(R).
+```
+
+The optional `--stage1-gate-mode all-controls` instead requires
 
 ```math
 \min_i T_i(R)>\max_j C_j(R).
 ```
 
-This is equivalent to requiring every treatment replicate to exceed every control replicate. It is deliberately conservative: one weak treatment replicate or one strong control replicate prevents the peak from proceeding. Treatment and control BAMs are independent groups and are not paired by input order.
+The mean gate tolerates replicate-level variation while requiring average treatment enrichment. The all-controls gate is deliberately more conservative: one weak treatment replicate or one strong control replicate prevents the peak from proceeding. Treatment and control BAMs are independent groups and are not paired by input order.
 
 The gate is the default Stage 1 peak selector. When both groups contain at least two biological replicates, a one-sided Welch test also asks whether the treatment-score mean is greater than the control-score mean without assuming equal variances. Benjamini-Hochberg correction is calculated across all candidates, but p-values and FDR are annotations by default. This separation is necessary because a nucleosome-scale analysis can contain hundreds of thousands of correlated tests, while two biological replicates per group provide unstable peak-specific variance estimates. `--stage1-p-value` and `--peak-fdr` enable optional additional filtering. With fewer than two replicates in either group, the scores and gate remain available but p-value and FDR are reported as unavailable.
 
@@ -404,15 +410,15 @@ The statistics table also reports a conservative fold enrichment using a pseudoc
 F_{cons}(R)=\frac{\min_i T_i(R)+1}{\max_j C_j(R)+1},
 ```
 
-and its base-2 logarithm. The extrema make the effect size consistent with the all-controls gate, while the pseudocount permits regions whose control maximum is zero.
+and its base-2 logarithm. The conservative fold remains reported regardless of gate mode as a worst-case effect-size annotation. The selected excess used for clustering is mean treatment minus mean control in the default mean mode and minimum treatment minus maximum control in all-controls mode.
 
 ### Stage 1 peak clusters
 
 Stage 1 uses a seeded extension algorithm so nominal replicate evidence identifies where a cluster begins without requiring every nucleosome in the wider domain to pass an underpowered peak-specific test.
 
-A seed peak must pass the all-controls gate and satisfy $p<0.05$ by default. `--cluster-seed-p-value` changes this threshold. From every seed, the algorithm scans upstream and downstream through treatment candidates ordered by summit. A gate-passing neighbour extends the cluster regardless of its own p-value. The default cluster therefore requires at least two total gated members (`--min-cluster-gated-peaks 2`) but only one of them must be a seed.
+A seed peak must pass the selected treatment-control gate and satisfy $p<0.05$ by default. `--cluster-seed-p-value` changes this threshold. In the default `--cluster-member-mode seed-and-gated`, both significant seed peaks (S) and other gate-passing peaks (G) are cluster members. In `significant-only`, only S peaks are members; G and gate-failing x candidates count as non-members for gap handling. The default cluster requires at least two included members (`--min-cluster-members 2`).
 
-By default, one consecutive gate-failing peak can bridge two gated members (`--cluster-max-non-gated-gap 1`). The bridge is not a member, endpoint, or score contributor. It becomes a bridge only when a later gated peak reconnects the run; a trailing gate failure does not extend the boundary. Two consecutive gate failures stop extension. A separation greater than 1,000 bp between adjacent gated-member summits also stops extension (`--max-cluster-gap 1000`). Exactly 1,000 bp is allowed.
+By default, one consecutive non-member can bridge two included members (`--cluster-max-non-member-gap 1`). The bridge is not an endpoint or score contributor and is counted only if a later included member reconnects the run. Two consecutive non-members therefore split the run at the default gap. A separation greater than 1,000 bp between adjacent included-member summits also stops extension (`--max-cluster-gap 1000`). Exactly 1,000 bp is allowed.
 
 ```text
 S = gated seed with p < 0.05
@@ -438,7 +444,7 @@ cluster:  1 1 1 . . . .
 
 In the final example, the right-hand `G G` has no seed and is therefore not a cluster. Connected expansions from multiple seeds are emitted once rather than as overlapping duplicate clusters.
 
-Cluster boundaries are the outermost gated-member intervals. The cluster score is the sum of member conservative excesses, where each excess is the minimum treatment score minus the maximum control score. Bridged non-gated peaks contribute zero because they are not members. The aggregate anchor is the discovery-track summit of the gated member with the largest condition-mean scaled-coverage maximum; conservative excess and genomic position break ties. Coverage ranks members because it is the direct abundance measurement, while the selected member's TNS/BNS/PNS summit preserves the positioning estimate. Output also records seed count, gated-member count, bridge count, minimum seed p-value, and maximum seed FDR. `--cluster-fdr` can optionally filter the maximum seed FDR, but no cluster FDR cutoff is applied by default.
+Cluster boundaries are the outermost included-member intervals. By default, the Stage 1 gate is mean treatment > mean control and the cluster score is the sum of mean treatment-minus-control excess across included members. `--stage1-gate-mode all-controls` instead requires every treatment replicate to exceed every control replicate and uses minimum treatment minus maximum control as the member excess. `--cluster-member-mode seed-and-gated` includes both significant seed (S) peaks and other gate-passing (G) peaks; `significant-only` includes only S peaks. Non-members may bridge included members up to `--cluster-max-non-member-gap` but do not contribute to the boundary or score. The aggregate anchor is the discovery-track summit of the included member with the largest condition-mean scaled-coverage maximum; selected excess and genomic position break ties. Coverage ranks members because it is the direct abundance measurement, while the selected member's TNS/BNS/PNS summit preserves the positioning estimate.
 
 ### `chip-compare` Stage 2: differences between conditions
 
@@ -484,17 +490,17 @@ U_k=\max(Y_{T_k})-\min(Y_{C_k}).
 
 `robust_gain` requires $L_2>U_1$ and `robust_loss` requires $U_2<L_1$. These labels mean every possible treatment-control contrast is ordered in the same direction. They are descriptive consistency annotations rather than replacements for moderated FDR.
 
-### Cluster-centred PNS aggregate
+### Cluster-centred method-matched score aggregate
 
 For treatment replicate $i$, PNS is normalized before averaging:
 
 ```math
-PNS_{scaled,i}(x)=\frac{PNS_i(x)}{\mathrm{mean}(posPNS_i(x)\mid posPNS_i(x)>0)},
+S_{scaled,i}(x)=\frac{S_i(x)}{\mathrm{mean}(posS_i(x)\mid posS_i(x)>0)},
 \qquad
 \overline{PNS}_{scaled}(x)=\frac{1}{n}\sum_i PNS_{scaled,i}(x).
 ```
 
-Scaling before averaging removes usable-depth magnitude from each replicate so a deeper library does not dominate the condition mean. PNS supplies the positioning aggregate because it represents nucleosome organization; coverage-to-100 remains the abundance statistic used for treatment/control tests.
+Scaling before averaging removes usable-depth magnitude from each replicate so a deeper library does not dominate the condition mean. The selected discovery method supplies the positioning aggregate throughout: PNS is normalized by `posPNS`, BNS by `posBNS`, and TNS by `posTNS`. Coverage-to-100 remains the abundance statistic used for treatment/control tests.
 
 Each Stage 1 cluster is aligned at the discovery summit of its strongest coverage-scored member. Stage 2 additionally builds one common union-locus anchor set and uses it for both conditions, allowing row-matched heatmaps with a shared symmetric colour scale. The default directional NRL caller uses 140 bp resolution, includes the central peak as order 0, retains called order numbers, fits orders 0–3 on both sides, and applies no central regression exclusion.
 
