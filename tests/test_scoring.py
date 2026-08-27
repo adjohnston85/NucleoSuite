@@ -5,6 +5,7 @@ from nucleosuite.scoring.pns import (
     balanced_boxcar_probability_kernel,
     endpoint_probability_triangle,
     precompute_distributions,
+    sinusoidal_nucleosome_kernel,
     triangular_probability_kernel,
 )
 from nucleosuite.scoring.wps import wps_kernel_kircher_exact
@@ -36,14 +37,14 @@ def test_pns_endpoint_triangle_has_two_equal_centres_for_even_mode():
 
 
 def test_pns_uncentred_kernel_has_unit_probability_mass():
-    centred, positive = precompute_distributions([137, 167, 197], 167)
+    centred, positive = precompute_distributions([137, 167, 197], 167, "pns")
     for length in (137, 167, 197):
         assert np.isclose(np.sum(positive[length]), 1.0)
         assert np.isclose(np.sum(centred[length]), 0.0)
 
 
 def test_pns_kernels_are_mean_centred():
-    centred, positive = precompute_distributions([167], 167)
+    centred, positive = precompute_distributions([167], 167, "pns")
     assert np.isclose(np.mean(centred[167]), 0.0)
     assert len(positive[167]) == 167
 
@@ -162,3 +163,61 @@ def test_tns_137_and_197_mode167_use_identical_197_bp_triangle():
     assert len(positive[197]) == 197
     assert np.allclose(positive[137], positive[197])
     assert np.allclose(centred[137], centred[197])
+
+
+def test_sns_discrete_kernel_has_exact_balanced_signed_mass():
+    for support in (167, 180, 214):
+        kernel = sinusoidal_nucleosome_kernel(support)
+        assert len(kernel) == support
+        assert np.allclose(kernel, kernel[::-1])
+        assert np.isclose(kernel[kernel > 0].sum(), 50.0)
+        assert np.isclose(kernel[kernel < 0].sum(), -50.0)
+        assert np.isclose(np.abs(kernel).sum(), 100.0)
+        assert np.isclose(kernel.sum(), 0.0)
+        assert kernel[0] < 0
+        assert np.isclose(kernel[0], kernel[-1])
+
+
+def test_sns_mode167_support_broadens_on_both_sides_of_167():
+    centred, positive = precompute_distributions([120, 167, 180], 167, "sns")
+    assert len(centred[120]) == 214
+    assert len(centred[167]) == 167
+    assert len(centred[180]) == 180
+    for length in (120, 167, 180):
+        assert np.allclose(centred[length], centred[length][::-1])
+        assert np.isclose(centred[length][centred[length] > 0].sum(), 50.0)
+        assert np.isclose(centred[length][centred[length] < 0].sum(), -50.0)
+        assert np.isclose(positive[length].sum(), 1.0)
+        assert np.all(positive[length] >= 0)
+
+
+def test_sns_odd_support_has_one_central_maximum_and_even_support_two():
+    odd = sinusoidal_nucleosome_kernel(167)
+    even = sinusoidal_nucleosome_kernel(180)
+    assert np.argmax(odd) == 83
+    assert np.count_nonzero(np.isclose(odd, odd.max())) == 1
+    assert np.isclose(even[89], even[90])
+    assert np.count_nonzero(np.isclose(even, even.max())) == 2
+
+
+def test_sns_support_parity_matches_fragment_length_for_exact_midpoint_symmetry():
+    from nucleosuite.scoring.pns import scoring_support_length
+
+    for length in range(20, 221):
+        support = scoring_support_length(length, 167)
+        assert support % 2 == length % 2
+
+
+def test_sns_short_fragment_extends_symmetrically_beyond_fragment():
+    from nucleosuite.scoring.pns import add_fragment as add_score_fragment
+    from nucleosuite.scoring.pns import new_arrays as new_score_arrays
+
+    centred, positive = precompute_distributions([120], 167, "sns")
+    arrays = new_score_arrays(400, "sns")
+    add_score_fragment(
+        arrays, 100, 220, 0, 400, 167, centred, positive, scoring_method="sns"
+    )
+    nonzero = np.flatnonzero(arrays["sns"] != 0)
+    assert nonzero[0] == 53
+    assert nonzero[-1] == 266
+    assert np.allclose(arrays["sns"][53:267], arrays["sns"][53:267][::-1])

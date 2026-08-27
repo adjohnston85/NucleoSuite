@@ -10,8 +10,8 @@ from nucleosuite.cli.common import add_interval_output_arguments
 
 
 TRACK_HELP = (
-    "Track names may include pns, posPNS, pns_smoothed, bns, posBNS, bns_smoothed, "
-    "tns, posTNS, tns_smoothed, wps, wps_smoothed, mWPS, sm_mWPS, coverage, dyad, fragment_ends, "
+    "Track names may include sns, posSNS, sns_smoothed, pns, posPNS, pns_smoothed, "
+    "bns, posBNS, bns_smoothed, tns, posTNS, tns_smoothed, wps, wps_smoothed, mWPS, sm_mWPS, coverage, dyad, fragment_ends, "
     "fragment_left_ends, fragment_right_ends, pns_peaks, wps_peaks, dinuc_profile, ww_types and type_dyads."
 )
 
@@ -22,7 +22,7 @@ def register(subparsers):
         help="Generate multiple fragment-derived track sets in one input pass.",
         description=(
             "Read each fragment once per genomic chunk and update all requested "
-            "PNS, WPS, coverage, dyad, fragment-end and sequence-derived outputs for multiple "
+            "nucleosome scores, WPS, coverage, dyad, fragment-end and sequence-derived outputs for multiple "
             "fragment-length ranges."
         ),
     )
@@ -58,7 +58,7 @@ def register(subparsers):
         metavar="RANGE=TRACKS",
         help=(
             "Repeated range specification, for example "
-            "137-197=pns,posPNS,wps,coverage,pns_peaks,wps_peaks or "
+            "137-197=sns,posSNS,wps,coverage,pns_peaks,wps_peaks or "
             "145=dyad,fragment_left_ends,fragment_right_ends. " + TRACK_HELP
         ),
     )
@@ -136,27 +136,28 @@ def register(subparsers):
     add_parallel_arguments(parser, combine_resources=True, resumable=True)
 
     parser.add_argument(
-        "--scoring-method", choices=("pns", "bns", "tns"), default="pns",
+        "--scoring-method", choices=("sns", "pns", "bns", "tns"), default="sns",
         help=(
             "Nucleosome score generated for scoring-enabled ranges. Request the "
-            "matching method-specific track names in --fragment-range (default: pns)."
+            "matching method-specific track names in --fragment-range. SNS is "
+            "available as sns,posSNS,sns_smoothed (default: sns)."
         ),
     )
 
     # Nucleosome-score settings shared by every score-enabled range.
-    parser.add_argument("--pns-mode-length", type=int, default=167, help="Modal protected-DNA length defining PNS probability triangles for every PNS range (default: 167 bp).")
-    parser.add_argument("--pns-smooth-window", type=int, default=0, help="Savitzky-Golay PNS smoothing window; 0 disables smoothing (default: 0).")
-    parser.add_argument("--pns-smooth-order", type=int, default=2, help="PNS Savitzky-Golay polynomial order (default: 2).")
-    parser.add_argument("--pns-min-region-length", type=int, default=50, help="Minimum positive PNS region length retained as a nucleosome call (default: 50 bp).")
-    parser.add_argument("--pns-max-neg-run", type=int, default=0, help="Maximum zero-or-negative run bridged inside a PNS region (default: 0 bp).")
+    parser.add_argument("--score-mode-length", type=int, default=167, help="Modal protected-DNA length defining nucleosome-score geometry for every scoring range (default: 167 bp).")
+    parser.add_argument("--score-smooth-window", type=int, default=0, help="Savitzky-Golay score smoothing window; 0 disables smoothing (default: 0).")
+    parser.add_argument("--score-smooth-order", type=int, default=2, help="Score Savitzky-Golay polynomial order (default: 2).")
+    parser.add_argument("--score-min-region-length", type=int, default=50, help="Minimum positive score region length retained as a nucleosome call (default: 50 bp).")
+    parser.add_argument("--score-max-neg-run", type=int, default=0, help="Maximum zero-or-negative run bridged inside a score region (default: 0 bp).")
     parser.add_argument(
-        "--pns-peak-score-scale", type=float, default=1.0,
-        help="Multiplier applied to PNS peak scores written as six-decimal BED floats (default: 1).",
+        "--score-peak-score-scale", type=float, default=1.0,
+        help="Multiplier applied to score-derived peak scores written as six-decimal BED floats (default: 1).",
     )
     parser.add_argument(
         "--bigbed-score-scale", type=float, default=1000.0,
         help=(
-            "Multiplier applied to floating PNS peak BED scores during bigBed "
+            "Multiplier applied to floating score-derived peak BED scores during bigBed "
             "conversion before integer rounding/clamping (default: 1000). "
             "WPS peak conversion is unchanged."
         ),
@@ -196,20 +197,20 @@ def _validate(args) -> None:
         raise ValueError("Chunk size must be positive and overlap non-negative")
     if args.subsample is not None and not 0.0 <= args.subsample <= 1.0:
         raise ValueError("--subsample must be between 0 and 1")
-    if args.pns_mode_length < 3:
-        raise ValueError("--pns-mode-length must be at least 3")
-    if args.pns_smooth_window < 0 or (
-        args.pns_smooth_window and (
-            args.pns_smooth_window < 3 or args.pns_smooth_window % 2 == 0
+    if args.score_mode_length < 3:
+        raise ValueError("--score-mode-length must be at least 3")
+    if args.score_smooth_window < 0 or (
+        args.score_smooth_window and (
+            args.score_smooth_window < 3 or args.score_smooth_window % 2 == 0
         )
     ):
-        raise ValueError("--pns-smooth-window must be 0 or an odd integer >= 3")
-    if args.pns_smooth_order < 0 or (
-        args.pns_smooth_window and args.pns_smooth_order >= args.pns_smooth_window
+        raise ValueError("--score-smooth-window must be 0 or an odd integer >= 3")
+    if args.score_smooth_order < 0 or (
+        args.score_smooth_window and args.score_smooth_order >= args.score_smooth_window
     ):
-        raise ValueError("Invalid PNS smoothing order")
-    if args.pns_min_region_length < 1 or args.pns_max_neg_run < 0:
-        raise ValueError("Invalid PNS peak-region settings")
+        raise ValueError("Invalid score smoothing order")
+    if args.score_min_region_length < 1 or args.score_max_neg_run < 0:
+        raise ValueError("Invalid score peak-region settings")
     if args.bigbed_score_scale < 0:
         raise ValueError("--bigbed-score-scale must be 0 or greater")
     if args.wps_protection < 2 or args.wps_baseline_window < 1:

@@ -1,7 +1,7 @@
 """Combined multi-range track generation.
 
 The workflow reads each accepted fragment once per genomic chunk, assigns it to
-all matching fragment-length ranges, and writes any requested PNS, WPS, basic
+all matching fragment-length ranges, and writes any requested nucleosome-score, WPS, basic
 coordinate tracks and peak calls from the shared in-memory range accumulators.
 """
 
@@ -66,15 +66,19 @@ from nucleosuite.workflows.common import (
 
 PEAK_TOKENS = frozenset({"pns_peaks", "wps_peaks"})
 SEQUENCE_TOKENS = frozenset({"dinuc_profile", "ww_types", "type_dyads"})
+SNS_TOKENS = frozenset({"sns", "posSNS", "sns_smoothed"})
 PNS_TOKENS = frozenset({"pns", "posPNS", "pns_smoothed", "pns_peaks"})
 BNS_TOKENS = frozenset({"bns", "posBNS", "bns_smoothed"})
 TNS_TOKENS = frozenset({"tns", "posTNS", "tns_smoothed"})
-SCORING_TOKENS = PNS_TOKENS | BNS_TOKENS | TNS_TOKENS
+SCORING_TOKENS = SNS_TOKENS | PNS_TOKENS | BNS_TOKENS | TNS_TOKENS
 WPS_TOKENS = frozenset({"wps", "wps_smoothed", "mWPS", "sm_mWPS", "wps_peaks"})
 BASIC_TOKENS = frozenset(basic_tracks.BASIC_TRACKS)
 OUTPUT_TOKENS = BASIC_TOKENS | (SCORING_TOKENS - PEAK_TOKENS) | (WPS_TOKENS - PEAK_TOKENS)
 VALID_TOKENS = OUTPUT_TOKENS | PEAK_TOKENS | SEQUENCE_TOKENS
 ALIASES = {
+    "possns": "posSNS",
+    "positive-sns": "posSNS",
+    "sns-smoothed": "sns_smoothed",
     "pospns": "posPNS",
     "positive-pns": "posPNS",
     "posbns": "posBNS",
@@ -253,15 +257,18 @@ def load_specs(args) -> list[OutputSpec]:
             raise ValueError(
                 f"{spec.output_prefix}: PNS and WPS peaks cannot share one output prefix"
             )
-        if "pns_smoothed" in spec.tracks and args.pns_smooth_window == 0:
+        smoothed_track, _score_track, _positive_track = pns_scoring.scoring_track_names(
+            getattr(args, "scoring_method", "sns")
+        )
+        if smoothed_track in spec.tracks and args.score_smooth_window == 0:
             raise ValueError(
-                f"{spec.output_prefix}: pns_smoothed requires --pns-smooth-window"
+                f"{spec.output_prefix}: {smoothed_track} requires --score-smooth-window"
             )
     return specs
 
 
 def _range_states(specs: list[OutputSpec], args) -> dict[FragmentRange, RangeState]:
-    scoring_method = getattr(args, "scoring_method", "pns")
+    scoring_method = getattr(args, "scoring_method", "sns")
     states: dict[FragmentRange, RangeState] = {}
     for spec in specs:
         state = states.setdefault(spec.fragment_range, RangeState(spec.fragment_range))
@@ -275,7 +282,7 @@ def _range_states(specs: list[OutputSpec], args) -> dict[FragmentRange, RangeSta
         lengths = range(state.fragment_range.lower, state.fragment_range.upper + 1)
         if state.need_pns:
             state.pns_distributions = pns_scoring.precompute_distributions(
-                lengths, args.pns_mode_length, scoring_method=scoring_method
+                lengths, args.score_mode_length, scoring_method=scoring_method
             )
         if state.need_dinuc:
             groups = ALL_OUTPUT_GROUPS if state.need_ww_types else ("all",)
@@ -315,7 +322,10 @@ def _remove_outputs(spec: OutputSpec) -> None:
 
 
 def _write_pns_peaks(spec, scores, region, args, mode):
-    peak_track = "pns_smoothed" if args.pns_smooth_window > 0 else "pns"
+    smoothed_track, score_track, _positive_track = pns_scoring.scoring_track_names(
+        getattr(args, "scoring_method", "sns")
+    )
+    peak_track = smoothed_track if args.score_smooth_window > 0 else score_track
     values = scores[peak_track][0][2]
     coverage = scores["coverage"][0][2]
     nuc = call_pns_records(
@@ -324,8 +334,8 @@ def _write_pns_peaks(spec, scores, region, args, mode):
         adjusted_start=region.adjusted_start,
         core_start=region.original_start,
         core_end=region.original_end,
-        min_length=args.pns_min_region_length,
-        max_nonpositive_run=args.pns_max_neg_run,
+        min_length=args.score_min_region_length,
+        max_nonpositive_run=args.score_max_neg_run,
         coverage_scores=coverage,
     )
     brk = call_pns_records(
@@ -334,8 +344,8 @@ def _write_pns_peaks(spec, scores, region, args, mode):
         adjusted_start=region.adjusted_start,
         core_start=region.original_start,
         core_end=region.original_end,
-        min_length=args.pns_min_region_length,
-        max_nonpositive_run=args.pns_max_neg_run,
+        min_length=args.score_min_region_length,
+        max_nonpositive_run=args.score_max_neg_run,
         flip_scores=True,
         coverage_scores=coverage,
     )
@@ -347,14 +357,14 @@ def _write_pns_peaks(spec, scores, region, args, mode):
         spec.output_prefix + "_nucleosome_regions.bed",
         nuc,
         "nuc",
-        args.pns_peak_score_scale,
+        args.score_peak_score_scale,
         mode,
     )
     write_pns_records(
         spec.output_prefix + "_breakpoint_peaks.bed",
         brk,
         "brk",
-        args.pns_peak_score_scale,
+        args.score_peak_score_scale,
         mode,
     )
 
@@ -483,8 +493,9 @@ def _sequence_features_for_fragment(
 def run(args) -> int:
     set_random_seed(args.seed)
     specs = load_specs(args)
-    scoring_method = getattr(args, "scoring_method", "pns")
+    scoring_method = getattr(args, "scoring_method", "sns")
     method_tokens = {
+        "sns": {"sns", "posSNS", "sns_smoothed"},
         "pns": {"pns", "posPNS", "pns_smoothed"},
         "bns": {"bns", "posBNS", "bns_smoothed"},
         "tns": {"tns", "posTNS", "tns_smoothed"},
@@ -665,7 +676,7 @@ def run(args) -> int:
                             fragment_end,
                             region.adjusted_start,
                             region.adjusted_end,
-                            args.pns_mode_length,
+                            args.score_mode_length,
                             centred,
                             positive,
                             scoring_method=scoring_method,
@@ -719,8 +730,8 @@ def run(args) -> int:
                             pns_by_range[key],
                             region.contig,
                             region.adjusted_start,
-                            args.pns_smooth_window,
-                            args.pns_smooth_order,
+                            args.score_smooth_window,
+                            args.score_smooth_order,
                             scoring_method=scoring_method,
                         )
                     )

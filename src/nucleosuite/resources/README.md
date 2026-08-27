@@ -26,7 +26,7 @@ The bundled ENCODE/Boyle Lab hg19 blacklist v2 follows Amemiya et al. (2019). Th
 
 ## CTCF sites
 
-The CTCF resource contains JASPAR MA0139.1 motif sites found with FIMO and intersected with GM12878 CTCF ChIP-seq accession ENCFF923ZBP from ENCODE. It uses BED6 columns: chromosome, start, end, site identifier, score, and motif strand. CTCF-centred aggregation uses column 6 to orient all sites in the motif direction.
+The CTCF resource contains JASPAR MA0139.1 motif sites found with FIMO and intersected with GM12878 CTCF ENCODE peak set ENCFF923ZBP. It uses BED6 columns: chromosome, start, end, site identifier, score, and motif strand. CTCF-centred aggregation uses column 6 to orient all sites in the motif direction.
 
 ## Gene-set rules
 

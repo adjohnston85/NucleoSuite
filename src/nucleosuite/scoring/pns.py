@@ -1,4 +1,4 @@
-"""Probabilistic and boxcar nucleosome scoring kernels and array operations."""
+"""Nucleosome scoring kernels and array operations for PNS, SNS, BNS, and TNS."""
 
 from __future__ import annotations
 
@@ -10,15 +10,18 @@ from scipy.signal import savgol_filter
 from nucleosuite.sequence.dinucleotide import fragment_dyad
 
 PNS_TRACKS = ("pns_smoothed", "pns", "posPNS")
+SNS_TRACKS = ("sns_smoothed", "sns", "posSNS")
 BNS_TRACKS = ("bns_smoothed", "bns", "posBNS")
 TNS_TRACKS = ("tns_smoothed", "tns", "posTNS")
-SCORING_METHODS = ("pns", "bns", "tns")
+SCORING_METHODS = ("sns", "pns", "bns", "tns")
 
 
 def scoring_track_names(scoring_method: str) -> tuple[str, str, str]:
-    """Return ``(smoothed, centred, uncentred)`` track names for a method."""
+    """Return ``(smoothed, score, positive-reference)`` track names for a method."""
     if scoring_method == "pns":
         return PNS_TRACKS
+    if scoring_method == "sns":
+        return SNS_TRACKS
     if scoring_method == "bns":
         return BNS_TRACKS
     if scoring_method == "tns":
@@ -27,7 +30,7 @@ def scoring_track_names(scoring_method: str) -> tuple[str, str, str]:
 
 
 def scoring_support_length(fragment_length: int, mode_dna_length: int) -> int:
-    """Return the genomic support used by PNS/BNS/TNS for one fragment length."""
+    """Return the genomic support used by PNS/SNS/BNS/TNS for one fragment length."""
     return (
         2 * mode_dna_length - fragment_length
         if fragment_length < mode_dna_length
@@ -147,12 +150,48 @@ def triangular_probability_kernel(total_length: int) -> np.ndarray:
     return triangle
 
 
+def sinusoidal_nucleosome_kernel(total_length: int) -> np.ndarray:
+    """Return one discrete, symmetric, zero-sum SNS kernel.
+
+    The raw shape is one inverted cosine cycle sampled at integer genomic bins,
+    with its minimum at both support boundaries and its maximum at the centre.
+    Positive and negative samples are normalized separately so that the
+    positive mass is exactly +50 and the negative mass is exactly -50.
+    Consequently every complete fragment contributes zero net mass and total
+    absolute mass 100, independent of support width.
+    """
+    if total_length < 3:
+        raise ValueError("total_length must be at least 3")
+
+    n = int(total_length)
+    positions = np.arange(n, dtype=np.float64)
+    raw = -np.cos((2.0 * np.pi * positions) / float(n - 1))
+    raw[np.isclose(raw, 0.0, atol=1e-15, rtol=0.0)] = 0.0
+
+    positive_mask = raw > 0.0
+    negative_mask = raw < 0.0
+    positive_mass = float(np.sum(raw[positive_mask], dtype=np.float64))
+    negative_mass = float(np.sum(-raw[negative_mask], dtype=np.float64))
+    if positive_mass <= 0.0 or negative_mass <= 0.0:  # pragma: no cover
+        raise RuntimeError("SNS signed-mass normalization failed")
+
+    kernel = np.zeros(n, dtype=np.float64)
+    kernel[positive_mask] = raw[positive_mask] * (50.0 / positive_mass)
+    kernel[negative_mask] = raw[negative_mask] * (50.0 / negative_mass)
+
+    if not np.allclose(kernel, kernel[::-1], atol=1e-15, rtol=1e-12):  # pragma: no cover
+        raise RuntimeError("SNS symmetry normalization failed")
+    if not np.isclose(np.sum(kernel), 0.0, atol=1e-12):  # pragma: no cover
+        raise RuntimeError("SNS zero-sum normalization failed")
+    return kernel
+
+
 def precompute_distributions(
     fragment_lengths: Iterable[int],
     mode_dna_length: int,
-    scoring_method: str = "pns",
+    scoring_method: str = "sns",
 ) -> Tuple[Dict[int, np.ndarray], Dict[int, np.ndarray]]:
-    """Return mean-centred and uncentred kernels by accepted fragment length."""
+    """Return score and non-negative reference kernels by fragment length."""
     if mode_dna_length < 3:
         raise ValueError("mode_dna_length must be at least 3")
     if scoring_method not in SCORING_METHODS:
@@ -166,16 +205,28 @@ def precompute_distributions(
         if scoring_method == "pns":
             left_triangle = endpoint_probability_triangle(mode_dna_length, total_length)
             combined = left_triangle + left_triangle[::-1]
+            positive[fragment_length] = combined.copy()
+            centred[fragment_length] = combined - np.mean(combined)
+        elif scoring_method == "sns":
+            signed = sinusoidal_nucleosome_kernel(total_length)
+            # posSNS is a non-negative unit-mass reference track formed from
+            # the positive half-wave.  The SNS score itself retains exactly
+            # +50 positive mass and -50 negative mass per complete fragment.
+            positive_reference = np.clip(signed, 0.0, None) / 50.0
+            positive[fragment_length] = positive_reference
+            centred[fragment_length] = signed
         elif scoring_method == "bns":
             combined = balanced_boxcar_probability_kernel(total_length)
+            positive[fragment_length] = combined.copy()
+            centred[fragment_length] = combined - np.mean(combined)
         else:
             combined = triangular_probability_kernel(total_length)
-        positive[fragment_length] = combined.copy()
-        centred[fragment_length] = combined - np.mean(combined)
+            positive[fragment_length] = combined.copy()
+            centred[fragment_length] = combined - np.mean(combined)
     return centred, positive
 
 
-def new_arrays(reference_length: int, scoring_method: str = "pns"):
+def new_arrays(reference_length: int, scoring_method: str = "sns"):
     _, score_track, positive_track = scoring_track_names(scoring_method)
     return {
         score_track: np.zeros(reference_length, dtype=np.float64),
@@ -192,7 +243,7 @@ def add_fragment(
     mode_dna_length: int,
     centred_distributions,
     positive_distributions,
-    scoring_method: str = "pns",
+    scoring_method: str = "sns",
 ) -> None:
     fragment_length = fragment_end - fragment_start
     centred_kernel = centred_distributions.get(fragment_length)
@@ -235,7 +286,7 @@ def to_scores(
     start: int,
     smooth_window: int = 0,
     smooth_order: int = 2,
-    scoring_method: str = "pns",
+    scoring_method: str = "sns",
 ):
     smoothed_track, score_track, positive_track = scoring_track_names(scoring_method)
     score_values = arrays[score_track]

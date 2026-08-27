@@ -59,7 +59,7 @@ A fixed seed makes the randomization reproducible.
 For example:
 
 ```bash
-nucleosuite pns \
+nucleosuite nuc-score \
   --fragments sample_randomized.randomized.fragments.bed.gz \
   --fasta genome.fa \
   --out-prefix sample_randomized_pns

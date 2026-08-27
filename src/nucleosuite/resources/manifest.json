@@ -22,7 +22,7 @@
       "cell_type": "GM12878",
       "motif": "JASPAR MA0139.1 (CTCF)",
       "motif_scan": "FIMO",
-      "chip_seq_accession": "ENCFF923ZBP",
+      "ctcf_encode_accession": "ENCFF923ZBP",
       "citations": [
         "Grant et al. (2011), FIMO, Bioinformatics 27:1017-1018, doi:10.1093/bioinformatics/btr064",
         "Barski et al. (2007), Cell 129:823-837, doi:10.1016/j.cell.2007.05.009",

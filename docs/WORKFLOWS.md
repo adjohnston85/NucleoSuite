@@ -54,66 +54,66 @@ flowchart TB
 
 Both coordinated suites accept `--with-randomized-control`. The randomized workflow uses the same filtering, track, scaling, and peak-calling settings. If `--fdr` is omitted, all observed combined peaks are retained with FDR appended; if it is supplied, an additional filtered BED is written.
 
-### PNS followed by spacing analysis
+### Nucleosome scoring followed by spacing analysis
 
 ```mermaid
 flowchart LR
-    A[Paired-end BAM or fragment BED] --> B[PNS]
-    B --> C[PNS BigWig]
+    A[Paired-end BAM or fragment BED] --> B[nuc-score command: SNS default]
+    B --> C[SNS BigWig]
     B --> D[Nucleosome-region calls]
     D --> E[distances]
     E --> F[Nearest-neighbour spacing profile]
 
     classDef commandLink color:#0969da,text-decoration:none;
     class B,E commandLink;
-    click B href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/pns.md" "Open pns documentation"
+    click B href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/nuc-score.md" "Open nuc-score documentation"
     click E href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/distances.md" "Open distances documentation"
 ```
 
-The same workflow can use BNS with `--scoring-method bns` or TNS with `--scoring-method tns`; the nucleosome peak caller is unchanged.
+The same workflow can use the original PNS with `--scoring-method pns`, BNS with `--scoring-method bns`, or TNS with `--scoring-method tns`; the nucleosome peak caller is unchanged.
 
 For example:
 
 ```bash
-nucleosuite pns \
+nucleosuite nuc-score \
   --bam sample.bam \
   --fasta hg19.fa \
-  --out-prefix sample_pns
+  --out-prefix sample_score
 
-nucleosuite distances sample_methodpns_mode167_lower137_upper197_smooth0x2_nucleosome_regions.bed \
+nucleosuite distances sample_methodsns_mode167_lower137_upper197_smooth0x2_nucleosome_regions.bed \
   --position-column 7 \
   --min-distance 120 \
   --max-distance 250 \
   --output-prefix sample_spacing
 ```
 
-## Matched ChIP-seq, CUT&RUN, or CUT&Tag
+## Matched CUT&RUN or CUT&Tag
 
 ```mermaid
 flowchart TB
-    A[Condition 1 treatment/control BAMs] --> B[chip-suite Stage 1]
+    A[Condition 1 treatment/control BAMs] --> B[cutn-suite Stage 1]
     B --> C[Scaled BigWigs, gated peaks and seeded clusters]
-    D[Condition 2 treatment/control BAMs] --> E[chip-suite Stage 1]
+    D[Condition 2 treatment/control BAMs] --> E[cutn-suite Stage 1]
     E --> F[Scaled BigWigs, gated peaks and seeded clusters]
-    C --> G[chip-compare Stage 2]
+    C --> G[cutn-compare Stage 2]
     F --> G
     G --> H[Differential cluster loci, overlap summaries and matched aggregates]
 ```
 
-[`chip-suite`](commands/chip-suite.md) defaults to PNS discovery over the resolved mode ±30 bp while broad coverage uses 1–1,000 bp fragments. Both ranges are generated together by `tracks` in one fragment pass. The narrow discovery range focuses the positioning score on nucleosome-sized fragments; the broad coverage range retains fragment abundance for measurement. Each replicate score is divided by the non-zero mean of its method-matched positive score (`posPNS`, `posBNS`, or `posTNS`) before treatment replicates are averaged into the consensus discovery signal. The selected scoring method is reused throughout cluster-centred heatmaps, confidence bands and directional NRLs; BNS or TNS does not trigger an additional PNS pass. Raw coverage BigWigs are retained and independently scaled to a non-zero mean of 100 for treatment/control measurements. By default, a candidate passes only when every treatment replicate exceeds every control replicate; `--stage1-gate-mode mean` selects the less conservative mean treatment > mean control rule. Significant gate-passing peaks seed clusters at p < 0.05. `--cluster-member-mode seed-and-gated` includes both seed and other gate-passing peaks, whereas `significant-only` includes only significant seeds. The number of consecutive non-members allowed to bridge included members is controlled by `--cluster-max-non-member-gap` (default 1). Treatment and control groups are independent and may differ in size; `--bam-mode merged` pools each group. Stage 2 uses the saved coverage and method-matched normalized score tracks without revisiting BAMs. An explicit mode bypasses automatic mode estimation:
+[`cutn-suite`](commands/cutn-suite.md) defaults to SNS discovery over the resolved mode ±30 bp while broad coverage uses 1–1,000 bp fragments. Both ranges are generated together by `tracks` in one fragment pass. The narrow discovery range focuses the positioning score on nucleosome-sized fragments; the broad coverage range retains fragment abundance for measurement. Each replicate score is divided by the non-zero mean of its method-matched positive score (`posSNS`, `posPNS`, `posBNS`, or `posTNS`) before treatment replicates are averaged into the consensus discovery signal. The selected scoring method is reused throughout cluster-centred heatmaps, confidence bands and directional NRLs; SNS, BNS or TNS does not trigger an additional PNS pass. Raw coverage BigWigs are retained and independently scaled to a non-zero mean of 100 for treatment/control measurements. By default, a candidate passes only when every treatment replicate exceeds every control replicate; `--stage1-gate-mode mean` selects the less conservative mean treatment > mean control rule. Significant gate-passing peaks seed clusters at p < 0.05. `--cluster-member-mode seed-and-gated` includes both seed and other gate-passing peaks, whereas `significant-only` includes only significant seeds. The number of consecutive non-members allowed to bridge included members is controlled by `--cluster-max-non-member-gap` (default 1). Treatment and control groups are independent and may differ in size; `--bam-mode merged` pools each group. Stage 2 uses the saved coverage and method-matched normalized score tracks without revisiting BAMs. An explicit mode bypasses automatic mode estimation:
 
 ```bash
-nucleosuite chip-suite \
+nucleosuite cutn-suite \
   --treatment1-bam target.bam \
   --control1-bam control.bam \
-  --outdir target_chip_suite \
+  --outdir target_cutn_suite \
   --mode 167
 ```
 
 Provide all four treatment/control groups to run both stages together. Alternatively, run each Stage 1 independently and compare its manifest later:
 
 ```bash
-nucleosuite chip-compare \
+nucleosuite cutn-compare \
   --condition1-results wild_type_stage1 \
   --condition2-results mutant_stage1 \
   --outdir mutant_vs_wild_type
@@ -177,7 +177,7 @@ nucleosuite tracks \
   --fasta hg19.fa \
   --output-dir sample_tracks \
   --output-prefix sample \
-  --fragment-range "137-197=pns,posPNS,coverage,pns_peaks" \
+  --fragment-range "137-197=sns,posSNS,coverage,pns_peaks" \
   --fragment-range "120-180=wps,wps_smoothed,mWPS,sm_mWPS,wps_peaks" \
   --fragment-range "145-147=dyad,fragment_left_ends,fragment_right_ends"
 ```

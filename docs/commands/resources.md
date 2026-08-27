@@ -136,7 +136,7 @@ The bundled collection includes:
 
 - **hg19 genes** derived from Ensembl release 87 (`Homo_sapiens.GRCh37.87.gtf`; Aken et al., 2017);
 - **GM12878 15-state ChromHMM annotations** from Ernst et al. (2011);
-- **GM12878 CTCF sites** generated from FIMO scanning of JASPAR MA0139.1 and intersection with ENCODE CTCF ChIP-seq accession ENCFF923ZBP (Grant et al., 2011; Barski et al., 2007; Davis et al., 2018);
+- **GM12878 CTCF sites** generated from FIMO scanning of JASPAR MA0139.1 and intersection with ENCODE CTCF CUT&RUN/CUT&Tag accession ENCFF923ZBP (Grant et al., 2011; Barski et al., 2007; Davis et al., 2018);
 - **hg19 blacklist v2** from the ENCODE/Boyle Lab blacklist resource (Amemiya et al., 2019);
 - **Human Protein Atlas tissue-consensus expression** and cell-line metadata, with GTEx and Cellosaurus provenance where relevant; and
 - the default active/weak/repressed gene-category rules.

@@ -18,7 +18,7 @@ from nucleosuite.cli import (
     dyads,
     fragment_ends,
     tracks,
-    pns,
+    nuc_score,
     wps,
     ww_types,
 )
@@ -144,13 +144,13 @@ def _cfdna_suite_main(argv: Sequence[str] | None = None) -> int:
     return main(argv)
 
 
-def _chip_suite_main(argv: Sequence[str] | None = None) -> int:
-    from nucleosuite.chip_suite import main
+def _cutn_suite_main(argv: Sequence[str] | None = None) -> int:
+    from nucleosuite.cutn_suite import main
     return main(argv)
 
 
-def _chip_compare_main(argv: Sequence[str] | None = None) -> int:
-    from nucleosuite.chip_compare import main
+def _cutn_compare_main(argv: Sequence[str] | None = None) -> int:
+    from nucleosuite.cutn_compare import main
     return main(argv)
 
 def _mnase_suite_main(argv: Sequence[str] | None = None) -> int:
@@ -222,8 +222,8 @@ DELEGATED_COMMANDS: dict[str, tuple[CommandMain, str]] = {
     "tss-expression-quintiles": (_tss_expression_quintiles_main, "Aggregate TSS signal after splitting genes into expression quintiles."),
     "mnase-suite": (_mnase_suite_main, "Run the configurable MNase analysis workflow."),
     "cfdna-suite": (_cfdna_suite_main, "Run the cfDNA fragmentomics and nucleosome workflow."),
-    "chip-suite": (_chip_suite_main, "Run matched target-control ChIP/CUT&RUN/CUT&Tag nucleosome scoring."),
-    "chip-compare": (_chip_compare_main, "Compare two completed chip-suite Stage 1 analyses."),
+    "cutn-suite": (_cutn_suite_main, "Run matched target-control CUT&RUN/CUT&Tag nucleosome scoring."),
+    "cutn-compare": (_cutn_compare_main, "Compare two completed cutn-suite Stage 1 analyses."),
     "resources": (_resources_main, "List, check or copy reference files bundled with NucleoSuite."),
     "validate-inputs": (_validate_inputs_main, "Validate suite inputs and reference compatibility."),
     "region-peak-extractor": (_region_extract_main, "Alias of region-extract."),
@@ -261,8 +261,8 @@ DELEGATED_MODULES: dict[str, str] = {
     "validate-inputs": "nucleosuite.validate_inputs",
     "mnase-suite": "nucleosuite.cli.mnase_suite",
     "cfdna-suite": "nucleosuite.cli.cfdna_suite",
-    "chip-suite": "nucleosuite.chip_suite",
-    "chip-compare": "nucleosuite.chip_compare",
+    "cutn-suite": "nucleosuite.cutn_suite",
+    "cutn-compare": "nucleosuite.cutn_compare",
 }
 
 
@@ -411,7 +411,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # BAM and track-generation commands.
-    pns.register(subparsers)
+    nuc_score.register(subparsers)
     wps.register(subparsers)
     coverage.register(subparsers)
     dyads.register(subparsers)
@@ -452,8 +452,8 @@ def build_parser() -> argparse.ArgumentParser:
         "plot",
         "mnase-suite",
         "cfdna-suite",
-        "chip-suite",
-        "chip-compare",
+        "cutn-suite",
+        "cutn-compare",
         "resources",
         "validate-inputs",
     )

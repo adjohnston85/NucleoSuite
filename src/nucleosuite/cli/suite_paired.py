@@ -73,7 +73,7 @@ def annotate_suite_combined_peaks(
     scaled = combined / "01_combined_tracks" / "scaled"
     if not scaled.is_dir():
         raise RuntimeError(f"Combined scaled peak directory was not created: {scaled}")
-    output_dir = combined / "13_peak_analysis" / "pns" / "empirical_fdr"
+    output_dir = combined / "13_peak_analysis" / "sns" / "empirical_fdr"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     outputs: dict[str, PeakFdrResult] = {}

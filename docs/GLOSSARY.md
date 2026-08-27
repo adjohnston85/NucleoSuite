@@ -10,7 +10,7 @@ An indexed binary format for continuous genomic signal. BigWig files support eff
 
 ## Breakpoint
 
-A genomic feature associated with frequent fragment termination or exposed DNA. PNS, BNS and TNS breakpoint calls are retained negative-score regions, while WPS breakpoint calls are obtained by applying WPS segmentation to the sign-inverted calling signal.
+A genomic feature associated with frequent fragment termination or exposed DNA. SNS, PNS, BNS and TNS breakpoint calls are retained negative-score regions, while WPS breakpoint calls are obtained by applying WPS segmentation to the sign-inverted calling signal.
 
 ## BNS
 
@@ -46,7 +46,7 @@ Dinucleotide profiles do not split even-length fragments between alternative cen
 
 ## Empirical FDR
 
-An estimate of the fraction of retained discoveries expected to be false. `pns-peak-fdr` uses peak-score counts from fragment-randomized runs and reports monotonic empirical q-values. `chip-suite` Stage 1 uses one-sided Welch p-values from replicate maximum scaled coverage followed by Benjamini-Hochberg correction across all treatment candidates, but uses the all-controls gate (every treatment replicate > every control replicate) rather than FDR as its default selector; a mean gate remains available. `chip-compare` applies BH correction to empirical-Bayes moderated four-group interaction tests across overlap-connected cluster loci; its Venn and occupied-base summaries are descriptive rather than FDR analyses.
+An estimate of the fraction of retained discoveries expected to be false. `pns-peak-fdr` uses peak-score counts from fragment-randomized runs and reports monotonic empirical q-values. `cutn-suite` Stage 1 uses one-sided Welch p-values from replicate maximum scaled coverage followed by Benjamini-Hochberg correction across all treatment candidates, but uses the all-controls gate (every treatment replicate > every control replicate) rather than FDR as its default selector; a mean gate remains available. `cutn-compare` applies BH correction to empirical-Bayes moderated four-group interaction tests across overlap-connected cluster loci; its Venn and occupied-base summaries are descriptive rather than FDR analyses.
 
 ## Flanking spacing
 
@@ -66,11 +66,11 @@ The signed positional difference `position_B - position_A` used by DCC. A positi
 
 ## Mean centring
 
-Subtraction of a vector's arithmetic mean from every value. PNS, BNS and TNS mean-centre each fragment distribution before placing it on the genome, making the values contributed by each complete fragment sum to zero.
+Subtraction of a vector's arithmetic mean from every value. PNS, BNS and TNS use mean centring to make each complete fragment contribution sum to zero. SNS is already constructed as a zero-sum signed kernel and therefore does not require mean subtraction.
 
 ## Mode estimation
 
-Estimation of the dominant accepted fragment length used to set PNS, BNS, TNS, or standalone WPS scoring geometry. `pns`, `wps`, and `chip-suite` sample accepted fragments from seeded randomly ordered genomic blocks and bootstrap the raw integer length histogram until the mode stabilizes. Histogram smoothing is disabled by default and is available explicitly with `--mode-histogram-smoothing binomial`. `chip-suite` uses an equal-weight pooled treatment/control mode by default. An integer `--mode` bypasses estimation.
+Estimation of the dominant accepted fragment length used to set SNS, PNS, BNS, TNS, or standalone WPS scoring geometry. `pns`, `wps`, and `cutn-suite` sample accepted fragments from seeded randomly ordered genomic blocks and bootstrap the raw integer length histogram until the mode stabilizes. Histogram smoothing is disabled by default and is available explicitly with `--mode-histogram-smoothing binomial`. `cutn-suite` uses an equal-weight pooled treatment/control mode by default. An integer `--mode` bypasses estimation.
 
 ## NRL
 
@@ -100,6 +100,14 @@ The non-negative PNS distribution before mean subtraction. `posPNS` adds the two
 
 The non-negative BNS unit-mass boxcar before mean subtraction. Each accepted fragment contributes total mass 1.
 
+## SNS
+
+**Sinusoidal nucleosome scoring.** SNS is the default scoring kernel of the standalone `nuc-score` command in NucleoSuite 0.11.0. For fragment length $L$ and protected-DNA mode $m$, the support width is $m+|L-m|$, so the wave is narrowest at the mode and broadens for both shorter and longer fragments. One inverted cosine cycle is sampled at integer genomic positions, then its positive and negative samples are normalized separately to exactly +50 and −50 mass. The complete signed fragment contribution therefore sums to zero and has total absolute mass 100.
+
+## `posSNS`
+
+The non-negative SNS positive-reference track. It is the positive half of the signed SNS kernel divided by 50, giving unit mass per complete fragment. `posSNS` is used for method-matched mean scaling; peak calling uses the signed `sns` track.
+
 ## TNS
 
 **Triangular nucleosome score.** TNS places one symmetric unit-mass triangle across the fragment scoring support. The triangle is zero at both support boundaries, has one central maximum for odd support lengths and a two-base central plateau for even support lengths, and is mean-centred before genome-wide accumulation.
@@ -114,7 +122,7 @@ The separation between two genomic positions, measured in base pairs. A signed o
 
 ## Positive-score mean scaling
 
-Division of a centred TNS, BNS, or PNS track by the finite, non-zero mean of its matching pre-centring positive track. This places matched target and control tracks on a comparable per-positive-score scale without subtracting the control signal.
+Division of an SNS, TNS, BNS, or PNS score track by the finite, non-zero mean of its matching non-negative positive-reference track. This places matched target and control tracks on a comparable per-positive-score scale without subtracting the control signal.
 
 ## Summit
 

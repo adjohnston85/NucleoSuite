@@ -1,6 +1,6 @@
 # NucleoSuite
 
-NucleoSuite is a command-line toolkit that converts paired-end alignments or fragment intervals into nucleosome-positioning signals, cfDNA and MNase-seq fragmentomic analyses, matched ChIP-seq/CUT&RUN/CUT&Tag analyses, peak calls, chromatin-state profiles, sequence profiles, spacing measurements, and coordinated workflows.
+NucleoSuite is a command-line toolkit that converts paired-end alignments or fragment intervals into nucleosome-positioning signals, cfDNA and MNase-seq fragmentomic analyses, matched CUT&RUN/CUT&Tag analyses, peak calls, chromatin-state profiles, sequence profiles, spacing measurements, and coordinated workflows.
 
 <p align="center">
   <img src="docs/images/PNS_example_tracks_BH01.png" alt="Example NucleoSuite genomic track outputs displayed in IGV" width="100%">
@@ -38,7 +38,7 @@ Analysis commands derive output filenames or prefixes from the primary input bas
 | Command | Function |
 |---|---|
 | [`tracks`](docs/commands/tracks.md) | Generate multiple range-specific signal and coordinate tracks in one fragment pass. |
-| [`pns`](docs/commands/pns.md) | Calculate PNS, BNS or TNS nucleosome score tracks and shared peak calls. |
+| [`nuc-score`](docs/commands/nuc-score.md) | Calculate SNS, PNS, BNS or TNS nucleosome score tracks and shared peak calls; SNS is the standalone default. |
 | [`wps`](docs/commands/wps.md) | Calculate window protection score tracks and WPS peak calls. |
 | [`coverage`](docs/commands/coverage.md) | Calculate per-base fragment coverage. |
 | [`mean-scale`](docs/commands/mean-scale.md) | Mean-normalize BigWig signal or BED-family scores relative to a calculated or supplied reference mean. |
@@ -80,8 +80,8 @@ Analysis commands derive output filenames or prefixes from the primary input bas
 |---|---|
 | [`mnase-suite`](docs/commands/mnase-suite.md) | Run the coordinated MNase-seq workflow. |
 | [`cfdna-suite`](docs/commands/cfdna-suite.md) | Run the coordinated cfDNA fragmentomics workflow. |
-| [`chip-suite`](docs/commands/chip-suite.md) | Run matched target-control ChIP-seq/CUT&RUN/CUT&Tag TNS, BNS or PNS analysis. |
-| [`chip-compare`](docs/commands/chip-compare.md) | Compare Stage 1 clusters between two conditions and summarize cluster overlap. |
+| [`cutn-suite`](docs/commands/cutn-suite.md) | Run matched target-control CUT&RUN/CUT&Tag SNS, TNS, BNS or PNS analysis. |
+| [`cutn-compare`](docs/commands/cutn-compare.md) | Compare Stage 1 clusters between two conditions and summarize cluster overlap. |
 | [`combine`](docs/commands/combine.md) | Combine outputs from an existing chromosome-wise run. |
 | [`chrom-sizes`](docs/commands/chrom-sizes.md) | Write chromosome names and lengths from a BAM or CRAM header. |
 | [`resources`](docs/commands/resources.md) | List, locate, validate, or copy bundled resources. |
@@ -91,12 +91,12 @@ Analysis commands derive output filenames or prefixes from the primary input bas
 
 ## Typical workflows
 
-For a single analysis, run the command that produces the required signal, profile, peak set, or spacing result. For coordinated analyses, use [`mnase-suite`](docs/commands/mnase-suite.md), [`cfdna-suite`](docs/commands/cfdna-suite.md), or the matched target/control [`chip-suite`](docs/commands/chip-suite.md). Existing chromosome-wise runs can be recombined with [`combine`](docs/commands/combine.md), and generated figures can be recreated or customized with [`plot`](docs/commands/plot.md).
+For a single analysis, run the command that produces the required signal, profile, peak set, or spacing result. For coordinated analyses, use [`mnase-suite`](docs/commands/mnase-suite.md), [`cfdna-suite`](docs/commands/cfdna-suite.md), or the matched target/control [`cutn-suite`](docs/commands/cutn-suite.md). Existing chromosome-wise runs can be recombined with [`combine`](docs/commands/combine.md), and generated figures can be recreated or customized with [`plot`](docs/commands/plot.md).
 
-A minimal PNS example:
+A minimal `nuc-score` command using the default SNS kernel:
 
 ```bash
-nucleosuite pns \
+nucleosuite nuc-score \
   --bam sample.bam \
   --fasta genome.fa \
   --contigs chr1 chr2 chr3 chr4 \
@@ -104,21 +104,21 @@ nucleosuite pns \
   --out-prefix sample
 ```
 
-Standalone `pns` and `wps` estimate their protected-DNA mode automatically from the unsmoothed accepted-fragment histogram. The resolved estimate is printed and recorded; use an integer such as `--mode 167` to apply a fixed mode instead.
+Standalone `nuc-score` and `wps` estimate their protected-DNA mode automatically from the unsmoothed accepted-fragment histogram. The resolved estimate is printed and recorded; use an integer such as `--mode 167` to apply a fixed mode instead.
 
-A default PNS target/control analysis with automatic bootstrap fragment-mode estimation is:
+A default SNS target/control CUT&RUN/CUT&Tag analysis with automatic bootstrap fragment-mode estimation is:
 
 ```bash
-nucleosuite chip-suite \
+nucleosuite cutn-suite \
   --treatment1-bam target.bam \
   --control1-bam control.bam \
-  --outdir target_chip_suite \
+  --outdir target_cutn_suite \
   --cores 8
 ```
 
 Use `--mode 167` to bypass mode estimation and apply that exact mode to both samples.
 
-Multiple BAMs are treated as independent biological replicates by default; treatment and control counts may differ, and `--bam-mode merged` pools each group as one logical sample. Peak discovery defaults to PNS over each resolved mode ±30 bp; BNS or TNS can be selected instead. For every replicate, the mode-centred score/positive-score pair and broad 1–1,000 bp coverage are generated together in one `tracks` pass. The selected score is divided by the mean of its matching positive track (`posPNS`, `posBNS`, or `posTNS`) before treatment replicates are averaged, while coverage is independently scaled to a non-zero mean of 100 for treatment/control measurements. A candidate passes Stage 1 by default when mean treatment coverage exceeds mean control coverage; `--stage1-gate-mode all-controls` requires every treatment replicate to exceed every control replicate. Welch p-values and BH FDR remain optional filters. Clusters are seeded by gate-passing p < 0.05 peaks; `--cluster-member-mode seed-and-gated` includes S and G members, while `significant-only` includes only S peaks. `--cluster-max-non-member-gap` controls bridging and defaults to 1. The selected scoring method is reused for cluster-centred heatmaps, confidence bands, and directional NRLs; BNS/TNS never trigger an additional PNS pass. Add `--treatment2-bam` and `--control2-bam` for cluster-only empirical-Bayes interaction tests plus Venn and occupied-base overlap summaries, or run [`chip-compare`](docs/commands/chip-compare.md) later from two Stage 1 manifests.
+Multiple BAMs are treated as independent biological replicates by default; treatment and control counts may differ, and `--bam-mode merged` pools each group as one logical sample. Peak discovery in `cutn-suite` defaults to SNS over each resolved mode ±30 bp; PNS, BNS or TNS can be selected instead. For every replicate, the mode-centred score/positive-score pair and broad 1–1,000 bp coverage are generated together in one `tracks` pass. The selected score is divided by the mean of its matching positive track (`posSNS`, `posPNS`, `posBNS`, or `posTNS`) before treatment replicates are averaged, while coverage is independently scaled to a non-zero mean of 100 for treatment/control measurements. A candidate passes Stage 1 by default only when every treatment replicate exceeds every control replicate (`--stage1-gate-mode all-controls`); `--stage1-gate-mode mean` selects the less conservative mean treatment > mean control rule. Welch p-values and BH FDR remain optional filters. Clusters are seeded by gate-passing p < 0.05 peaks; `--cluster-member-mode seed-and-gated` includes S and G members, while `significant-only` includes only S peaks. `--cluster-max-non-member-gap` controls bridging and defaults to 1. The selected scoring method is reused for cluster-centred heatmaps, confidence bands, and directional NRLs; SNS/BNS/TNS never trigger an additional PNS pass. Add `--treatment2-bam` and `--control2-bam` for cluster-only empirical-Bayes interaction tests plus Venn and occupied-base overlap summaries, or run [`cutn-compare`](docs/commands/cutn-compare.md) later from two Stage 1 manifests.
 
 Detailed command behaviour, advanced options, output layouts, resource handling, and workflow examples are documented in the pages linked above and in the guides below.
 

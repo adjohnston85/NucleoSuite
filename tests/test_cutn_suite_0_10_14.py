@@ -1,8 +1,8 @@
 from pathlib import Path
 import pytest
 
-from nucleosuite.chip_suite import build_parser
-from nucleosuite.chip_peaks import CompetitivePeak, ReplicatePeakStatistics, cluster_seeded_gate_peaks
+from nucleosuite.cutn_suite import build_parser
+from nucleosuite.cutn_peaks import CompetitivePeak, ReplicatePeakStatistics, cluster_seeded_gate_peaks
 from nucleosuite.peak_fdr import PeakRow
 
 
@@ -19,7 +19,7 @@ def _record(i, *, mean_diff, all_gate, p):
     )
 
 
-def test_chip_suite_0_10_12_public_defaults(tmp_path: Path):
+def test_cutn_suite_0_10_14_public_defaults(tmp_path: Path):
     t = tmp_path / "t.bam"; c = tmp_path / "c.bam"; t.touch(); c.touch()
     args = build_parser().parse_args(["--treatment1-bam", str(t), "--control1-bam", str(c), "--outdir", str(tmp_path/'out')])
     assert args.stage1_gate_mode == "all-controls"
@@ -54,9 +54,9 @@ def test_significant_only_and_non_member_gap_split_clusters():
     assert [len(c.significant_peaks) for c in clusters] == [1, 2]
 
 
-def test_chip_suite_shared_tracks_pass_contains_score_and_broad_coverage(tmp_path: Path):
+def test_cutn_suite_shared_tracks_pass_contains_score_and_broad_coverage(tmp_path: Path):
     from unittest.mock import patch
-    from nucleosuite.chip_suite import _generate_and_scale
+    from nucleosuite.cutn_suite import _generate_and_scale
     from nucleosuite.progress import ProgressReporter
 
     bam = tmp_path / "sample.bam"
@@ -65,7 +65,7 @@ def test_chip_suite_shared_tracks_pass_contains_score_and_broad_coverage(tmp_pat
         "--treatment1-bam", str(bam),
         "--control1-bam", str(bam),
         "--outdir", str(tmp_path / "out"),
-        "--sample-name", "chip",
+        "--sample-name", "cutn",
         "--mode", "152",
         "--contigs", "chr1",
     ])
@@ -99,8 +99,8 @@ def test_chip_suite_shared_tracks_pass_contains_score_and_broad_coverage(tmp_pat
         return output, 2.0, 10
 
     with (
-        patch("nucleosuite.chip_suite._run_nucleosuite", side_effect=fake_run),
-        patch("nucleosuite.chip_suite.scale_bigwig_by_reference", side_effect=fake_scale),
+        patch("nucleosuite.cutn_suite._run_nucleosuite", side_effect=fake_run),
+        patch("nucleosuite.cutn_suite.scale_bigwig_by_reference", side_effect=fake_scale),
     ):
         record = _generate_and_scale(
             args=args,
@@ -124,7 +124,7 @@ def test_chip_suite_shared_tracks_pass_contains_score_and_broad_coverage(tmp_pat
 
 
 def test_stage2_manifest_uses_selected_method_score_tracks(tmp_path: Path):
-    from nucleosuite.chip_compare import _manifest_score_tracks
+    from nucleosuite.cutn_compare import _manifest_score_tracks
 
     mean = tmp_path / "mean_bns.bw"
     rep1 = tmp_path / "rep1_bns.bw"
@@ -148,7 +148,7 @@ def test_stage2_manifest_uses_selected_method_score_tracks(tmp_path: Path):
 
 
 def test_stage1_statistics_and_seed_beds_append_raw_p_and_fdr(tmp_path: Path, monkeypatch):
-    import nucleosuite.chip_peaks as cp
+    import nucleosuite.cutn_peaks as cp
 
     class Handle:
         def __init__(self, score):
@@ -162,7 +162,7 @@ def test_stage1_statistics_and_seed_beds_append_raw_p_and_fdr(tmp_path: Path, mo
     monkeypatch.setattr(cp, "open_bigwigs", lambda _paths: handles)
     monkeypatch.setattr(cp, "interval_max", lambda handle, *_args: handle.score)
 
-    outputs = cp.analyze_chip_replicate_peaks(
+    outputs = cp.analyze_cutn_replicate_peaks(
         target_bed,
         output_dir=tmp_path / "out",
         target_replicate_bigwigs=["t1.bw", "t2.bw"],

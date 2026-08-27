@@ -1,19 +1,21 @@
-# `nucleosuite chip-suite`
+# `nucleosuite cutn-suite`
 
 ## What this command does
 
-`chip-suite` performs control-aware nucleosome-score analysis for ChIP-seq, CUT&RUN, or CUT&Tag. A run with condition 1 treatment and control BAMs performs Stage 1 only. Supplying all four condition groups performs Stage 1 independently for both conditions and then compares their enrichments in Stage 2.
+`cutn-suite` performs control-aware nucleosome-score analysis for CUT&RUN or CUT&Tag. A run with condition 1 treatment and control BAMs performs Stage 1 only. Supplying all four condition groups performs Stage 1 independently for both conditions and then compares their enrichments in Stage 2.
 
-PNS is the default discovery score. Its fragment range is resolved separately for treatment and control as the selected mode ±30 bp. Use `--scoring-method bns` or `--scoring-method tns` when another kernel is required. The mode-centred score/positive-score pair and broad 1–1,000 bp coverage are generated together by `tracks` in one fragment pass per replicate.
+If condition labels are not supplied, they are named `condition1` and `condition2`. The output prefix remains independently controlled by `--sample-name` and is not used as a biological condition label.
+
+SNS is the default discovery score. Its fragment range is resolved separately for treatment and control as the selected mode ±30 bp. Use `--scoring-method pns`, `--scoring-method bns`, or `--scoring-method tns` when another kernel is required. The mode-centred score/positive-score pair and broad 1–1,000 bp coverage are generated together by `tracks` in one fragment pass per replicate.
 
 ## Why use it
 
-Use this workflow to distinguish antibody-target enrichment from a condition-matched control and, optionally, test whether that enrichment changes between conditions. PNS locates peaks by default. Every coverage BigWig is separately divided by its own finite non-zero mean and multiplied by 100 before peak strength is measured. The control is not globally subtracted from the treatment track.
+Use this workflow to distinguish antibody-target enrichment from a condition-matched control and, optionally, test whether that enrichment changes between conditions. SNS locates peaks by default. Every coverage BigWig is separately divided by its own finite non-zero mean and multiplied by 100 before peak strength is measured. The control is not globally subtracted from the treatment track.
 
 ## Stage 1: one condition
 
 ```bash
-nucleosuite chip-suite \
+nucleosuite cutn-suite \
   --treatment1-bam H3K4me3.bam \
   --control1-bam H3.bam \
   --condition1-name wild_type \
@@ -22,20 +24,20 @@ nucleosuite chip-suite \
 ```
 
 
-Stage 1 separates **peak discovery** from **peak measurement**. TNS, BNS, or PNS defines where candidate peaks occur. Scaled fragment coverage then provides the replicate values used for treatment-versus-control filtering and statistics. Keeping these roles separate avoids treating the height of a model-derived positioning score as if it were direct fragment abundance.
+Stage 1 separates **peak discovery** from **peak measurement**. SNS, PNS, BNS, or TNS defines where candidate peaks occur. Scaled fragment coverage then provides the replicate values used for treatment-versus-control filtering and statistics. Keeping these roles separate avoids treating the height of a model-derived positioning score as if it were direct fragment abundance.
 
 ### 1. Generate one score and coverage set per replicate
 
-For each treatment and control replicate, `chip-suite` makes two deliberately different fragment selections:
+For each treatment and control replicate, `cutn-suite` makes two deliberately different fragment selections:
 
-- a centred PNS, BNS, or TNS discovery track and its matching non-negative `posPNS`, `posBNS`, or `posTNS` track, using fragments from the resolved mode ±30 bp by default; and
+- an SNS, PNS, BNS, or TNS discovery track and its matching non-negative `posSNS`, `posPNS`, `posBNS`, or `posTNS` track, using fragments from the resolved mode ±30 bp by default; and
 - raw fragment coverage using all accepted fragments from 1–1,000 bp by default.
 
-The narrow, mode-centred range focuses the discovery score on fragments most consistent with one protected nucleosome and prevents very short or long assay fragments from changing the positioning signal. Override the symmetric flank with `--score-fragment-flank`, or set both `--score-frag-lower` and `--score-frag-upper` for fixed bounds. The broader coverage range retains the fragment abundance associated with the enriched locus, including subnucleosomal and longer fragments that can be informative in ChIP-seq, CUT&RUN, or CUT&Tag. Change it with `--coverage-frag-lower` and `--coverage-frag-upper`.
+The narrow, mode-centred range focuses the discovery score on fragments most consistent with one protected nucleosome and prevents very short or long assay fragments from changing the positioning signal. Override the symmetric flank with `--score-fragment-flank`, or set both `--score-frag-lower` and `--score-frag-upper` for fixed bounds. The broader coverage range retains the fragment abundance associated with the enriched locus, including subnucleosomal and longer fragments that can be informative in CUT&RUN or CUT&Tag. Change it with `--coverage-frag-lower` and `--coverage-frag-upper`.
 
 The centred score locates protected-DNA structure. The positive track measures the overall amount of method-specific score support and is used only as the normalization reference. Raw broad-range coverage is retained so the original sequencing-depth scale remains available.
 
-The selected scoring method is used throughout the workflow. PNS uses `pns`/`posPNS`, BNS uses `bns`/`posBNS`, and TNS uses `tns`/`posTNS`. The same method-specific normalized treatment tracks used for discovery are reused for cluster-centred profiles, heatmaps and directional NRLs; selecting BNS or TNS does not trigger an additional PNS pass. Score tracks from the mode-centred range and broad 1–1,000 bp coverage are generated together by `tracks` in one fragment pass. `chip-suite` then calls treatment nucleosome candidates once from the consensus discovery track and does not produce per-replicate nucleosome or breakpoint callsets.
+The selected scoring method is used throughout the workflow. SNS uses `sns`/`posSNS`, PNS uses `pns`/`posPNS`, BNS uses `bns`/`posBNS`, and TNS uses `tns`/`posTNS`. The same method-specific normalized treatment tracks used for discovery are reused for cluster-centred profiles, heatmaps and directional NRLs; selecting SNS, BNS or TNS does not trigger an additional PNS pass. Score tracks from the mode-centred range and broad 1–1,000 bp coverage are generated together by `tracks` in one fragment pass. `cutn-suite` then calls treatment nucleosome candidates once from the consensus discovery track and does not produce per-replicate nucleosome or breakpoint callsets.
 
 ### 2. Normalize and average treatment score tracks for discovery
 
@@ -69,7 +71,7 @@ T_i(R)=\max_{x\in R}Cov_{100,T_i}(x),
 C_j(R)=\max_{x\in R}Cov_{100,C_j}(x).
 ```
 
-The maximum is used because it captures the strongest local fragment enrichment supporting the candidate without making the score strongly dependent on the width of the PNS/BNS/TNS-defined interval. These broad-range coverage maxima—not the PNS, BNS, or TNS peak heights—are the replicate peak scores used for filtering and inference.
+The maximum is used because it captures the strongest local fragment enrichment supporting the candidate without making the score strongly dependent on the width of the SNS/PNS/BNS/TNS-defined interval. These broad-range coverage maxima—not the SNS, PNS, BNS, or TNS peak heights—are the replicate peak scores used for filtering and inference.
 
 Column 5 of the annotated BED is replaced with the maximum of the condition-mean treatment `Cov100` track over the same interval. This provides one convenient display score. The complete peak BED appends the raw Welch p-value and BH FDR as its final two columns, while the parameter-aware replicate-statistics TSV retains every individual replicate value used in the test.
 
@@ -107,7 +109,7 @@ p(R)<0.05.
 
 With the default all-controls gate this means every treatment replicate exceeds every control replicate; with `--stage1-gate-mode mean` it means mean treatment > mean control. Every seed is also written to `target_seed_peaks_gate_<mode>_seed_p<threshold>.bed`, with raw p-value and BH FDR appended as the final two columns. The nominal p-value supplies a reproducible point from which to begin the cluster. Change the default seed threshold with `--cluster-seed-p-value`.
 
-After finding a seed, `chip-suite` looks upstream and downstream through the ordered treatment candidates. Any neighbouring peak that passes the selected treatment-control gate can extend the cluster even when its own p-value is at least 0.05. This separates the evidence needed to **start** a domain from the evidence used to define its **extent**: local replicate variability should not cut a coherent run of consistently treatment-over-control nucleosomes into many small pieces.
+After finding a seed, `cutn-suite` looks upstream and downstream through the ordered treatment candidates. Any neighbouring peak that passes the selected treatment-control gate can extend the cluster even when its own p-value is at least 0.05. This separates the evidence needed to **start** a domain from the evidence used to define its **extent**: local replicate variability should not cut a coherent run of consistently treatment-over-control nucleosomes into many small pieces.
 
 The default permits one consecutive non-member candidate to bridge two included members (`--cluster-max-non-member-gap 1`). In `seed-and-gated` mode, non-members are gate-failing `x` peaks; in `significant-only` mode, both `G` and `x` are non-members. Bridging candidates never become endpoints or score contributors. A run of non-members longer than the configured limit ends the current cluster; later eligible peaks can start a new seeded cluster. Adjacent included-member summits must also be no more than 1,000 bp apart (`--max-cluster-gap 1000`).
 
@@ -155,7 +157,7 @@ With `--cluster-member-mode significant-only`, `G` and `x` are both non-members 
 
 Cluster coordinates run from the start of the first included member to the end of the last included member. With the default `--stage1-gate-mode all-controls`, each member contributes `minimum treatment - maximum control` to the cluster score. With `--stage1-gate-mode mean`, each member instead contributes `mean treatment - mean control`. The default `--cluster-member-mode seed-and-gated` treats both `S` and `G` peaks as members; `--cluster-member-mode significant-only` restricts membership and scoring to `S` peaks. `--cluster-max-non-member-gap` controls how many consecutive non-members may bridge included members; a longer run ends the current cluster and later eligible peaks are evaluated as a new cluster. Bridging candidates never contribute to the cluster boundary or score. The strongest peak is the included member with the largest maximum on the condition-mean treatment coverage track; selected treatment-over-control excess and genomic position break ties. `--cluster-fdr` can optionally filter the maximum seed FDR, but no cluster FDR cutoff is applied by default.
 
-`chip-suite` calls nucleosome peaks only. It does not call or retain breakpoint peaks because Stage 1 and Stage 2 use positive nucleosome-score candidates.
+`cutn-suite` calls nucleosome peaks only. It does not call or retain breakpoint peaks because Stage 1 and Stage 2 use positive nucleosome-score candidates.
 
 Because every cluster requires at least one p-value-defined seed, merged mode and groups lacking two biological replicates do not produce Stage 1 clusters. Gate-selected individual peaks are still written.
 
@@ -167,9 +169,9 @@ For each treatment replicate, the selected score is divided by the finite, non-z
 S_{scaled,i}(x)=\frac{S_i(x)}{\mathrm{mean}(posS_i(x)\mid posS_i(x)>0)}.
 ```
 
-This normalization is done per replicate before averaging because raw score magnitude increases with usable fragment depth. Averaging independently normalized method-matched score tracks gives each replicate equal weight. This differs from coverage-to-100 scaling: scaled coverage measures peak abundance and supports treatment/control statistics, whereas the normalized PNS, BNS or TNS signal shows nucleosome positioning around the selected cluster anchor.
+This normalization is done per replicate before averaging because raw score magnitude increases with usable fragment depth. Averaging independently normalized method-matched score tracks gives each replicate equal weight. This differs from coverage-to-100 scaling: scaled coverage measures peak abundance and supports treatment/control statistics, whereas the normalized SNS, PNS, BNS or TNS signal shows nucleosome positioning around the selected cluster anchor.
 
-Each cluster is aligned at the TNS/BNS/PNS summit of its strongest coverage-scored member. Keeping the discovery summit rather than replacing it with the coordinate of the coverage maximum preserves the nucleosome-position estimate while using direct coverage only to decide which member is strongest.
+Each cluster is aligned at the SNS/PNS/BNS/TNS summit of its strongest coverage-scored member. Keeping the discovery summit rather than replacing it with the coordinate of the coverage maximum preserves the nucleosome-position estimate while using direct coverage only to decide which member is strongest.
 
 The default aggregate window is ±1,000 bp. Outputs include a replicate-combined heatmap and mean profile, individual replicate mean profiles and an overlay, a cluster-bootstrap 95% confidence band, and positive- and negative-direction NRL fits. Directional NRL calling defaults to 140 bp resolution, includes the aligned central peak as order 0, uses peak orders 0 through 3, and disables the usual central regression exclusion. Missing peak orders are not renumbered. Change these settings with the `--cluster-aggregate-*` options or use `--skip-cluster-aggregate` when only Stage 1 peak and cluster tables are needed.
 
@@ -178,13 +180,13 @@ The default aggregate window is ±1,000 bp. Outputs include a replicate-combined
 Multiple BAMs in each group are independent biological replicates by default. Treatment and control groups may contain different numbers of BAMs. They are not paired by command-line order:
 
 ```bash
-nucleosuite chip-suite \
+nucleosuite cutn-suite \
   --treatment1-bam wt_mark_r1.bam wt_mark_r2.bam wt_mark_r3.bam \
   --control1-bam wt_H3_r1.bam wt_H3_r2.bam wt_H3_r3.bam \
   --outdir wt_stage1
 ```
 
-Each replicate is scored and normalized separately before the discovery tracks are averaged. This gives the replicates equal footing during candidate discovery. Replicate-specific scaled coverage supplies the selected treatment-control gate and exploratory one-sided Welch annotations; condition-mean treatment coverage supplies the single reported BED score. All tracks are retained in `chip_stage1_manifest.json` so Stage 2 can reuse the exact replicate measurements without returning to the BAM files.
+Each replicate is scored and normalized separately before the discovery tracks are averaged. This gives the replicates equal footing during candidate discovery. Replicate-specific scaled coverage supplies the selected treatment-control gate and exploratory one-sided Welch annotations; condition-mean treatment coverage supplies the single reported BED score. All tracks are retained in `cutn_stage1_manifest.json` so Stage 2 can reuse the exact replicate measurements without returning to the BAM files.
 
 Use `--bam-mode merged` to pass every treatment BAM as one logical treatment sample and every control BAM as one logical control sample. This matches the usual NucleoSuite multi-BAM pooling behaviour. Merged mode provides Stage 2 effect sizes and gain/loss direction, but not biological-replicate p-values or FDR.
 
@@ -193,7 +195,7 @@ Use `--bam-mode merged` to pass every treatment BAM as one logical treatment sam
 Supply condition 2 as a complete treatment/control pair:
 
 ```bash
-nucleosuite chip-suite \
+nucleosuite cutn-suite \
   --treatment1-bam wt_mark_r1.bam wt_mark_r2.bam \
   --control1-bam wt_H3_r1.bam wt_H3_r2.bam \
   --condition1-name wild_type \
@@ -239,7 +241,61 @@ Stage 2 also writes a descriptive Venn diagram of condition-only and shared clus
 
 For a coordinate-matched visual comparison, Stage 2 aligns both conditions to the same union-locus anchor set and uses the same symmetric heatmap colour range. The anchor is the strongest coverage-scored Stage 1 member peak among clusters contributing to that locus. These matched heatmaps supplement the condition's own-cluster aggregates generated during Stage 1.
 
-Stage 2 never returns to the BAM files. The saved scaled-coverage BigWigs supply differential measurements, and the saved method-matched normalized PNS, BNS or TNS tracks supply aggregate positioning signal.
+Stage 2 never returns to the BAM files. The saved scaled-coverage BigWigs supply differential measurements, and the saved method-matched normalized SNS, PNS, BNS or TNS tracks supply aggregate positioning signal.
+
+## Inspect a completed run
+
+Completed `cutn-suite` directories can be inspected without opening the manifests manually:
+
+```bash
+nucleosuite cutn-suite --inspect-run cutn_results_h3K4me3
+```
+
+The report lists each biological condition, its treatment and control BAMs, the retained replicate tracks, scoring method, resolved treatment/control modes, discovery and coverage fragment ranges, Stage 1 gate and cluster settings. For each retained replicate, `cutn-suite` also reports lightweight sample statistics from the saved track outputs, including the fragment-length mode within the nucleosome mode-search range, the number of fragments used in the broad coverage range, the positive-score normalization mean, and the pre-scaling non-zero coverage mean when those values are available. The original treatment/control/pooled bootstrap mode estimate and confidence interval are also shown when the mode report is present.
+
+Runs created by 0.10.13 and later contain a root `cutn_suite_run_manifest.json` that records the condition manifests and run-level settings. `--inspect-run` also recognizes the 0.10.12 layout directly, so an existing run does not need to be repeated merely to inspect it.
+
+## Fast reruns from retained BigWigs
+
+`--rerun-from` reuses the per-replicate normalized score and broad-coverage BigWigs from a completed run. It does **not** repeat mode estimation or the BAM-to-BigWig `tracks` stage. This is useful for leave-one-replicate-out checks and for changing downstream peak, statistics, clustering, Stage 2, or aggregate parameters.
+
+Exclude one replicate by BAM path, filename, or an unambiguous filename stem:
+
+```bash
+nucleosuite cutn-suite \
+  --rerun-from cutn_results_h3K4me3 \
+  --exclude-sample wt_K4_R2_sort.bam
+```
+
+Repeat `--exclude-sample` to exclude several replicates. When a basename or stem matches more than one retained BAM, the command stops and asks for the full BAM path rather than excluding multiple samples silently. A BAM cannot be removed from a source run created with `--bam-mode merged`, because the retained BigWig already contains the merged group; sample exclusion therefore requires per-replicate source tracks.
+
+The rerun is written as a subdirectory of the source run. One exclusion produces names such as:
+
+```text
+rerun_excluding_wt_K4_R2_sort_01/
+rerun_excluding_wt_K4_R2_sort_02/
+```
+
+Several exclusions use a shorter form such as `rerun_excluding_2_samples_01/`. A rerun with no exclusions is named `rerun_01/`. Existing reruns are detected and the numeric suffix is incremented automatically. The source run is never overwritten.
+
+The retained replicate BigWigs are filtered first, then treatment/control condition means are recalculated as required. Peak discovery, replicate statistics, seed peaks, clusters, Stage 2 and cluster aggregates are regenerated downstream of those new means. For example:
+
+```bash
+nucleosuite cutn-suite \
+  --rerun-from cutn_results_h3K4me3 \
+  --exclude-sample wt_K4_R2_sort.bam \
+  --peak-min-region-length 60 \
+  --peak-max-neg-run 2 \
+  --cluster-seed-p-value 0.01 \
+  --cluster-member-mode significant-only \
+  --min-cluster-members 2
+```
+
+The peak caller can be changed downstream with `--peak-min-region-length`, `--peak-max-neg-run`, `--peak-smooth-window`, and `--peak-smooth-order`. Stage 1 gate/p-value/FDR settings, seed threshold, cluster FDR, cluster membership mode, maximum non-member gap, maximum adjacent-member distance, minimum cluster member count, Stage 2 `--differential-fdr`, and the cluster aggregate/NRL settings can likewise be changed because none alters the retained per-sample BigWigs. `--skip-cluster-aggregate` disables aggregate regeneration; `--run-cluster-aggregate` explicitly enables it when the source run had skipped it.
+
+Parameters that define the initial BigWigs are inherited and locked during a reuse rerun. These include the scoring method, resolved scoring geometry/mode inputs, discovery and coverage fragment selections, BAM grouping, contigs, blacklist and duplicate handling. If one of these options is supplied with `--rerun-from`, the command stops with an explanatory error rather than silently mixing incompatible tracks. To change such a parameter, start a fresh `cutn-suite` run from the BAMs.
+
+Every rerun writes its own `cutn_suite_run_manifest.json`. It records the source run, excluded BAMs, retained condition manifests, and downstream parameters explicitly changed for that rerun.
 
 ## Automatic fragment mode
 
@@ -252,11 +308,11 @@ The treatment, control, and pooled estimates are printed as soon as each calcula
 For example, a two-condition run reports lines of the form:
 
 ```text
-[chip-suite] Condition 1 treatment fragment mode: 153 bp (...)
-[chip-suite] Condition 1 control fragment mode: 151 bp (...)
-[chip-suite] Condition 2 treatment fragment mode: 154 bp (...)
-[chip-suite] Condition 2 control fragment mode: 152 bp (...)
-[chip-suite] Resolved analysis modes: treatment=153 bp; control=153 bp; strategy=pooled
+[cutn-suite] Condition 1 treatment fragment mode: 153 bp (...)
+[cutn-suite] Condition 1 control fragment mode: 151 bp (...)
+[cutn-suite] Condition 2 treatment fragment mode: 154 bp (...)
+[cutn-suite] Condition 2 control fragment mode: 152 bp (...)
+[cutn-suite] Resolved analysis modes: treatment=153 bp; control=153 bp; strategy=pooled
 ```
 
 In a two-condition run, mode estimates are pooled across corresponding groups so both Stage 1 analyses use compatible scoring geometry.
@@ -266,14 +322,14 @@ The default `--mode-strategy pooled` gives the group histograms equal weight and
 Automatic estimation can be bypassed:
 
 ```bash
-nucleosuite chip-suite \
+nucleosuite cutn-suite \
   --treatment1-bam target.bam \
   --control1-bam control.bam \
-  --outdir chip_results \
+  --outdir cutn_results \
   --mode 167
 ```
 
-For Stage 1 analyses that will later be compared with `chip-compare`, using the same explicit mode is the simplest way to guarantee compatibility.
+For Stage 1 analyses that will later be compared with `cutn-compare`, using the same explicit mode is the simplest way to guarantee compatibility.
 
 ## Output layout
 
@@ -285,10 +341,11 @@ A one-condition run writes:
 - `03_peak_calls/`: treatment-defined nucleosome candidate peaks;
 - `04_peak_fdr/`: replicate statistics, annotated and gate-selected peaks, and seeded clusters;
 - `05_cluster_aggregate/`: strongest-member anchors, replicate and combined normalized-score profiles, heatmap, bootstrap confidence band, and directional NRL outputs;
-- `chip_stage1_manifest.json`: reusable Stage 1 metadata and scaled-track paths.
+- `cutn_stage1_manifest.json`: reusable Stage 1 metadata and scaled-track paths.
+- `cutn_suite_run_manifest.json`: run-level condition, BAM, parameter, and reuse metadata used by `--inspect-run` and `--rerun-from`.
 
-A two-condition run writes the two Stage 1 trees under `01_condition1_stage1/` and `02_condition2_stage1/`. `03_condition_comparison/` contains cluster-only differential tables and BEDs, overlap-component mapping, Venn and occupied-base summaries, and matched union-locus aggregate heatmaps.
+A two-condition run writes the two Stage 1 trees under `01_condition1_stage1/` and `02_condition2_stage1/`. `03_condition_comparison/` contains cluster-only differential tables and BEDs, overlap-component mapping, Venn and occupied-base summaries, and matched union-locus aggregate heatmaps. The root `cutn_suite_run_manifest.json` points to both condition manifests and the comparison manifest.
 
-When contigs run in parallel, `chip-suite` follows each native multicontig manifest to its combined BigWig or BED output before continuing.
+When contigs run in parallel, `cutn-suite` follows each native multicontig manifest to its combined BigWig or BED output before continuing.
 
 [Back to the command reference](../COMMAND_REFERENCE.md)

@@ -1,4 +1,4 @@
-"""Target-control peak competition and empirical cluster FDR for chip-suite."""
+"""Target-control peak competition and empirical cluster FDR for cutn-suite."""
 
 from __future__ import annotations
 
@@ -573,7 +573,7 @@ def cluster_seeded_gate_peaks(
     return clusters
 
 
-def analyze_chip_peaks(
+def analyze_cutn_peaks(
     target_path: str | Path,
     control_path: str | Path,
     *,
@@ -711,7 +711,7 @@ def analyze_chip_peaks(
             if cluster.qvalue <= cluster_fdr:
                 bed.write(
                     f"{cluster.chrom}\t{cluster.start}\t{cluster.end}\t"
-                    f"chip_cluster_{index}\t{cluster.score:.6f}\t.\t"
+                    f"cutn_cluster_{index}\t{cluster.score:.6f}\t.\t"
                     f"{cluster.summit}\t{cluster.summit + 1}\t{cluster.qvalue:.12g}\n"
                 )
 
@@ -767,7 +767,7 @@ def _format_optional(value: float) -> str:
     return "." if not math.isfinite(value) else f"{value:.12g}"
 
 
-def analyze_chip_replicate_peaks(
+def analyze_cutn_replicate_peaks(
     target_path: str | Path,
     *,
     output_dir: str | Path,
@@ -951,7 +951,7 @@ def analyze_chip_replicate_peaks(
             "cluster_score\tmax_peak_score\tstrongest_peak_summit\tminimum_seed_p_value\tmaximum_seed_fdr\n"
         )
         for index, cluster in enumerate(clusters, 1):
-            cluster_id = f"chip_cluster_{index}"
+            cluster_id = f"cutn_cluster_{index}"
             table.write(
                 f"{cluster_id}	{cluster.chrom}	{cluster.start}	{cluster.end}	{cluster.seed_peak_count}	"
                 f"{len(cluster.significant_peaks)}	{cluster.bridged_non_member_peak_count}	{cluster.score:.12g}	"

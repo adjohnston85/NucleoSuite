@@ -1,4 +1,4 @@
-"""Cluster-centred aggregate outputs for the ChIP workflow."""
+"""Cluster-centred aggregate outputs for the CUT&RUN/CUT&Tag workflow."""
 
 from __future__ import annotations
 

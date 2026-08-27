@@ -98,6 +98,7 @@ def test_algorithm_figure_assets_exist_and_are_linked() -> None:
     algorithms = (ROOT / "docs" / "ALGORITHMS.md").read_text()
     figures = [
         "pns_kernels_120_167_180_multipanel_single_legend.png",
+        "sns_kernels_120_167_180_mode167.png",
         "bns_kernels_120_167_180_mode167.png",
         "tns_kernels_120_167_180_mode167.png",
         "wps_kernels_120_167_180_multiplot.png",

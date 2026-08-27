@@ -13,7 +13,7 @@ Each command page describes the calculation, a typical invocation, analysis opti
 ## Build genomic signals
 
 - [`tracks`](commands/tracks.md) — make several fragment-derived tracks in one fragment pass.
-- [`pns`](commands/pns.md) — calculate PNS, BNS or TNS and call positive/negative regions.
+- [`nuc-score`](commands/nuc-score.md) — calculate SNS, PNS, BNS or TNS and call positive/negative regions; SNS is the standalone default.
 - [`wps`](commands/wps.md) — calculate WPS-family tracks and WPS peak calls.
 - [`coverage`](commands/coverage.md) — count fragment coverage per base.
 - [`mean-scale`](commands/mean-scale.md) — mean-normalize BigWig signal or BED-family scores relative to a calculated or supplied reference mean.
@@ -52,8 +52,8 @@ Each command page describes the calculation, a typical invocation, analysis opti
 
 - [`cfdna-suite`](commands/cfdna-suite.md) — coordinated cfDNA fragmentomics workflow.
 - [`mnase-suite`](commands/mnase-suite.md) — coordinated MNase-seq workflow.
-- [`chip-suite`](commands/chip-suite.md) — matched ChIP-seq/CUT&RUN/CUT&Tag target-control nucleosome-score workflow.
-- [`chip-compare`](commands/chip-compare.md) — compare Stage 1 cluster loci, overlap, occupied bases and matched PNS aggregates between conditions.
+- [`cutn-suite`](commands/cutn-suite.md) — matched CUT&RUN/CUT&Tag target-control nucleosome-score workflow.
+- [`cutn-compare`](commands/cutn-compare.md) — compare Stage 1 cluster loci, overlap, occupied bases and matched PNS aggregates between conditions.
 
 ## Replot and customize figures
 

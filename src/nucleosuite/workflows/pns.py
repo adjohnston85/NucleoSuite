@@ -1,4 +1,4 @@
-"""Full PNS workflow used by ``nucleosuite pns``."""
+"""Nucleosome-scoring workflow used by ``nucleosuite nuc-score``."""
 
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ from nucleosuite.workflows.common import (
 
 
 def _remove_stale_outputs(output_prefix: str) -> None:
-    all_tracks = set(pns_scoring.PNS_TRACKS) | set(pns_scoring.BNS_TRACKS) | set(pns_scoring.TNS_TRACKS) | set(basic_tracks.BASIC_TRACKS)
+    all_tracks = set(pns_scoring.PNS_TRACKS) | set(pns_scoring.SNS_TRACKS) | set(pns_scoring.BNS_TRACKS) | set(pns_scoring.TNS_TRACKS) | set(basic_tracks.BASIC_TRACKS)
     for group in ALL_OUTPUT_GROUPS:
         prefix = group_output_prefix(output_prefix, group)
         remove_stale_track_outputs(prefix, all_tracks)
@@ -94,7 +94,7 @@ def run(args) -> int:
 
     fragment_lengths = range(args.frag_lower, args.frag_upper + 1)
     fragment_length_set = set(fragment_lengths)
-    if args.pns_mode == "on":
+    if args.score_mode == "on":
         centred_distributions, positive_distributions = (
             pns_scoring.precompute_distributions(
                 fragment_lengths, args.mode_length, args.scoring_method
@@ -138,8 +138,8 @@ def run(args) -> int:
             prefix = group_output_prefix(args.out_prefix, group)
             pns_bigwig, pns_wig = open_track_handles(
                 output_prefix=prefix,
-                tracks=args.pns_tracks,
-                output_format=args.pns_format,
+                tracks=args.score_tracks,
+                output_format=args.score_format,
                 bigwig_header=context.bigwig_header,
             )
             other_bigwig, other_wig = open_track_handles(
@@ -200,7 +200,7 @@ def run(args) -> int:
                     group: pns_scoring.new_arrays(reference_length, args.scoring_method)
                     for group in output_groups
                 }
-                if args.pns_mode == "on"
+                if args.score_mode == "on"
                 else {}
             )
 
@@ -232,7 +232,7 @@ def run(args) -> int:
                         window_end=region.adjusted_end,
                         even_dyad=args.even_dyad,
                     )
-                    if args.pns_mode == "on":
+                    if args.score_mode == "on":
                         pns_scoring.add_fragment(
                             arrays=pns_by_group[group],
                             fragment_start=fragment_start,
@@ -253,7 +253,7 @@ def run(args) -> int:
                 scores = basic_tracks.to_scores(
                     basic_by_group[group], region.contig, region.adjusted_start
                 )
-                if args.pns_mode == "on" and args.peak_calling:
+                if args.score_mode == "on" and args.peak_calling:
                     scores.update(
                         pns_scoring.to_scores(
                             pns_by_group[group],
@@ -326,7 +326,7 @@ def run(args) -> int:
                 prefix = group_output_prefix(args.out_prefix, group)
                 scores = scores_by_group[group]
 
-                if args.pns_mode == "on":
+                if args.score_mode == "on":
                     smoothed_track, score_track, _ = pns_scoring.scoring_track_names(
                         args.scoring_method
                     )
@@ -381,7 +381,7 @@ def run(args) -> int:
                         mode,
                     )
 
-                tracks = list(dict.fromkeys(args.pns_tracks + args.other_tracks))
+                tracks = list(dict.fromkeys(args.score_tracks + args.other_tracks))
                 write_tracks(
                     scores=scores,
                     contig=region.contig,
@@ -442,7 +442,7 @@ def run(args) -> int:
                     f"skipped: {accumulator['fragments_skipped']:,}."
                 )
 
-        if args.pns_mode == "on" and args.peak_calling:
+        if args.score_mode == "on" and args.peak_calling:
             peak_beds = []
             for group in output_groups:
                 prefix = group_output_prefix(args.out_prefix, group)

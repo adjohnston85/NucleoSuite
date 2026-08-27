@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Differential comparison of two completed chip-suite Stage 1 analyses."""
+"""Differential comparison of two completed cutn-suite Stage 1 analyses."""
 
 from __future__ import annotations
 
@@ -20,14 +20,14 @@ from nucleosuite.bigwig_ops import (
     interval_positive_area,
     open_bigwigs,
 )
-from nucleosuite.chip_aggregate import (
+from nucleosuite.cutn_aggregate import (
     common_symmetric_bigwig_limit,
     run_cluster_aggregate,
 )
 
 
-MANIFEST_NAME = "chip_stage1_manifest.json"
-MANIFEST_SCHEMA = "nucleosuite_chip_stage1"
+MANIFEST_NAME = "cutn_stage1_manifest.json"
+MANIFEST_SCHEMA = "nucleosuite_cutn_stage1"
 MANIFEST_SCHEMA_VERSION = 5
 
 
@@ -71,7 +71,7 @@ def load_stage1_manifest(value: str | Path) -> tuple[Path, dict[str, object]]:
     except (OSError, json.JSONDecodeError) as exc:
         raise ValueError(f"Could not read Stage 1 manifest: {path}") from exc
     if payload.get("schema") != MANIFEST_SCHEMA:
-        raise ValueError(f"Not a chip-suite Stage 1 manifest: {path}")
+        raise ValueError(f"Not a cutn-suite Stage 1 manifest: {path}")
     if int(payload.get("schema_version", -1)) not in {
         1, 2, 3, 4, MANIFEST_SCHEMA_VERSION
     }:
@@ -1054,7 +1054,7 @@ def _manifest_score_tracks(
 
     method = str(manifest.get("scoring_method") or "pns").lower()
     positive_track = str(manifest.get("positive_track") or ({
-        "pns": "posPNS", "bns": "posBNS", "tns": "posTNS"
+        "sns": "posSNS", "pns": "posPNS", "bns": "posBNS", "tns": "posTNS"
     }.get(method, "posPNS")))
     mean_value = manifest.get("condition_mean_treatment_cluster_aggregate_score")
     records = manifest.get("treatment_replicates")
@@ -1193,11 +1193,11 @@ def compare_stage1(
         first, second, cluster_regions, output_dir
     )
 
-    manifest_path = output_dir / "chip_comparison_manifest.json"
+    manifest_path = output_dir / "cutn_comparison_manifest.json"
     manifest_path.write_text(
         json.dumps(
             {
-                "schema": "nucleosuite_chip_comparison",
+                "schema": "nucleosuite_cutn_comparison",
                 "schema_version": 4,
                 "condition1_manifest": str(first_path),
                 "condition2_manifest": str(second_path),
@@ -1225,9 +1225,9 @@ def compare_stage1(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="nucleosuite chip-compare",
+        prog="nucleosuite cutn-compare",
         description=(
-            "Compare two completed chip-suite Stage 1 analyses using their "
+            "Compare two completed cutn-suite Stage 1 analyses using their "
             "coverage BigWigs scaled to a non-zero mean of 100 and a log2 "
             "empirical-Bayes interaction model at overlap-connected cluster "
             "loci; BAM files are not revisited."
@@ -1261,7 +1261,7 @@ def run(args: argparse.Namespace) -> int:
         outdir=args.outdir,
         fdr=args.fdr,
     )
-    print(f"chip_comparison_manifest\t{output}")
+    print(f"cutn_comparison_manifest\t{output}")
     return 0
 
 

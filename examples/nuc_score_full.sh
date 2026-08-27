@@ -4,7 +4,7 @@ set -euo pipefail
 BAM=${1:?Usage: pns_full.sh sample.bam [prefix]}
 PREFIX=${2:-sample}
 
-nucleosuite pns \
+nucleosuite nuc-score \
   -b "$BAM" \
   -c autosomes \
   --mode-length 167 \

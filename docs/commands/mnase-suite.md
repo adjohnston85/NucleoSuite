@@ -25,24 +25,24 @@ nucleosuite mnase-suite \
 ```mermaid
 flowchart TB
     A[MNase BAM or fragments] --> B[mnase-suite]
-    B --> C[PNS, dyads, ends, sequence]
+    B --> C[SNS, dyads, ends, sequence]
     C --> D[Combine chromosomes]
-    D --> E[Scale PNS, posPNS, coverage]
+    D --> E[Scale SNS, posSNS, coverage]
     D --> F[DAC from 146-148 dyads]
     F --> G[NRL]
     E --> H[Aggregate and regional analyses]
-    D --> I[PNS peak distances]
+    D --> I[SNS peak distances]
 ```
 
 ## Main defaults
 
 | Setting | MNase default |
 |---|---|
-| PNS | 120–180 bp fragments; mode 147 bp |
+| SNS | 120–180 bp fragments; mode 147 bp |
 | Ranged dyads/ends, DAC and WW/SS | 146–148 bp |
 | Exact dyad and fragment ends | 147 bp |
 | Exact dinucleotide profiles | 145 and 147 bp |
-| PNS nucleosome distances | order 1 to 500 bp; orders 1–7 to 1500 bp |
+| SNS nucleosome distances | order 1 to 500 bp; orders 1–7 to 1500 bp |
 | Long DAC-derived NRL | 1–1500 bp, resolution 160; first called peak excluded from regression |
 | Short periodicity | 1–144 bp, resolution 1 |
 | Intermediate periodicity | 150–220 bp, resolution 8 |
@@ -53,12 +53,12 @@ flowchart TB
 After chromosome combination, the suite retains the raw combined outputs and creates normalized analysis inputs:
 
 - coverage mean-scaled to 100;
-- posPNS mean-scaled to 100;
-- PNS scaled to 100 relative to the mean column-5 score of the raw combined PNS nucleosome calls;
-- combined PNS nucleosome-region BED scores mean-scaled to 100;
-- combined PNS breakpoint-peak BED scores mean-scaled to 100.
+- posSNS mean-scaled to 100;
+- SNS scaled to 100 relative to the mean column-5 score of the raw combined SNS nucleosome calls;
+- combined SNS nucleosome-region BED scores mean-scaled to 100;
+- combined SNS breakpoint-peak BED scores mean-scaled to 100.
 
-The mean-scaled nucleosome and breakpoint BEDs are used by downstream peak-based suite analyses. PNS aggregate analyses use the scaled PNS track. Regional extraction uses the mean-scaled peak BEDs together with scaled PNS and scaled coverage.
+The mean-scaled nucleosome and breakpoint BEDs are used by downstream peak-based suite analyses. SNS aggregate analyses use the scaled SNS track. Regional extraction uses the mean-scaled peak BEDs together with scaled SNS and scaled coverage.
 
 ## DAC, NRL and spacing
 
@@ -68,11 +68,11 @@ DAC is calculated only from the ranged 146–148 bp dyad track. Its DAC outputs 
 2. short periodicity at 1–144 bp, resolution 1;
 3. nucleosome-scale periodicity at 150–220 bp, resolution 8.
 
-The combined PNS nucleosome calls are analysed separately for adjacent spacing (order 1, 1–500 bp) and for orders 1–7 (1–1500 bp), with the latter performing combined NRL regression.
+The combined SNS nucleosome calls are analysed separately for adjacent spacing (order 1, 1–500 bp) and for orders 1–7 (1–1500 bp), with the latter performing combined NRL regression.
 
 ## Other downstream analyses
 
-The suite performs PNS peak calls, ChromHMM-stratified PNS spacing, CTCF/TSS aggregation, TSS expression quintiles, region extraction, fragment-length profiles and heatmaps, optional PNS gene-expression analysis, PNS positive runs, PNS peak-score-frequency analyses, dinucleotide profiles, WW/SS classification and WW/SS type-specific dyads.
+The suite performs SNS peak calls, ChromHMM-stratified SNS spacing, CTCF/TSS aggregation, TSS expression quintiles, region extraction, fragment-length profiles and heatmaps, optional SNS gene-expression analysis, SNS positive runs, SNS peak-score-frequency analyses, dinucleotide profiles, WW/SS classification and WW/SS type-specific dyads.
 
 `peak-score-frequency` uses the mean-scaled nucleosome and breakpoint BEDs directly with `--score-scale 1`; no additional display scaling is applied.
 

@@ -6,12 +6,12 @@
 
 ## Why use it
 
-Use `tracks` when several outputs must share the same fragment filters. It avoids rereading the input for each track. Available output groups cover PNS/WPS scoring and calls, coverage/dyad/end tracks, and sequence-based profiles.
+Use `tracks` when several outputs must share the same fragment filters. It avoids rereading the input for each track. Available output groups cover SNS/PNS/BNS/TNS and WPS scoring, shared peak calls, coverage/dyad/end tracks, and sequence-based profiles.
 
 ```mermaid
 flowchart LR
     A[BAM or fragment intervals] --> B[Shared fragment pass]
-    B --> C[PNS and WPS]
+    B --> C[SNS/PNS/BNS/TNS and WPS]
     B --> D[Coverage, dyads, and ends]
     B --> E[Dinucleotide and WW/SS analyses]
     C --> F[Peak calls]
@@ -32,7 +32,7 @@ An exact length:
 An inclusive range:
 
 ```text
-137-197=pns,posPNS,coverage,pns_peaks
+137-197=sns,posSNS,coverage,pns_peaks
 ```
 
 A fragment can contribute to every requested range that contains its length.
@@ -45,7 +45,7 @@ nucleosuite tracks \
   --fasta genome.fa \
   --output-dir tracks \
   --output-prefix sample \
-  --fragment-range "137-197=pns,posPNS,coverage,pns_peaks" \
+  --fragment-range "137-197=sns,posSNS,coverage,pns_peaks" \
   --fragment-range "120-180=wps,wps_smoothed,mWPS,sm_mWPS,wps_peaks" \
   --fragment-range "145-147=dyad,fragment_left_ends,fragment_right_ends" \
   --fragment-range "145=dyad,dinuc_profile" \
@@ -54,24 +54,39 @@ nucleosuite tracks \
 
 A 145 bp fragment contributes to every compatible range above.
 
+### SNS range example
+
+Select SNS globally for the nucleosome-score ranges and request its method-specific track names:
+
+```bash
+nucleosuite tracks \
+  --bam sample.bam \
+  --scoring-method sns \
+  --score-mode-length 167 \
+  --fragment-range "137-197=sns,posSNS,pns_peaks" \
+  --output-dir sample_tracks
+```
+
+`pns_peaks` is the name of the shared peak-calling token; with `--scoring-method sns`, it evaluates `sns` (or `sns_smoothed` when score smoothing is enabled).
+
 ## Use a specification file for larger workflows
 
 A tab-separated spec file is easier to maintain when many ranges or exact output prefixes are needed:
 
 ```text
 fragment_range  output_prefix                                  tracks                                      basic_scope
-137-197         results/sample_PNS_methodpns_mode167_lower137_upper197_smooth0x2   pns,posPNS,coverage,pns_peaks              range
+137-197         results/sample_SNS_methodsns_mode167_lower137_upper197_smooth0x2   sns,posSNS,coverage,pns_peaks              range
 120-180         results/sample_WPS_prot120_lower120_upper180_baseline1000_sg21x2_callerwps   coverage,wps,wps_smoothed,mWPS,sm_mWPS    range
 145             results/sample_145_dyads_lower145_upper145     dyad                                        range
 ```
 
-`basic_scope=range` uses the stated fragment range for coverage, dyads, and ends. `basic_scope=all` uses every accepted fragment for those basic tracks; PNS and WPS continue to use their stated ranges.
+`basic_scope=range` uses the stated fragment range for coverage, dyads, and ends. `basic_scope=all` uses every accepted fragment for those basic tracks; the selected nucleosome score and WPS continue to use their stated ranges.
 
-## PNS peak scores
+## Nucleosome-score peak calls
 
-PNS text BED scores remain six-decimal floating-point values after `--pns-peak-score-scale`.
+`pns_peaks` invokes the shared PNS-style positive-region caller on the **currently selected** `--scoring-method`. It therefore works with SNS, PNS, BNS, or TNS without generating an extra PNS track. Text BED scores remain six-decimal floating-point values after `--score-peak-score-scale`.
 
-`--bigbed-score-scale` controls conversion to the integer PNS bigBed score field and defaults to **1000**.
+`--bigbed-score-scale` controls conversion to the integer bigBed score field and defaults to **1000**.
 
 ## Duplicate limits versus sparse-coordinate limits
 
@@ -113,7 +128,7 @@ nucleosuite tracks \
   --contigs chr1-22,chrX \
   --cores 8 \
   --output-dir sample_tracks \
-  --fragment-range "137-197=pns,posPNS,coverage,pns_peaks" \
+  --fragment-range "137-197=sns,posSNS,coverage,pns_peaks" \
   --fragment-range "120-180=wps,sm_mWPS,wps_peaks"
 ```
 

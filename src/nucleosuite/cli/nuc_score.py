@@ -1,4 +1,4 @@
-"""CLI registration for the full PNS workflow."""
+"""CLI registration for generic nucleosome scoring."""
 
 from __future__ import annotations
 
@@ -15,17 +15,17 @@ from nucleosuite.cli.common import (
     validate_bam_arguments,
 )
 from nucleosuite.scoring.basic_tracks import BASIC_TRACKS
-from nucleosuite.scoring.pns import BNS_TRACKS, PNS_TRACKS, TNS_TRACKS, SCORING_METHODS
+from nucleosuite.scoring.pns import BNS_TRACKS, PNS_TRACKS, SNS_TRACKS, TNS_TRACKS, SCORING_METHODS
 
 
 def register(subparsers):
     parser = subparsers.add_parser(
-        "pns",
-        help="Build a nucleosome-position signal from paired-end fragment geometry.",
+        "nuc-score",
+        help="Build nucleosome-position score tracks from paired-end fragment geometry.",
         description=(
-            "Build probabilistic nucleosome score (PNS), boxcar nucleosome score "
-            "(BNS), or triangular nucleosome score (TNS) kernels, optional auxiliary "
-            "tracks, and shared peak calls."
+            "Build sinusoidal nucleosome score (SNS), probabilistic nucleosome score "
+            "(PNS), boxcar nucleosome score (BNS), or triangular nucleosome score "
+            "(TNS) kernels, optional auxiliary tracks, and shared peak calls."
         ),
     )
     add_bam_fragment_arguments(
@@ -35,11 +35,12 @@ def register(subparsers):
     add_randomization_arguments(parser)
     add_interval_output_arguments(parser)
     parser.add_argument(
-        "--scoring-method", choices=SCORING_METHODS, default="pns",
+        "--scoring-method", choices=SCORING_METHODS, default="sns",
         help=(
-            "Nucleosome scoring kernel: pns uses endpoint-derived probability "
-            "triangles; bns uses a centred balanced boxcar; tns uses a centred "
-            "unit-mass triangle spanning the scoring support (default: pns)."
+            "Nucleosome scoring kernel: sns uses the length-adaptive sinusoidal "
+            "kernel; pns uses endpoint-derived probability triangles; bns uses a "
+            "centred balanced boxcar; tns uses a centred unit-mass triangle "
+            "(default: sns)."
         ),
     )
     parser.add_argument(
@@ -73,11 +74,11 @@ def register(subparsers):
         help="Write all-fragment and type1-type4 score, track, and peak outputs.",
     )
     parser.add_argument(
-        "--pns-mode", choices=("on", "off"), default="on",
+        "--score-mode", dest="score_mode", choices=("on", "off"), default="on",
         help="Enable or disable nucleosome-score track and peak generation (default: on).",
     )
     parser.add_argument(
-        "--pns-format", choices=("bigwig", "wiggz", "both", "none"),
+        "--score-format", dest="score_format", choices=("bigwig", "wiggz", "both", "none"),
         default="bigwig",
         help="File format for nucleosome-score signal tracks (default: bigwig).",
     )
@@ -87,13 +88,14 @@ def register(subparsers):
         help="File format for coverage, dyad, and fragment-end tracks (default: bigwig).",
     )
     parser.add_argument(
-        "--score-tracks", "--pns-tracks", dest="pns_tracks", nargs="*",
-        default=["pns", "posPNS"],
+        "--score-tracks", dest="score_tracks", nargs="*",
+        default=["sns", "posSNS"],
         help=(
-            "Signal tracks for the selected scoring method. PNS uses pns, posPNS, "
-            "and optional pns_smoothed; BNS uses bns, posBNS, and optional "
-            "bns_smoothed; TNS uses tns, posTNS, and optional tns_smoothed. The "
-            "default writes the raw centred and uncentred tracks."
+            "Signal tracks for the selected scoring method. SNS uses sns, posSNS, "
+            "and optional sns_smoothed; PNS uses pns, posPNS, and optional "
+            "pns_smoothed; BNS uses bns, posBNS, and optional bns_smoothed; TNS "
+            "uses tns, posTNS, and optional tns_smoothed. The default writes the "
+            "raw score and non-negative reference tracks."
         ),
     )
     parser.add_argument(
@@ -153,7 +155,7 @@ def register(subparsers):
 def run(args):
     validate_bam_arguments(args)
     mode, estimate, mode_source, mode_seed = resolve_fragment_mode(
-        args, args.mode_length, command="pns"
+        args, args.mode_length, command="nuc-score"
     )
     args.mode_length = mode
     if args.smooth_window < 0:
@@ -174,36 +176,42 @@ def run(args):
             raise ValueError(
                 "--peak-coverage-threshold must be a finite value of 0 or greater"
             )
-        if args.pns_mode == "off":
-            raise ValueError("--peak-coverage-threshold requires --pns-mode on")
+        if args.score_mode == "off":
+            raise ValueError("--peak-coverage-threshold requires --score-mode on")
         if not args.peak_calling:
             raise ValueError("--peak-coverage-threshold requires peak calling")
-    all_score_tracks = set(PNS_TRACKS) | set(BNS_TRACKS) | set(TNS_TRACKS)
-    args.pns_tracks = normalise_track_list(
-        args.pns_tracks, all_score_tracks, "--score-tracks"
+    all_score_tracks = set(PNS_TRACKS) | set(SNS_TRACKS) | set(BNS_TRACKS) | set(TNS_TRACKS)
+    args.score_tracks = normalise_track_list(
+        args.score_tracks, all_score_tracks, "--score-tracks"
     )
     track_sets = {
+        "sns": SNS_TRACKS,
         "pns": PNS_TRACKS,
         "bns": BNS_TRACKS,
         "tns": TNS_TRACKS,
     }
     default_track_map = {
+        "pns": {
+            "sns": "pns",
+            "posSNS": "posPNS",
+            "sns_smoothed": "pns_smoothed",
+        },
         "bns": {
-            "pns": "bns",
-            "posPNS": "posBNS",
-            "pns_smoothed": "bns_smoothed",
+            "sns": "bns",
+            "posSNS": "posBNS",
+            "sns_smoothed": "bns_smoothed",
         },
         "tns": {
-            "pns": "tns",
-            "posPNS": "posTNS",
-            "pns_smoothed": "tns_smoothed",
+            "sns": "tns",
+            "posSNS": "posTNS",
+            "sns_smoothed": "tns_smoothed",
         },
     }
-    if args.scoring_method != "pns":
+    if args.scoring_method != "sns":
         mapping = default_track_map[args.scoring_method]
-        args.pns_tracks = [mapping.get(track, track) for track in args.pns_tracks]
+        args.score_tracks = [mapping.get(track, track) for track in args.score_tracks]
     allowed_tracks = track_sets[args.scoring_method]
-    invalid = [track for track in args.pns_tracks if track not in allowed_tracks]
+    invalid = [track for track in args.score_tracks if track not in allowed_tracks]
     if invalid:
         method = args.scoring_method.upper()
         raise ValueError(
@@ -212,10 +220,10 @@ def run(args):
     args.other_tracks = normalise_track_list(
         args.other_tracks, set(BASIC_TRACKS), "--other-tracks"
     )
-    if args.pns_mode == "off":
-        args.pns_tracks = []
-        args.pns_format = "none"
-    elif any(track.endswith("_smoothed") for track in args.pns_tracks) and args.smooth_window == 0:
+    if args.score_mode == "off":
+        args.score_tracks = []
+        args.score_format = "none"
+    elif any(track.endswith("_smoothed") for track in args.score_tracks) and args.smooth_window == 0:
         raise ValueError(
             "A smoothed score track requires --smooth-window to enable smoothing"
         )
@@ -242,7 +250,7 @@ def run(args):
             mode_source=mode_source,
             seed=mode_seed,
         )
-        print(f"[pns] Fragment mode report: {report}", flush=True)
+        print(f"[nuc-score] Fragment mode report: {report}", flush=True)
     from nucleosuite.workflows import pns as workflow
     from nucleosuite.parallel import run_native_per_contig
-    return run_native_per_contig("pns", args, workflow.run)
+    return run_native_per_contig("nuc-score", args, workflow.run)

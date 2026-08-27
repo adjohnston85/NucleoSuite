@@ -15,12 +15,12 @@ Validate BAM/reference compatibility before a long run:
 nucleosuite validate-inputs --bam sample.bam --fasta genome.fa
 ```
 
-## 2. Call PNS nucleosome regions from a BAM
+## 2. Call nucleosome regions from a BAM
 
-Use `pns` when you want a nucleosome-oriented signal and peak calls derived from fragment-end geometry:
+Use `nuc-score` when you want a nucleosome-oriented signal and shared peak calls. In 0.11.0 the command uses SNS by default:
 
 ```bash
-nucleosuite pns \
+nucleosuite nuc-score \
   --bam sample.bam \
   --fasta genome.fa \
   --contigs chr1-22,chrX \
@@ -28,15 +28,15 @@ nucleosuite pns \
   --out-prefix sample_pns
 ```
 
-The most commonly reused outputs are the nucleosome-score BigWig and the nucleosome-region BED/bigBed. The protected-DNA mode is estimated automatically from the unsmoothed accepted-fragment histogram and printed during execution; use `--mode 167` to fix it explicitly. Select `--scoring-method bns` for Boxcar Nucleosome Score or `--scoring-method tns` for Triangular Nucleosome Score; both use the same peak caller as PNS. See [`pns`](commands/pns.md), [PNS in Algorithms](ALGORITHMS.md#probabilistic-nucleosome-scoring), [BNS in Algorithms](ALGORITHMS.md#boxcar-nucleosome-scoring), and [TNS in Algorithms](ALGORITHMS.md#triangular-nucleosome-scoring).
+The most commonly reused outputs are the nucleosome-score BigWig and nucleosome-region BED/bigBed. The protected-DNA mode is estimated automatically from the unsmoothed accepted-fragment histogram and printed during execution; use `--mode 167` to fix it explicitly. SNS uses a discrete sinusoidal kernel with +50 positive and −50 negative mass per fragment. Select `--scoring-method pns`, `bns`, or `tns` for the alternative kernels; all four methods use the same PNS peak caller. See [`nuc-score`](commands/nuc-score.md), [SNS in Algorithms](ALGORITHMS.md#sinusoidal-nucleosome-scoring), [PNS in Algorithms](ALGORITHMS.md#probabilistic-nucleosome-scoring), [BNS in Algorithms](ALGORITHMS.md#boxcar-nucleosome-scoring), and [TNS in Algorithms](ALGORITHMS.md#triangular-nucleosome-scoring).
 
 
 ### Filter nucleosome peaks by coverage
 
-When a coverage threshold should be applied during a PNS, BNS or TNS run:
+When a coverage threshold should be applied during an SNS, PNS, BNS or TNS run:
 
 ```bash
-nucleosuite pns \
+nucleosuite nuc-score \
   --bam sample.bam \
   --fasta genome.fa \
   --peak-coverage-threshold 2 \
@@ -65,22 +65,22 @@ nucleosuite pns-peak-fdr \
 
 This always writes every observed peak with `empirical_fdr` appended. Add `--fdr 0.05` to also write a filtered BED. [`cfdna-suite`](commands/cfdna-suite.md) and [`mnase-suite`](commands/mnase-suite.md) can generate both full workflows and perform this annotation with `--with-randomized-control`.
 
-## 4. Run a matched ChIP-seq, CUT&RUN, or CUT&Tag analysis
+## 4. Run a matched CUT&RUN or CUT&Tag analysis
 
-The default `chip-suite` run estimates treatment and control fragment modes independently before choosing an equal-weight pooled analysis mode. It then uses PNS over the resolved mode ±30 bp for peak discovery while broad 1–1,000 bp coverage is generated in the same `tracks` pass:
+The default `cutn-suite` run estimates treatment and control fragment modes independently before choosing an equal-weight pooled analysis mode. It then uses SNS over the resolved mode ±30 bp for peak discovery while broad 1–1,000 bp coverage is generated in the same `tracks` pass:
 
 ```bash
-nucleosuite chip-suite \
+nucleosuite cutn-suite \
   --treatment1-bam target.bam \
   --control1-bam control.bam \
-  --outdir target_chip_suite \
+  --outdir target_cutn_suite \
   --sample-name target \
   --cores 8
 ```
 
-Use `--scoring-method bns` or `--scoring-method tns` to change the discovery score. Use `--mode 167` to bypass automatic sampling and use exactly 167 bp for both target and control; with the default flank this gives a 137–197 bp discovery range.
+Use `--scoring-method sns`, `--scoring-method bns`, or `--scoring-method tns` to change the discovery score. Use `--mode 167` to bypass automatic sampling and use exactly 167 bp for both target and control; with the default flank this gives a 137–197 bp discovery range.
 
-Each replicate score is divided by the mean of its method-matched positive track before treatment tracks are averaged. This prevents sequencing-depth differences from weighting the consensus peak-discovery track toward one replicate. The same shared pass also writes broad-range coverage, which is independently scaled to a non-zero mean of 100 for measurement. A candidate passes Stage 1 by default only when every treatment replicate exceeds every control replicate; `--stage1-gate-mode mean` selects the less conservative mean treatment > mean control rule. P-values and BH FDR remain annotations unless optional cutoffs are supplied. Clusters start at gate-passing peaks with p < 0.05. By default both S and G are members, one non-member bridge is allowed, at least two included members are required, and adjacent included-member summits cannot exceed 1,000 bp. `--cluster-member-mode significant-only` restricts membership to S peaks. The selected PNS/BNS/TNS score is reused for aggregate plots and directional NRLs. Treatment and control groups are independent, may contain different replicate counts, and are never paired by input order. Use `--bam-mode merged` to pool a group. Supplying `--treatment2-bam` and `--control2-bam` adds a log2 empirical-Bayes four-group interaction test. Two independently completed Stage 1 runs can instead be compared with [`chip-compare`](commands/chip-compare.md).
+Each replicate score is divided by the mean of its method-matched positive track before treatment tracks are averaged. This prevents sequencing-depth differences from weighting the consensus peak-discovery track toward one replicate. The same shared pass also writes broad-range coverage, which is independently scaled to a non-zero mean of 100 for measurement. A candidate passes Stage 1 by default only when every treatment replicate exceeds every control replicate; `--stage1-gate-mode mean` selects the less conservative mean treatment > mean control rule. P-values and BH FDR remain annotations unless optional cutoffs are supplied. Clusters start at gate-passing peaks with p < 0.05. By default both S and G are members, one non-member bridge is allowed, at least two included members are required, and adjacent included-member summits cannot exceed 1,000 bp. `--cluster-member-mode significant-only` restricts membership to S peaks. The selected SNS/PNS/BNS/TNS score is reused for aggregate plots and directional NRLs. Treatment and control groups are independent, may contain different replicate counts, and are never paired by input order. Use `--bam-mode merged` to pool a group. Supplying `--treatment2-bam` and `--control2-bam` adds a log2 empirical-Bayes four-group interaction test. Two independently completed Stage 1 runs can instead be compared with [`cutn-compare`](commands/cutn-compare.md).
 
 ## 5. Measure nucleosome spacing
 

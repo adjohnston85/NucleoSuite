@@ -2,7 +2,7 @@
 
 ## What this command does
 
-`call-peaks` applies the PNS-style positive-region caller or the WPS caller to an existing compatible BigWig signal. The PNS-style caller is shared by centred PNS, BNS, and TNS tracks.
+`call-peaks` applies the PNS-style positive-region caller or the WPS caller to an existing compatible BigWig signal. The PNS-style caller is shared by SNS, centred PNS, BNS, and TNS tracks.
 
 ## Why use it
 
@@ -15,7 +15,7 @@ Use it to change calling parameters, call a previously combined signal, or run t
 --peak-caller wps
 ```
 
-The selected caller determines how the input signal is segmented and scored. Match `pns` to a PNS, BNS, or TNS signal and `wps` to the WPS-family signal being evaluated.
+The selected caller determines how the input signal is segmented and scored. Match `pns` to an SNS, PNS, BNS, or TNS signal and `wps` to the WPS-family signal being evaluated.
 
 See [PNS peak calling](../ALGORITHMS.md#pns-peak-calling) and [WPS peak calling](../ALGORITHMS.md#wps-peak-calling) for the exact definitions.
 

@@ -56,7 +56,7 @@ Peak score ×1000
 
 The compact frequency table uses the scaled score axis. Per-input summary tables and optional individual-score detail tables remain in the original input-score units.
 
-The cfDNA and MNase suites first mean-scale their combined PNS nucleosome-region and breakpoint-peak BED scores to 100, then pass those normalized BEDs to `peak-score-frequency` with `--score-scale 1`. No additional suite-level histogram scaling is applied.
+The cfDNA and MNase suites first mean-scale their combined SNS-derived nucleosome-region and breakpoint-peak BED scores to 100, then pass those normalized BEDs to `peak-score-frequency` with `--score-scale 1`. No additional suite-level histogram scaling is applied.
 
 ## Histogram representation
 

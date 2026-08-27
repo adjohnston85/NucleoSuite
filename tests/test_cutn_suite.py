@@ -6,23 +6,23 @@ import pyBigWig
 import numpy as np
 import pytest
 
-from nucleosuite.chip_compare import (
+from nucleosuite.cutn_compare import (
     _moderated_interaction_statistics,
     compare_stage1,
 )
-from nucleosuite.chip_aggregate import run_cluster_aggregate
-from nucleosuite.chip_peaks import (
+from nucleosuite.cutn_aggregate import run_cluster_aggregate
+from nucleosuite.cutn_peaks import (
     CompetitivePeak,
     ReplicatePeakStatistics,
-    analyze_chip_peaks,
-    analyze_chip_replicate_peaks,
+    analyze_cutn_peaks,
+    analyze_cutn_replicate_peaks,
     assign_competition_qvalues,
     cluster_seeded_gate_peaks,
     compete_peaks,
     compete_peaks_all_controls,
     compete_peaks_with_bigwigs,
 )
-from nucleosuite.chip_suite import (
+from nucleosuite.cutn_suite import (
     _estimate_modes,
     _locate_completed_prefix,
     _resolved_prefix,
@@ -80,7 +80,7 @@ def _cluster_record(index: int, state: str) -> ReplicatePeakStatistics:
     )
 
 
-def test_chip_suite_defaults_to_pns_auto_mode_scoring_flank_and_coverage_range(
+def test_cutn_suite_defaults_to_sns_auto_mode_scoring_flank_and_coverage_range(
     tmp_path: Path,
 ):
     target = tmp_path / "target.bam"
@@ -93,7 +93,7 @@ def test_chip_suite_defaults_to_pns_auto_mode_scoring_flank_and_coverage_range(
             "--outdir", str(tmp_path / "out"),
         ]
     )
-    assert args.scoring_method == "pns"
+    assert args.scoring_method == "sns"
     assert args.mode == "auto"
     assert args.score_fragment_flank == 30
     assert args.score_frag_lower is None
@@ -118,7 +118,7 @@ def test_chip_suite_defaults_to_pns_auto_mode_scoring_flank_and_coverage_range(
     assert args.control1_bam == [str(control)]
 
 
-def test_chip_suite_emits_score_and_coverage_in_one_tracks_pass_per_group(tmp_path: Path):
+def test_cutn_suite_emits_score_and_coverage_in_one_tracks_pass_per_group(tmp_path: Path):
     target = tmp_path / "target.bam"
     control = tmp_path / "control.bam"
     target.touch(); control.touch()
@@ -169,10 +169,10 @@ def test_chip_suite_emits_score_and_coverage_in_one_tracks_pass_per_group(tmp_pa
     selected_clusters = tmp_path / "selected_clusters.bed"
     selected_clusters.write_text("", encoding="utf-8")
     with (
-        patch("nucleosuite.chip_suite._run_nucleosuite", side_effect=fake_command),
-        patch("nucleosuite.chip_suite.scale_bigwig_by_reference", side_effect=fake_scale),
+        patch("nucleosuite.cutn_suite._run_nucleosuite", side_effect=fake_command),
+        patch("nucleosuite.cutn_suite.scale_bigwig_by_reference", side_effect=fake_scale),
         patch(
-            "nucleosuite.chip_suite.analyze_chip_replicate_peaks",
+            "nucleosuite.cutn_suite.analyze_cutn_replicate_peaks",
             return_value={"selected_clusters": selected_clusters},
         ) as analyze_mock,
     ):
@@ -181,8 +181,8 @@ def test_chip_suite_emits_score_and_coverage_in_one_tracks_pass_per_group(tmp_pa
     assert len(tracks_commands) == 2
     assert all(command[0] == "tracks" for command in tracks_commands)
     assert all("--output-dir" in command for command in tracks_commands)
-    assert all(command[command.index("--scoring-method") + 1] == "pns" for command in tracks_commands)
-    summary = (tmp_path / "out" / "sample_chip_suite_summary.tsv").read_text()
+    assert all(command[command.index("--scoring-method") + 1] == "sns" for command in tracks_commands)
+    summary = (tmp_path / "out" / "sample_cutn_suite_summary.tsv").read_text()
     assert "target_raw_coverage_track\t" in summary
     assert "control_raw_coverage_track\t" in summary
     assert "condition_mean_treatment_coverage\t" in summary
@@ -192,13 +192,13 @@ def test_chip_suite_emits_score_and_coverage_in_one_tracks_pass_per_group(tmp_pa
     assert call["cluster_member_mode"] == "seed-and-gated"
     assert len(call["target_replicate_bigwigs"]) == 1
     assert len(call["control_replicate_bigwigs"]) == 1
-    manifest = json.loads((tmp_path / "out" / "chip_stage1_manifest.json").read_text())
+    manifest = json.loads((tmp_path / "out" / "cutn_stage1_manifest.json").read_text())
     assert manifest["control_candidate_peaks"] is None
     assert manifest["stage1_selection"] == "all_treatments_exceed_all_controls"
     assert manifest["condition_mean_treatment_cluster_aggregate_score"]
 
 
-def test_explicit_chip_mode_overrides_automatic_estimation(tmp_path: Path):
+def test_explicit_cutn_mode_overrides_automatic_estimation(tmp_path: Path):
     target = tmp_path / "target.bam"
     control = tmp_path / "control.bam"
     target.touch(); control.touch()
@@ -213,7 +213,7 @@ def test_explicit_chip_mode_overrides_automatic_estimation(tmp_path: Path):
     assert args.mode == 167
 
 
-def test_chip_auto_mode_prints_treatment_control_and_pooled_estimates(
+def test_cutn_auto_mode_prints_treatment_control_and_pooled_estimates(
     tmp_path: Path, capsys
 ):
     target = tmp_path / "target.bam"
@@ -238,18 +238,18 @@ def test_chip_auto_mode_prints_treatment_control_and_pooled_estimates(
 
     with (
         patch(
-            "nucleosuite.chip_suite.estimate_bam_fragment_mode",
+            "nucleosuite.cutn_suite.estimate_bam_fragment_mode",
             side_effect=(treatment, control_estimate),
         ),
         patch(
-            "nucleosuite.chip_suite.pooled_mode_estimate",
+            "nucleosuite.cutn_suite.pooled_mode_estimate",
             return_value=pooled,
         ),
     ):
         _estimate_modes(
             args,
             [(args.treatment1_bam, args.control1_bam)],
-            ProgressReporter("chip-suite"),
+            ProgressReporter("cutn-suite"),
         )
 
     output = capsys.readouterr().err
@@ -259,7 +259,7 @@ def test_chip_auto_mode_prints_treatment_control_and_pooled_estimates(
     assert "smoothing=none" in output
 
 
-def test_explicit_chip_mode_does_not_validate_unused_auto_search_bounds(tmp_path: Path):
+def test_explicit_cutn_mode_does_not_validate_unused_auto_search_bounds(tmp_path: Path):
     target = tmp_path / "target.bam"
     control = tmp_path / "control.bam"
     target.touch(); control.touch()
@@ -276,7 +276,7 @@ def test_explicit_chip_mode_does_not_validate_unused_auto_search_bounds(tmp_path
     _validate(args)
 
 
-def test_explicit_chip_score_range_overrides_mode_flank(tmp_path: Path):
+def test_explicit_cutn_score_range_overrides_mode_flank(tmp_path: Path):
     target = tmp_path / "target.bam"
     control = tmp_path / "control.bam"
     target.touch(); control.touch()
@@ -294,8 +294,8 @@ def test_explicit_chip_score_range_overrides_mode_flank(tmp_path: Path):
     assert _scoring_fragment_range(args, 167) == (125, 205)
 
 
-def test_chip_suite_locates_parameterized_multicontig_score_outputs(tmp_path: Path):
-    requested = tmp_path / "tracks" / "chip_target"
+def test_cutn_suite_locates_parameterized_multicontig_score_outputs(tmp_path: Path):
+    requested = tmp_path / "tracks" / "cutn_target"
     direct = _resolved_prefix(requested, "tns", 153, 120, 500)
     root = requested.parent / f"{requested.name}_multicontig"
     combined = root / "combined"
@@ -317,8 +317,8 @@ def test_chip_suite_locates_parameterized_multicontig_score_outputs(tmp_path: Pa
     assert located == combined / combined_name
 
 
-def test_chip_suite_locates_multicontig_peak_outputs(tmp_path: Path):
-    requested = tmp_path / "peaks" / "chip_target_tns_mean_scaled"
+def test_cutn_suite_locates_multicontig_peak_outputs(tmp_path: Path):
+    requested = tmp_path / "peaks" / "cutn_target_tns_mean_scaled"
     root = requested.parent / f"{requested.name}_multicontig"
     combined = root / "combined"
     combined.mkdir(parents=True)
@@ -337,8 +337,8 @@ def test_chip_suite_locates_multicontig_peak_outputs(tmp_path: Path):
     assert located == combined / requested.name
 
 
-def test_chip_suite_prefers_existing_serial_outputs(tmp_path: Path):
-    requested = tmp_path / "tracks" / "chip_target"
+def test_cutn_suite_prefers_existing_serial_outputs(tmp_path: Path):
+    requested = tmp_path / "tracks" / "cutn_target"
     direct = _resolved_prefix(requested, "tns", 153, 120, 500)
     direct.parent.mkdir(parents=True)
     for suffix in ("_tns.bw", "_posTNS.bw", "_coverage.bw"):
@@ -366,7 +366,7 @@ def test_target_control_peak_competition_uses_control_for_ties():
     assert 0 <= annotated[1].qvalue <= 1
 
 
-def test_chip_peak_outputs_preserve_target_bed_and_append_fdr(tmp_path: Path):
+def test_cutn_peak_outputs_preserve_target_bed_and_append_fdr(tmp_path: Path):
     target = tmp_path / "target.bed"
     control = tmp_path / "control.bed"
     target.write_text(
@@ -378,7 +378,7 @@ def test_chip_peak_outputs_preserve_target_bed_and_append_fdr(tmp_path: Path):
         "chr1\t500\t580\tc1\t5\t.\t540\t541\n",
         encoding="utf-8",
     )
-    outputs = analyze_chip_peaks(
+    outputs = analyze_cutn_peaks(
         target, control, output_dir=tmp_path / "out", peak_fdr=1.0, cluster_fdr=1.0
     )
     rows = outputs["annotated_peaks"].read_text().splitlines()
@@ -429,7 +429,7 @@ def test_stage1_bed_score_is_scaled_coverage_max(tmp_path: Path):
     control_values[150] = 25.0
     _write_bigwig(target_bw, target_values)
     _write_bigwig(control_bw, control_values)
-    outputs = analyze_chip_peaks(
+    outputs = analyze_cutn_peaks(
         target_bed,
         control_bed,
         output_dir=tmp_path / "out",
@@ -527,7 +527,7 @@ def test_stage1_replicate_statistics_calls_fdr_without_control_peaks(tmp_path: P
         [120.0 if 100 <= position < 180 else 0.0 for position in range(300)],
     )
 
-    outputs = analyze_chip_replicate_peaks(
+    outputs = analyze_cutn_replicate_peaks(
         target_bed,
         output_dir=tmp_path / "results",
         target_replicate_bigwigs=treatment_paths,
@@ -569,7 +569,7 @@ def test_stage1_single_replicate_reports_unavailable_fdr(tmp_path: Path):
             [score if 100 <= position < 180 else 0.0 for position in range(300)],
         )
 
-    outputs = analyze_chip_replicate_peaks(
+    outputs = analyze_cutn_replicate_peaks(
         target_bed,
         output_dir=tmp_path / "results",
         target_replicate_bigwigs=[treatment],
@@ -660,7 +660,7 @@ def test_stage1_clusters_use_p_seeds_and_all_gated_members(tmp_path: Path):
     mean_path = tmp_path / "treatment_mean.bw"
     _write_bigwig(mean_path, values((121.0, 160.0, 151.0)))
 
-    outputs = analyze_chip_replicate_peaks(
+    outputs = analyze_cutn_replicate_peaks(
         target_bed,
         output_dir=tmp_path / "results",
         target_replicate_bigwigs=treatment_paths,
@@ -680,7 +680,7 @@ def test_stage1_clusters_use_p_seeds_and_all_gated_members(tmp_path: Path):
     lines = outputs["cluster_table"].read_text().splitlines()
     cluster_header = lines[0].split("\t")
     cluster = lines[1].split("\t")
-    assert cluster[:4] == ["chip_cluster_1", "chr1", "20", "220"]
+    assert cluster[:4] == ["cutn_cluster_1", "chr1", "20", "220"]
     assert cluster[cluster_header.index("seed_peak_count")] == "2"
     assert cluster[cluster_header.index("member_count")] == "3"
     assert cluster[cluster_header.index("bridged_non_member_peak_count")] == "0"
@@ -840,7 +840,7 @@ def _stage1_manifest(
             }
         )
     manifest = {
-        "schema": "nucleosuite_chip_stage1",
+        "schema": "nucleosuite_cutn_stage1",
         "schema_version": 2,
         "condition_name": name,
         "bam_mode": "replicates",
@@ -863,12 +863,12 @@ def _stage1_manifest(
         "significant_peaks": str(significant_peaks),
         "significant_clusters": str(significant_clusters),
     }
-    path = root / "chip_stage1_manifest.json"
+    path = root / "cutn_stage1_manifest.json"
     path.write_text(json.dumps(manifest), encoding="utf-8")
     return path
 
 
-def test_chip_compare_uses_scaled_bigwig_replicates_without_bams(tmp_path: Path):
+def test_cutn_compare_uses_scaled_bigwig_replicates_without_bams(tmp_path: Path):
     length = 300
     first_treatment = [[0.0] * length for _ in range(2)]
     first_control = [[0.0] * length for _ in range(2)]
@@ -901,7 +901,7 @@ def test_chip_compare_uses_scaled_bigwig_replicates_without_bams(tmp_path: Path)
     assert payload["cluster_aligned_aggregates"]["status"] == "unavailable"
 
 
-def test_chip_compare_uses_unpaired_unequal_four_group_interaction(tmp_path: Path):
+def test_cutn_compare_uses_unpaired_unequal_four_group_interaction(tmp_path: Path):
     length = 300
 
     def tracks(count: int, score: float) -> list[list[float]]:
@@ -939,7 +939,7 @@ def test_chip_compare_uses_unpaired_unequal_four_group_interaction(tmp_path: Pat
     assert row[-1] == "significant_gain"
 
 
-def test_chip_compare_uses_connected_union_for_overlapping_cluster_coordinates(tmp_path: Path):
+def test_cutn_compare_uses_connected_union_for_overlapping_cluster_coordinates(tmp_path: Path):
     length = 300
     values = [[0.0] * length for _ in range(2)]
     first = _stage1_manifest(tmp_path / "first", "first", values, values)
@@ -963,7 +963,7 @@ def test_chip_compare_uses_connected_union_for_overlapping_cluster_coordinates(t
     assert fields[header.index("condition2_cluster_ids")] == "cluster2"
 
 
-def test_chip_compare_retains_condition_specific_cluster_regions(tmp_path: Path):
+def test_cutn_compare_retains_condition_specific_cluster_regions(tmp_path: Path):
     length = 300
     values = [[0.0] * length for _ in range(2)]
     first = _stage1_manifest(tmp_path / "first", "first", values, values)
@@ -996,7 +996,7 @@ def test_chip_compare_retains_condition_specific_cluster_regions(tmp_path: Path)
     ]
 
 
-def test_chip_compare_does_not_merge_nearby_nonoverlapping_clusters(tmp_path: Path):
+def test_cutn_compare_does_not_merge_nearby_nonoverlapping_clusters(tmp_path: Path):
     length = 300
     values = [[0.0] * length for _ in range(2)]
     first = _stage1_manifest(tmp_path / "first", "first", values, values)
@@ -1023,7 +1023,7 @@ def test_chip_compare_does_not_merge_nearby_nonoverlapping_clusters(tmp_path: Pa
     assert "overlapping_cluster_bp\t0" in summary
 
 
-def test_chip_compare_preserves_one_to_many_cluster_overlap_and_base_counts(
+def test_cutn_compare_preserves_one_to_many_cluster_overlap_and_base_counts(
     tmp_path: Path,
 ):
     values = [[0.0] * 300 for _ in range(2)]

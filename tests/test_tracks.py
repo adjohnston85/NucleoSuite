@@ -48,12 +48,12 @@ def make_args(tmp_path: Path, specs: list[str], *, cap: int = 0):
         even_dyad="split",
         output_format="none",
         interval_format="bed",
-        pns_mode_length=167,
-        pns_smooth_window=0,
-        pns_smooth_order=2,
-        pns_min_region_length=50,
-        pns_max_neg_run=0,
-        pns_peak_score_scale=1.0,
+        score_mode_length=167,
+        score_smooth_window=0,
+        score_smooth_order=2,
+        score_min_region_length=50,
+        score_max_neg_run=0,
+        score_peak_score_scale=1.0,
         wps_protection=120,
         wps_baseline_window=1000,
         wps_sg_window=21,
@@ -163,24 +163,25 @@ def test_combined_pns_and_wps_match_direct_scoring(monkeypatch, tmp_path):
     monkeypatch.setattr(tracks, "write_tracks", capture)
     args = make_args(tmp_path, ["137-197=pns,posPNS,wps,coverage"])
     args.wps_baseline_window = 100
+    args.scoring_method = "pns"
     active_specs = tracks.load_specs(args)
     monkeypatch.setattr(tracks, "load_specs", lambda _args: active_specs)
     tracks.run(args)
 
     basic = basic_tracks.new_arrays(300)
-    pns_arrays = pns_scoring.new_arrays(300)
-    centred, positive = pns_scoring.precompute_distributions(range(137, 198), 167)
+    pns_arrays = pns_scoring.new_arrays(300, "pns")
+    centred, positive = pns_scoring.precompute_distributions(range(137, 198), 167, "pns")
     wps_array = wps_scoring.new_array(300)
     wps_distributions = wps_scoring.precompute_distributions(range(137, 198), 120)
     for start, end in fragments:
         basic_tracks.add_fragment(basic, start, end, 0, 300, "split")
         pns_scoring.add_fragment(
-            pns_arrays, start, end, 0, 300, 167, centred, positive
+            pns_arrays, start, end, 0, 300, 167, centred, positive, scoring_method="pns"
         )
         wps_scoring.add_fragment(
             wps_array, start, end, 0, 120, wps_distributions
         )
-    expected_pns = pns_scoring.to_scores(pns_arrays, "chr1", 0, 0, 2)
+    expected_pns = pns_scoring.to_scores(pns_arrays, "chr1", 0, 0, 2, scoring_method="pns")
     expected_wps = wps_scoring.to_scores(wps_array, "chr1", 0, 100, 21, 2)
     assert np.array_equal(captured["coverage"], basic["coverage"])
     assert np.allclose(captured["pns"], expected_pns["pns"][0][2])
@@ -197,6 +198,7 @@ def test_tracks_cli_defaults_leave_sparse_coordinate_values_unlimited():
     ])
     assert args.max_duplicates == 1
     assert args.max_per_coordinate == 0
+    assert args.scoring_method == "sns"
 
 
 def test_wps_peak_overlap_is_validated_after_specs_load(tmp_path):

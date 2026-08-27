@@ -1,4 +1,4 @@
-"""Small, shared BigWig operations used by the ChIP workflows."""
+"""Small, shared BigWig operations used by the CUT&RUN/CUT&Tag workflows."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ except ImportError:  # pragma: no cover - dependency validation reports this fir
 
 def _require_pybigwig() -> None:
     if pyBigWig is None:
-        raise RuntimeError("pyBigWig is required for ChIP BigWig comparisons")
+        raise RuntimeError("pyBigWig is required for CUT&RUN/CUT&Tag BigWig comparisons")
 
 
 def _finite_values(handle, chrom: str, start: int, end: int) -> np.ndarray:

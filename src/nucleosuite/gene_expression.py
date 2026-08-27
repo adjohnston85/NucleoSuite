@@ -1375,7 +1375,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--resource-set", default="hg19-gm12878", help="Bundled resource set used when --genes-bed is omitted.")
     parser.add_argument("--peaks", "--peak-bed", action="append", default=[], metavar="NAME=BED", help="Peak BED for spacing analysis; repeat for multiple samples.")
     parser.add_argument("--signal", "--bigwig", action="append", default=[], metavar="NAME=BIGWIG", help="PNS/WPS BigWig for FFT analysis; repeat for multiple samples.")
-    parser.add_argument("--signal-type", choices=("pns", "wps", "other"), default="pns", help="Signal label used in metadata and plot text.")
+    parser.add_argument("--signal-type", choices=("sns", "pns", "wps", "other"), default="sns", help="Signal label used in metadata and plot text.")
     parser.add_argument("--analysis", choices=("all", "spacing", "fft"), default="all", help="Run peak-spacing correlations, FFT correlations, or both.")
     parser.add_argument("--output-prefix", "--out-prefix", help="Path prefix for analysis tables, metadata, and plots. Default: primary signal/peak input basename, or expression-table basename, plus _gene_expression.")
     parser.add_argument(

@@ -16,10 +16,10 @@ from collections.abc import Iterable, Mapping, Sequence
 # actions are always shown even when they are not listed here. Aliases are
 # canonicalised below so one profile covers the synonymous command names.
 CORE_DESTINATIONS: dict[str, set[str]] = {
-    "pns": {
+    "nuc-score": {
         "bamfiles", "fragment_files", "chrom_sizes", "blacklist_bed", "out_prefix",
         "contigs", "frag_lower", "frag_upper", "scoring_method", "mode_length",
-        "pns_tracks", "interval_format", "cores",
+        "score_tracks", "interval_format", "cores",
     },
     "wps": {
         "bamfiles", "fragment_files", "chrom_sizes", "blacklist_bed", "out_prefix",
@@ -156,16 +156,19 @@ CORE_DESTINATIONS: dict[str, set[str]] = {
         "sample_peaks", "randomized_peaks", "score_column", "fdr",
         "output_prefix", "output",
     },
-    "chip-suite": {
+    "cutn-suite": {
         "treatment1_bam", "control1_bam", "treatment2_bam", "control2_bam",
-        "outdir", "sample_name", "condition1_name", "condition2_name", "bam_mode",
-        "scoring_method", "mode", "mode_strategy", "frag_lower", "frag_upper",
-        "blacklist_bed", "contigs", "cores", "stage1_p_value", "peak_fdr",
-        "cluster_seed_p_value", "cluster_max_non_gated_gap",
-        "min_cluster_gated_peaks", "cluster_fdr",
-        "differential_fdr", "compare_feature_level",
+        "outdir", "sample_name", "condition1_name", "condition2_name",
+        "inspect_run", "rerun_from", "exclude_sample", "bam_mode",
+        "scoring_method", "mode", "mode_strategy", "score_fragment_flank",
+        "score_frag_lower", "score_frag_upper", "coverage_frag_lower",
+        "coverage_frag_upper", "blacklist_bed", "contigs", "cores",
+        "peak_min_region_length", "peak_max_neg_run", "stage1_p_value", "peak_fdr",
+        "stage1_gate_mode", "cluster_seed_p_value", "cluster_member_mode",
+        "cluster_max_non_member_gap", "max_cluster_gap", "min_cluster_members",
+        "cluster_fdr", "differential_fdr",
     },
-    "chip-compare": {
+    "cutn-compare": {
         "condition1_results", "condition2_results", "outdir", "feature_level",
         "peak_match_distance", "fdr",
     },
@@ -366,9 +369,9 @@ core options:
   --outdir DIR                  Output directory.
   --cores N                     Maximum concurrent contig workers (default: 1).
   --analysis-scope VALUE        combined-only (default) or per-contig-and-combined.
-  --pns-frag-lower N            PNS lower fragment length (default: 137).
-  --pns-frag-upper N            PNS upper fragment length (default: 197).
-  --pns-mode-length N           PNS modal fragment length (default: 167).
+  --score-frag-lower N            SNS scoring lower fragment length (default: 137).
+  --score-frag-upper N            SNS scoring upper fragment length (default: 197).
+  --score-mode-length N           SNS scoring modal fragment length (default: 167).
   --with-randomized-control     Run complete observed and randomized workflows, then annotate combined peak BEDs with empirical FDR.
   --fdr N                       In paired mode, also write combined peak BEDs filtered at FDR N.
   --max-duplicates N            Identical-fragment copy limit (default: 1).
@@ -393,9 +396,9 @@ core options:
   --outdir DIR                  Output directory.
   --cores N                     Maximum concurrent contig workers (default: 1).
   --analysis-scope VALUE        combined-only (default) or per-contig-and-combined.
-  --pns-frag-lower N            PNS lower fragment length (default: 120).
-  --pns-frag-upper N            PNS upper fragment length (default: 180).
-  --pns-mode-length N           PNS modal fragment length (default: 147).
+  --score-frag-lower N            SNS scoring lower fragment length (default: 120).
+  --score-frag-upper N            SNS scoring upper fragment length (default: 180).
+  --score-mode-length N           SNS scoring modal fragment length (default: 147).
   --fine-frag-lower/upper N     Ranged dyad/WW class (default: 146-148).
   --exact-size N                Exact dyad/fragment-end length (default: 147).
   --with-randomized-control     Run complete observed and randomized workflows, then annotate combined peak BEDs with empirical FDR.

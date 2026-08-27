@@ -142,6 +142,138 @@ posPNS_m(x)=\sum_i u_{m,L_i}(x).
 
 Because each fragment contributes total mass 1, `posPNS` reports the accumulated endpoint-derived positional support.
 
+## Sinusoidal nucleosome scoring
+
+Sinusoidal Nucleosome Scoring (SNS) is the default scoring kernel used by the standalone `nuc-score` command in NucleoSuite 0.11.0. SNS uses the same accepted fragments and the same fragment-length-dependent support geometry as PNS, but replaces endpoint triangles with one smooth signed sinusoidal contribution centred on each fragment. The score is constructed directly as a zero-sum kernel rather than by subtracting the mean of a non-negative distribution.
+
+### Length-dependent support width
+
+Let the selected protected-DNA mode be $m$ and the observed fragment length be $L$. SNS defines its support width as
+
+```math
+W(L,m)=m+|L-m|.
+```
+
+This is algebraically identical to the PNS support length $n(L,m)=\max(L,2m-L)$ defined above. Written piecewise,
+
+```math
+W(L,m)=2m-L \qquad \text{for } L<m
+```
+
+and
+
+```math
+W(L,m)=L \qquad \text{for } L\ge m.
+```
+
+The wave is therefore narrowest when $L=m$. As fragment length departs from the mode in either direction, the support broadens by the same amount. For fragments longer than the mode, the support is the observed fragment itself. For fragments shorter than the mode, the extra support is divided equally between the two ends. The extension on each side is
+
+```math
+\frac{W-L}{2}=m-L,\qquad L<m.
+```
+
+For $m=167$ bp:
+
+| Fragment length $L$ | SNS support $W$ | Extension beyond each fragment end |
+|---:|---:|---:|
+| 120 bp | 214 bp | 47 bp |
+| 167 bp | 167 bp | 0 bp |
+| 180 bp | 180 bp | 0 bp |
+
+The parity of the support always matches the parity of the fragment length. If $L\ge m$, then $W=L$. If $L<m$, then $W=2m-L$, and subtracting $L$ from the even number $2m$ preserves the parity of $L$. This matters on an integer genomic grid: an odd-length fragment and its odd-length support have one central base, while an even-length fragment and its even-length support share the same half-base geometric midpoint and have two equally placed central bins. No 0.5-bp rounding shift is required.
+
+### Discrete sinusoidal kernel
+
+Number the integer genomic bins across the support from $j=0$ to $j=W-1$. SNS first evaluates one inverted cosine cycle
+
+```math
+q_W(j)=-\cos\left(\frac{2\pi j}{W-1}\right).
+```
+
+Thus $q_W(0)=q_W(W-1)=-1$: the wave begins and ends at its minimum. For odd $W$, the central bin $j=(W-1)/2$ has value $+1$. For even $W$, the geometric centre lies between two bins and those two bins have equal maximum values. The samples are therefore exactly left-right symmetric on the discrete genomic grid.
+
+A continuous sinusoid can be normalized analytically by its integral, but NucleoSuite stores genomic signal at discrete integer positions. Direct sampling causes small length-dependent differences in the sums of the positive and negative samples. SNS therefore normalizes the two signed parts after discrete sampling. Define
+
+```math
+P_W=\sum_{j:q_W(j)>0} q_W(j)
+```
+
+and
+
+```math
+N_W=\sum_{j:q_W(j)<0} |q_W(j)|.
+```
+
+The final per-fragment SNS kernel is
+
+For positive samples,
+
+```math
+\psi^{SNS}_{m,L}(j)=q_W(j)\dfrac{50}{P_W} \qquad \text{when } q_W(j)>0.
+```
+
+For negative samples,
+
+```math
+\psi^{SNS}_{m,L}(j)=q_W(j)\dfrac{50}{N_W} \qquad \text{when } q_W(j)<0.
+```
+
+Samples for which $q_W(j)=0$ remain zero.
+
+This guarantees, for every complete fragment and every support width,
+
+```math
+\sum_{\psi^{SNS}>0}\psi^{SNS}=+50,
+```
+
+```math
+\sum_{\psi^{SNS}<0}\psi^{SNS}=-50,
+```
+
+so that
+
+```math
+\sum_j\psi^{SNS}_{m,L}(j)=0
+```
+
+and
+
+```math
+\sum_j\left|\psi^{SNS}_{m,L}(j)\right|=100.
+```
+
+Every accepted fragment therefore contributes the same total signed balance and the same total absolute mass of 100, while fragment length changes only the spatial width and corresponding per-base amplitude of the wave. Short or long fragments produce broader, shallower contributions than mode-length fragments.
+
+The genome-wide SNS track is
+
+```math
+SNS_m(x)=\sum_i\psi^{SNS}_{m,L_i}(x).
+```
+
+Positive SNS signal represents genomic positions collectively favoured as nucleosome-centred protection, while negative signal represents the flanking portions of the sinusoidal support.
+
+### `posSNS`
+
+`posSNS` is a non-negative reference track derived from the positive half of the signed SNS kernel:
+
+```math
+u^{SNS,+}_{m,L}(j)=\frac{1}{50}\max\left(\psi^{SNS}_{m,L}(j),0\right).
+```
+
+Because the positive mass of the signed SNS kernel is 50, division by 50 gives each fragment unit mass in `posSNS`:
+
+```math
+\sum_j u^{SNS,+}_{m,L}(j)=1.
+```
+
+`posSNS` is used as a method-matched positive reference for operations such as replicate mean scaling. Peak calling uses the signed `sns` track, not `posSNS`.
+
+#### Example SNS distributions
+
+The figure below shows the discrete signed SNS kernels for 120 bp, 167 bp, and 180 bp fragments with $m=167$ bp. Grey shading marks the observed fragment. The 120 bp wave extends 47 bp beyond each end and spans 214 genomic bins.
+
+![SNS example distributions](images/sns_kernels_120_167_180_mode167.png)
+
 ## Boxcar nucleosome scoring
 
 Boxcar nucleosome scoring (BNS) uses the same accepted fragments and [support length $n(L,m)$](#combining-the-two-fragment-ends) as PNS, but replaces the two endpoint triangles with one symmetric central boxcar. The uncentred boxcar has total mass 1 and zero outer flanks. Mean centring produces a positive central contribution and negative flanks whose total contribution sums to zero for every fragment.
@@ -259,13 +391,13 @@ The figure below shows the uncentred unit-mass triangle and the resulting mean-c
 
 ### PNS peak calling
 
-Positive PNS, BNS or TNS regions are genomic intervals where overlapping fragments collectively favour nucleosome protection. BNS and TNS use the same peak caller as PNS. Negative score regions can be called separately as breakpoint peaks.
+Positive SNS, PNS, BNS or TNS regions are genomic intervals where overlapping fragments collectively favour nucleosome protection. SNS, BNS and TNS use the same peak caller as PNS. Negative score regions can be called separately as breakpoint peaks.
 
-A positive candidate region begins when the selected PNS, BNS or TNS signal rises above zero and ends when the permitted run of zero-or-negative values is exceeded. Regions shorter than `--min-region-length` are discarded. The output records each retained region, its midpoint as the representative position, and its highest score value as the region score.
+A positive candidate region begins when the selected SNS, PNS, BNS or TNS signal rises above zero and ends when the permitted run of zero-or-negative values is exceeded. Regions shorter than `--min-region-length` are discarded. The output records each retained region, its midpoint as the representative position, and its highest score value as the region score.
 
-Breakpoint calling applies the same procedure to the sign-inverted PNS, BNS or TNS signal, so negative regions are treated as positive during segmentation.
+Breakpoint calling applies the same procedure to the sign-inverted SNS, PNS, BNS or TNS signal, so negative regions are treated as positive during segmentation.
 
-Text PNS, BNS and TNS BED scores are written as six-decimal floating-point values after `--peak-score-scale` is applied. For bigBed output, let $B$ be `--bigbed-score-scale`, which defaults to 1000:
+Text SNS, PNS, BNS and TNS BED scores are written as six-decimal floating-point values after `--peak-score-scale` is applied. For bigBed output, let $B$ be `--bigbed-score-scale`, which defaults to 1000:
 
 ```math
 score_{bigBed}=\min\left(1000,\max\left(0,\mathrm{round}(B\,score_{BED})\right)\right).
@@ -273,13 +405,13 @@ score_{bigBed}=\min\left(1000,\max\left(0,\mathrm{round}(B\,score_{BED})\right)\
 
 Optional [Savitzky-Golay smoothing](https://doi.org/10.1021/ac60214a047) can be applied before peak calling. It fits a low-order polynomial within a moving window and evaluates the fitted value at the centre. Raw scoring signal is used by default.
 
-Standalone `pns` uses PNS by default. Select `--scoring-method bns` for BNS or `--scoring-method tns` for TNS. Standalone `pns` now estimates $m$ automatically from the accepted fragments unless an integer `--mode` is supplied. The cfDNA and MNase suites retain their workflow-specific protected-DNA settings.
+Standalone `nuc-score` uses SNS by default. Select `--scoring-method pns` for the original endpoint-derived PNS kernel, `--scoring-method bns` for BNS, or `--scoring-method tns` for TNS. Standalone `nuc-score` now estimates $m$ automatically from the accepted fragments unless an integer `--mode` is supplied. The cfDNA and MNase suites retain their workflow-specific protected-DNA settings.
 
 ## Bootstrap-stabilized fragment-mode estimation
 
 ### What is estimated and why
 
-`pns`, `wps`, and `chip-suite` use a protected-DNA length to define their scoring geometry. With `--mode auto`, NucleoSuite estimates the dominant accepted fragment length instead of assuming that every library has the same modal length. This matters because digestion, library preparation, and assay type can shift the observed protected-fragment distribution.
+`nuc-score`, `wps`, and `cutn-suite` use a protected-DNA length to define their scoring geometry. With `--mode auto`, NucleoSuite estimates the dominant accepted fragment length instead of assuming that every library has the same modal length. This matters because digestion, library preparation, and assay type can shift the observed protected-fragment distribution.
 
 An integer `--mode` bypasses estimation and uses that value exactly. This is useful when a fixed geometry is required across separately processed analyses.
 
@@ -287,7 +419,7 @@ An integer `--mode` bypasses estimation and uses that value exactly. This is use
 
 Indexed genomic blocks from the selected analysis contigs are visited in seeded random order. Random block order prevents the estimate from being determined by whichever chromosomes happen to occur first in the input. A fragment enters the histogram only if it passes the same alignment, duplicate-coordinate, fragment-length, contig, and blacklist rules used by the analysis. The estimate therefore describes the fragments that will actually contribute to the score.
 
-The accepted fragment lengths are counted in one-base bins across the selected mode-search range. `pns` and `wps` use their accepted fragment range as the default search range. `chip-suite` samples fragments that pass its broad 1–1,000 bp coverage selection but counts the 120–250 bp nucleosome-sized subset when estimating the mode. This prevents the potentially abundant short or long fragments retained for abundance measurement from defining nucleosome-scoring geometry.
+The accepted fragment lengths are counted in one-base bins across the selected mode-search range. `nuc-score` and `wps` use their accepted fragment range as the default search range. `cutn-suite` samples fragments that pass its broad 1–1,000 bp coverage selection but counts the 120–250 bp nucleosome-sized subset when estimating the mode. This prevents the potentially abundant short or long fragments retained for abundance measurement from defining nucleosome-scoring geometry.
 
 The raw integer histogram is used by default. The modal length is the lowest length tied for the largest observed count. No histogram smoothing is applied because smoothing can merge nearby modes or move the maximum away from the most frequently observed integer length.
 
@@ -308,11 +440,11 @@ At each sampling checkpoint, NucleoSuite draws multinomial bootstrap histograms 
 
 Otherwise sampling continues until `--mode-max-fragments` is reached. Requiring stability across checkpoints reduces the chance of stopping on a temporary maximum produced by too few sampled fragments.
 
-The resolved estimate, bootstrap interval, sampled-fragment counts, search range, smoothing setting, convergence result, checkpoint count, seed, and histogram are written to a mode-estimation report. The resolved estimates are also printed during execution so a long `chip-suite` run immediately shows the mode selected for every treatment and control group.
+The resolved estimate, bootstrap interval, sampled-fragment counts, search range, smoothing setting, convergence result, checkpoint count, seed, and histogram are written to a mode-estimation report. The resolved estimates are also printed during execution so a long `cutn-suite` run immediately shows the mode selected for every treatment and control group.
 
-### Pooling treatment and control estimates in `chip-suite`
+### Pooling treatment and control estimates in `cutn-suite`
 
-`chip-suite` estimates each treatment and control group separately before selecting the analysis mode. The default pooled strategy converts the two histograms to within-group probabilities and gives them equal weight:
+`cutn-suite` estimates each treatment and control group separately before selecting the analysis mode. The default pooled strategy converts the two histograms to within-group probabilities and gives them equal weight:
 
 ```math
 p_{pool}(L)=\frac{1}{2}\left(\frac{n_T(L)}{\sum_j n_T(j)}+\frac{n_C(L)}{\sum_j n_C(j)}\right).
@@ -320,25 +452,25 @@ p_{pool}(L)=\frac{1}{2}\left(\frac{n_T(L)}{\sum_j n_T(j)}+\frac{n_C(L)}{\sum_j n
 
 Equal weighting prevents the deeper BAM group from determining the shared mode solely because it contains more fragments. With two conditions, corresponding estimates are pooled again so both Stage 1 analyses use compatible scoring geometry. This compatibility is required because Stage 2 compares measurements made within peak regions defined by those Stage 1 analyses.
 
-## `chip-suite` discovery and measurement tracks
+## `cutn-suite` discovery and measurement tracks
 
 ### Separate fragment selections and why they are used
 
-`chip-suite` uses PNS for peak discovery by default; BNS and TNS remain explicit alternatives. After resolving the treatment and control modes, each discovery score accepts fragments from its corresponding mode minus 30 bp through mode plus 30 bp. This narrow range focuses the positioning model on fragments consistent with one protected nucleosome. The flank can be changed with `--score-fragment-flank`, while paired `--score-frag-lower` and `--score-frag-upper` arguments replace the derived bounds completely.
+`cutn-suite` uses PNS for peak discovery by default; SNS, BNS and TNS remain explicit alternatives. After resolving the treatment and control modes, each discovery score accepts fragments from its corresponding mode minus 30 bp through mode plus 30 bp. This narrow range focuses the positioning model on fragments consistent with one protected nucleosome. The flank can be changed with `--score-fragment-flank`, while paired `--score-frag-lower` and `--score-frag-upper` arguments replace the derived bounds completely.
 
-Coverage is generated by an independent pass that accepts 1–1,000 bp fragments by default. Coverage has a different purpose from the discovery score: it measures how much fragment signal supports a discovered interval. Retaining the broader fragment population avoids discarding subnucleosomal and longer fragments that may contribute to ChIP-seq, CUT&RUN, or CUT&Tag enrichment. `--coverage-frag-lower` and `--coverage-frag-upper` change those bounds. Consequently, the discovery score answers where a nucleosome-positioned candidate is located, while broad-range coverage answers how strongly each replicate supports that candidate.
+Coverage is generated by an independent pass that accepts 1–1,000 bp fragments by default. Coverage has a different purpose from the discovery score: it measures how much fragment signal supports a discovered interval. Retaining the broader fragment population avoids discarding subnucleosomal and longer fragments that may contribute to CUT&RUN or CUT&Tag enrichment. `--coverage-frag-lower` and `--coverage-frag-upper` change those bounds. Consequently, the discovery score answers where a nucleosome-positioned candidate is located, while broad-range coverage answers how strongly each replicate supports that candidate.
 
 ## Positive-score mean normalization
 
 ### Normalizing replicate score tracks for peak discovery
 
-PNS, BNS, or TNS is used to locate candidate peaks, not to provide the final ChIP peak abundance. Before treatment replicates are averaged, each centred score track $Z_i(x)$ is divided by the finite, non-zero mean of its matching non-negative pre-centring track $Z_i^+(x)$:
+SNS, PNS, BNS, or TNS is used to locate candidate peaks, not to provide the final CUT&RUN/CUT&Tag peak abundance. Before treatment replicates are averaged, each centred score track $Z_i(x)$ is divided by the finite, non-zero mean of its matching matching non-negative positive-reference track $Z_i^+(x)$:
 
 ```math
 Z_{i,scaled}(x)=\frac{Z_i(x)}{\mathrm{mean}\!\left(Z_i^+(x)\mid Z_i^+(x)>0\right)}.
 ```
 
-PNS uses `posPNS`, BNS uses `posBNS`, and TNS uses `posTNS`. The positive track measures the uncentred amount of score-support contributed by fragments, so its mean provides a method-matched reference for the overall score amplitude.
+SNS uses `posSNS`, PNS uses `posPNS`, BNS uses `posBNS`, and TNS uses `posTNS`. The positive track provides a non-negative method-matched reference for fragment support, so its mean provides a method-matched reference for the overall score amplitude.
 
 This normalization is performed before averaging because raw score magnitudes depend on library depth. Averaging unscaled tracks would give a higher-depth replicate more influence over candidate discovery. Dividing each replicate by its own positive-score mean places the tracks on comparable scales, allowing each replicate to contribute equally to the condition-average discovery track.
 
@@ -346,7 +478,7 @@ The normalized treatment tracks are averaged because peak calling requires one c
 
 ### Normalizing coverage for peak measurement
 
-Peak strength is measured from broad-range fragment coverage rather than PNS, BNS, or TNS height. Each treatment and control replicate is independently scaled to a finite non-zero coverage mean of 100:
+Peak strength is measured from broad-range fragment coverage rather than SNS, PNS, BNS, or TNS height. Each treatment and control replicate is independently scaled to a finite non-zero coverage mean of 100:
 
 ```math
 Cov_{100,i}(x)=100\frac{Cov_i(x)}{\mathrm{mean}(Cov_i(x)\mid Cov_i(x)>0)}.
@@ -360,7 +492,7 @@ For a candidate interval $R$, the replicate peak score is the maximum scaled cov
 P_i(R)=\max_{x\in R}Cov_{100,i}(x).
 ```
 
-The maximum captures the strongest local enrichment supporting the score-defined candidate and is less dependent on the width of the called interval than a sum or area. PNS, BNS, or TNS therefore answers **where is the candidate?**, while scaled coverage answers **how strong is it in each replicate?**
+The maximum captures the strongest local enrichment supporting the score-defined candidate and is less dependent on the width of the called interval than a sum or area. SNS, PNS, BNS, or TNS therefore answers **where is the candidate?**, while scaled coverage answers **how strong is it in each replicate?**
 
 ## Empirical peak FDR
 
@@ -374,11 +506,11 @@ Let $S(s)$ be the number of observed peaks with score at least $s$, and let $R_b
 
 The randomized callsets preserve the relevant fragment properties while removing the original genomic positioning, so their peak-score distribution represents peaks expected under a positional null. The pseudocount prevents a zero estimate above every randomized peak. Scores are evaluated at the distinct observed thresholds. Each observed peak receives the smallest estimated FDR among thresholds that retain that peak, producing a monotonic empirical q-value. Coordinates are not matched because randomized positions are intentionally unrelated to the observed positions.
 
-### `chip-suite` Stage 1: treatment versus control
+### `cutn-suite` Stage 1: treatment versus control
 
 Stage 1 asks whether a treatment-defined candidate is reproducibly stronger than the condition-matched control. It does not use the randomized-peak FDR above.
 
-Candidate intervals are called from the average normalized treatment PNS, BNS, or TNS track. Control peaks are not called because a control signal should be able to challenge a treatment candidate even when the control does not independently form a called peak.
+Candidate intervals are called from the average normalized treatment SNS, PNS, BNS, or TNS track. Control peaks are not called because a control signal should be able to challenge a treatment candidate even when the control does not independently form a called peak.
 
 For treatment replicate $i$, control replicate $j$, and candidate interval $R$, the maximum scaled-coverage scores are
 
@@ -444,9 +576,9 @@ cluster:  1 1 1 . . . .
 
 In the final example, the right-hand `G G` has no seed and is therefore not a cluster. Connected expansions from multiple seeds are emitted once rather than as overlapping duplicate clusters.
 
-Cluster boundaries are the outermost included-member intervals. By default, the Stage 1 gate requires every treatment replicate to exceed every control replicate and the cluster score is the sum of minimum-treatment-minus-maximum-control excess across included members. `--stage1-gate-mode mean` instead uses mean treatment > mean control and mean treatment minus mean control as the member excess. `--cluster-member-mode seed-and-gated` includes both significant seed (S) peaks and other gate-passing (G) peaks; `significant-only` includes only S peaks. Non-members may bridge included members up to `--cluster-max-non-member-gap` but do not contribute to the boundary or score. The aggregate anchor is the discovery-track summit of the included member with the largest condition-mean scaled-coverage maximum; selected excess and genomic position break ties. Coverage ranks members because it is the direct abundance measurement, while the selected member's TNS/BNS/PNS summit preserves the positioning estimate.
+Cluster boundaries are the outermost included-member intervals. By default, the Stage 1 gate requires every treatment replicate to exceed every control replicate and the cluster score is the sum of minimum-treatment-minus-maximum-control excess across included members. `--stage1-gate-mode mean` instead uses mean treatment > mean control and mean treatment minus mean control as the member excess. `--cluster-member-mode seed-and-gated` includes both significant seed (S) peaks and other gate-passing (G) peaks; `significant-only` includes only S peaks. Non-members may bridge included members up to `--cluster-max-non-member-gap` but do not contribute to the boundary or score. The aggregate anchor is the discovery-track summit of the included member with the largest condition-mean scaled-coverage maximum; selected excess and genomic position break ties. Coverage ranks members because it is the direct abundance measurement, while the selected member's SNS/TNS/BNS/PNS summit preserves the positioning estimate.
 
-### `chip-compare` Stage 2: differences between conditions
+### `cutn-compare` Stage 2: differences between conditions
 
 Stage 2 asks whether treatment enrichment relative to control changes between two biological conditions. It compares clusters only, reads the Stage 1 manifests and saved BigWigs, and does not return to the BAM files.
 
@@ -500,7 +632,7 @@ S_{scaled,i}(x)=\frac{S_i(x)}{\mathrm{mean}(posS_i(x)\mid posS_i(x)>0)},
 \overline{PNS}_{scaled}(x)=\frac{1}{n}\sum_i PNS_{scaled,i}(x).
 ```
 
-Scaling before averaging removes usable-depth magnitude from each replicate so a deeper library does not dominate the condition mean. The selected discovery method supplies the positioning aggregate throughout: PNS is normalized by `posPNS`, BNS by `posBNS`, and TNS by `posTNS`. Coverage-to-100 remains the abundance statistic used for treatment/control tests.
+Scaling before averaging removes usable-depth magnitude from each replicate so a deeper library does not dominate the condition mean. The selected discovery method supplies the positioning aggregate throughout: SNS is normalized by `posSNS`, PNS by `posPNS`, BNS by `posBNS`, and TNS by `posTNS`. Coverage-to-100 remains the abundance statistic used for treatment/control tests.
 
 Each Stage 1 cluster is aligned at the discovery summit of its strongest coverage-scored member. Stage 2 additionally builds one common union-locus anchor set and uses it for both conditions, allowing row-matched heatmaps with a shared symmetric colour scale. The default directional NRL caller uses 140 bp resolution, includes the central peak as order 0, retains called order numbers, fits orders 0–3 on both sides, and applies no central regression exclusion.
 
