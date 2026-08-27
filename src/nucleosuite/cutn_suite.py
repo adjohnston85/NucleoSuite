@@ -80,11 +80,17 @@ def _resolved_prefix(
 
 
 def _scoring_fragment_range(args: argparse.Namespace, mode: int) -> tuple[int, int]:
-    if args.score_frag_lower is not None and args.score_frag_upper is not None:
-        return int(args.score_frag_lower), int(args.score_frag_upper)
-    return max(1, int(mode) - int(args.score_fragment_flank)), int(mode) + int(
-        args.score_fragment_flank
+    lower = (
+        int(args.score_frag_lower)
+        if args.score_frag_lower is not None
+        else max(1, int(mode) - int(args.frag_mode_padding))
     )
+    upper = (
+        int(args.score_frag_upper)
+        if args.score_frag_upper is not None
+        else int(mode) + int(args.frag_mode_padding)
+    )
+    return lower, upper
 
 
 def _resolved_coverage_prefix(base: Path, lower: int, upper: int) -> Path:
@@ -309,16 +315,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="How group estimates define treatment and control analysis modes (default: pooled).",
     )
     parser.add_argument(
-        "--score-fragment-flank", type=int, default=30,
-        help="Default scoring range extends this many bp below and above the resolved mode (default: 30).",
+        "--frag-mode-padding", dest="frag_mode_padding", type=int, default=30,
+        help=(
+            "When a scoring-fragment bound is omitted, derive it from the resolved "
+            "mode plus or minus this many bp (default: 30). Explicit --score-frag-lower "
+            "and --score-frag-upper values override their corresponding automatic "
+            "bounds independently."
+        ),
     )
     parser.add_argument(
         "--score-frag-lower", dest="score_frag_lower", type=int,
-        help="Explicit scoring-fragment lower bound; supply with --score-frag-upper to override mode +/- flank.",
+        help="Explicit scoring-fragment lower bound; overrides the automatic mode-minus-padding bound.",
     )
     parser.add_argument(
         "--score-frag-upper", dest="score_frag_upper", type=int,
-        help="Explicit scoring-fragment upper bound; supply with --score-frag-lower to override mode +/- flank.",
+        help="Explicit scoring-fragment upper bound; overrides the automatic mode-plus-padding bound.",
     )
     parser.add_argument(
         "--coverage-frag-lower", type=int, default=1,
@@ -439,8 +450,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Cluster bootstrap replicates for aggregate 95%% confidence bands (default: 200; 0 disables).",
     )
     parser.add_argument(
-        "--cluster-aggregate-nrl-resolution", type=float, default=140.0,
-        help="Peak resolution for cluster-aligned directional NRLs (default: 140 bp).",
+        "--cluster-aggregate-nrl-resolution", type=float, default=130.0,
+        help="Peak resolution for cluster-aligned directional NRLs (default: 130 bp).",
     )
     parser.add_argument(
         "--cluster-aggregate-nrl-min-order", type=int, default=0,
@@ -485,16 +496,18 @@ def _validate(args: argparse.Namespace) -> None:
         raise ValueError(
             "Require 1 <= --coverage-frag-lower <= --coverage-frag-upper"
         )
-    if args.score_fragment_flank < 0:
-        raise ValueError("--score-fragment-flank must be non-negative")
-    if (args.score_frag_lower is None) != (args.score_frag_upper is None):
-        raise ValueError(
-            "--score-frag-lower and --score-frag-upper must be supplied together"
-        )
-    if args.score_frag_lower is not None and (
-        args.score_frag_lower < 1 or args.score_frag_upper < args.score_frag_lower
+    if args.frag_mode_padding < 0:
+        raise ValueError("--frag-mode-padding must be non-negative")
+    if args.score_frag_lower is not None and args.score_frag_lower < 1:
+        raise ValueError("--score-frag-lower must be at least 1")
+    if args.score_frag_upper is not None and args.score_frag_upper < 1:
+        raise ValueError("--score-frag-upper must be at least 1")
+    if (
+        args.score_frag_lower is not None
+        and args.score_frag_upper is not None
+        and args.score_frag_upper < args.score_frag_lower
     ):
-        raise ValueError("Require 1 <= --score-frag-lower <= --score-frag-upper")
+        raise ValueError("Require --score-frag-upper >= --score-frag-lower")
     if args.mode == "auto":
         if (
             args.mode_search_lower < args.coverage_frag_lower
@@ -1086,7 +1099,7 @@ def _run_stage1(
         "control_mode": control_mode,
         "frag_lower": target_score_lower,
         "frag_upper": target_score_upper,
-        "score_fragment_flank": args.score_fragment_flank,
+        "frag_mode_padding": args.frag_mode_padding,
         "target_score_frag_lower": target_score_lower,
         "target_score_frag_upper": target_score_upper,
         "control_score_frag_lower": control_score_lower,
@@ -1397,7 +1410,7 @@ def inspect_run(value: str | Path) -> int:
         name = str(manifest.get("condition_name") or f"condition{condition_index}")
         print(f"\nCondition {condition_index}: {name}")
         print(f"  manifest: {manifest_path}")
-        print(f"  scoring method: {manifest.get('scoring_method', 'pns')}")
+        print(f"  scoring method: {manifest.get('scoring_method', 'sns')}")
         print(
             "  analysis modes: "
             f"treatment={manifest.get('target_mode', 'unknown')} bp; "
@@ -1495,7 +1508,7 @@ def _inherit_rerun_parameters(args: argparse.Namespace, manifest: dict[str, obje
         "cluster_aggregate_window_half": ("--cluster-aggregate-window-half", "window_half", 1000),
         "cluster_aggregate_max_heatmap_rows": ("--cluster-aggregate-max-heatmap-rows", "maximum_heatmap_rows", 5000),
         "cluster_aggregate_bootstrap": ("--cluster-aggregate-bootstrap", "bootstrap_replicates", 200),
-        "cluster_aggregate_nrl_resolution": ("--cluster-aggregate-nrl-resolution", "nrl_peak_resolution", 140.0),
+        "cluster_aggregate_nrl_resolution": ("--cluster-aggregate-nrl-resolution", "nrl_peak_resolution", 130.0),
         "cluster_aggregate_nrl_min_order": ("--cluster-aggregate-nrl-min-order", "nrl_min_order", 0),
         "cluster_aggregate_nrl_max_order": ("--cluster-aggregate-nrl-max-order", "nrl_max_order", 3),
     }
@@ -1518,8 +1531,8 @@ def _inherit_rerun_parameters(args: argparse.Namespace, manifest: dict[str, obje
     if not _explicit(args, "--sample-name"):
         args.sample_name = _infer_sample_name(manifest)
     args.bam_mode = str(manifest.get("bam_mode") or "replicates")
-    args.scoring_method = str(manifest.get("scoring_method") or "pns")
-    args.score_fragment_flank = int(manifest.get("score_fragment_flank", 30))
+    args.scoring_method = str(manifest.get("scoring_method") or "sns")
+    args.frag_mode_padding = int(manifest.get("frag_mode_padding", manifest.get("score_fragment_flank", 30)))
     args.score_frag_lower = manifest.get("target_score_frag_lower", manifest.get("frag_lower"))
     args.score_frag_upper = manifest.get("target_score_frag_upper", manifest.get("frag_upper"))
     args.coverage_frag_lower = int(manifest.get("coverage_frag_lower", 1))
@@ -1538,7 +1551,7 @@ def _validate_rerun_immutable_options(args: argparse.Namespace) -> None:
     immutable = {
         "--treatment1-bam", "--control1-bam", "--treatment2-bam", "--control2-bam",
         "--bam-mode", "--scoring-method", "--mode", "--mode-strategy",
-        "--score-fragment-flank", "--score-frag-lower", "--score-frag-upper",
+        "--frag-mode-padding", "--score-frag-lower", "--score-frag-upper",
         "--coverage-frag-lower", "--coverage-frag-upper", "--mode-search-lower",
         "--mode-search-upper", "--mode-min-fragments", "--mode-batch-fragments",
         "--mode-max-fragments", "--mode-bootstrap", "--mode-stable-checkpoints",
@@ -1930,7 +1943,7 @@ def _write_run_manifest(
             "scoring_method": args.scoring_method,
             "coverage_frag_lower": args.coverage_frag_lower,
             "coverage_frag_upper": args.coverage_frag_upper,
-            "score_fragment_flank": args.score_fragment_flank,
+            "frag_mode_padding": args.frag_mode_padding,
             "score_frag_lower": args.score_frag_lower,
             "score_frag_upper": args.score_frag_upper,
             "contigs": list(args.contigs),
@@ -2082,7 +2095,7 @@ def run(args: argparse.Namespace) -> int:
             + (
                 f"{args.score_frag_lower}-{args.score_frag_upper}"
                 if args.score_frag_lower is not None
-                else f"mode_plus_minus_{args.score_fragment_flank}"
+                else f"mode_plus_minus_{args.frag_mode_padding}"
             )
         )
         print(

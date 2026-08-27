@@ -1048,14 +1048,14 @@ def _manifest_score_tracks(
 ) -> tuple[Path, list[Path], str, str] | None:
     """Return method-matched normalized treatment score tracks for aggregates.
 
-    NucleoSuite 0.10.11 stores generic score paths. A narrow PNS-only fallback
-    is retained so Stage 2 can still read 0.10.10 Stage 1 manifests.
+    Generic score paths are preferred. A narrow PNS-only fallback is retained
+    for older Stage 1 manifests that predate generic score-path fields.
     """
 
-    method = str(manifest.get("scoring_method") or "pns").lower()
+    method = str(manifest.get("scoring_method") or "sns").lower()
     positive_track = str(manifest.get("positive_track") or ({
         "sns": "posSNS", "pns": "posPNS", "bns": "posBNS", "tns": "posTNS"
-    }.get(method, "posPNS")))
+    }.get(method, "posSNS")))
     mean_value = manifest.get("condition_mean_treatment_cluster_aggregate_score")
     records = manifest.get("treatment_replicates")
     replicate_field = "scaled_score"
@@ -1108,7 +1108,7 @@ def _run_shared_cluster_aggregates(
         window_half=int(parameters.get("window_half", 1000)),
         maximum_heatmap_rows=int(parameters.get("maximum_heatmap_rows", 5000)),
         bootstrap_replicates=int(parameters.get("bootstrap_replicates", 200)),
-        nrl_peak_resolution=float(parameters.get("nrl_peak_resolution", 140.0)),
+        nrl_peak_resolution=float(parameters.get("nrl_peak_resolution", 130.0)),
         nrl_min_order=int(parameters.get("nrl_min_order", 0)),
         nrl_max_order=int(parameters.get("nrl_max_order", 3)),
         vlim=limit,

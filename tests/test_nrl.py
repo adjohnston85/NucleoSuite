@@ -95,9 +95,9 @@ def test_resolution_windows_snap_down_to_10n_plus_1():
     assert snap_smoothing_window(53.333) == 51
     assert snap_smoothing_window(60) == 51
     assert snap_smoothing_window(61) == 61
-    assert resolution_smoothing_windows(160) == (51, 21)
-    assert resolution_smoothing_windows(180) == (51, 21)
-    assert resolution_smoothing_windows(200) == (61, 31)
+    assert resolution_smoothing_windows(160) == (61, 21)
+    assert resolution_smoothing_windows(180) == (71, 21)
+    assert resolution_smoothing_windows(200) == (71, 31)
 
 
 def test_distance_based_smoothing_uses_bp_not_row_count():
@@ -122,7 +122,7 @@ def test_long_range_resolution_detects_decaying_wiggly_peaks_and_refines_them():
     detection = moving_average_by_distance(distances, values, detection_window)
     local = moving_average_by_distance(distances, values, local_window)
     peaks = call_resolution_peaks(distances, values, local, detection, 160)
-    assert detection_window == 51
+    assert detection_window == 61
     assert local_window == 21
     assert [peak.distance for peak in peaks] == [float(x) for x in centres]
     assert all(b.distance - a.distance >= 160 for a, b in zip(peaks, peaks[1:]))

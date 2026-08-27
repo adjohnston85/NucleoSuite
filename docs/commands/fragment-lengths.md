@@ -14,7 +14,7 @@ Use it to:
 - check which fragment lengths dominate the exact fragment population used by another analysis; or
 - estimate NRL from a multinucleosome fragment-size ladder, including low-coverage data for which a dyad autocorrelation may not be practical.
 
-## Typical whole-sample use
+## Basic usage
 
 ```bash
 nucleosuite fragment-lengths \
@@ -45,7 +45,7 @@ The primary TSV contains raw counts for each fragment length. `fragment-heatmap`
 
 ## Fragment-size NRL
 
-For each fragment-length profile, the command analyses lengths from 100 bp through the longest counted fragment, capped at 1000 bp by default. The broad peak detector uses the same resolution-driven method as [`nrl`](nrl.md): the default 160 bp resolution gives 51 bp detection smoothing and 21 bp local-maximum refinement. The called peak summits are ordered as the mono-, di-, tri- and higher multinucleosome series. Fragment length is regressed against peak number, and the slope is reported as the fragment-size NRL.
+For each fragment-length profile, the command analyses lengths from 100 bp through the longest counted fragment, capped at 1000 bp by default. The broad peak detector uses the same resolution-driven method as [`nrl`](nrl.md): the default 160 bp resolution gives 61 bp detection smoothing and 21 bp local-maximum refinement. The called peak summits are ordered as the mono-, di-, tri- and higher multinucleosome series. Fragment length is regressed against peak number, and the slope is reported as the fragment-size NRL.
 
 The regression summary includes the number of retained peaks, NRL, intercept, R², slope standard error, mean adjacent spacing and a quality status. Fewer than three peaks are marked `insufficient_peaks`; a fit with R² below 0.9 is marked `low_r_squared`. The numerical result is still written so the caller is transparent, but these statuses should not be treated as a confident NRL estimate.
 
@@ -66,13 +66,13 @@ Use `--no-fragment-size-nrl` when only the count table is wanted. This fragment-
 
 Use indexed paired-end BAM input or materialized fragment BED/BED.gz/bigBed input. Fragment filters and duplicate-coordinate settings determine which fragments enter the counts.
 
-## What it writes
+## Outputs
 
 Outputs include the raw fragment-length count table and, when `--plot` is supplied, a fragment-length distribution figure. The plot starts at 0 bp and stops at the longest counted fragment or 1000 bp, whichever is shorter. `--plot-max` can impose a lower upper limit. Region-aware runs include separate rows/profiles for the requested region labels.
 
 Unless `--no-fragment-size-nrl` is used, each profile also writes:
 
-- `_fragment_size_nrl_profile.tsv` and `.png`, containing the unsmoothed density, 21 bp local refinement curve, 51 bp detection curve and called peaks;
+- `_fragment_size_nrl_profile.tsv` and `.png`, containing the unsmoothed density, 21 bp local refinement curve, 61 bp detection curve and called peaks;
 - `_fragment_size_nrl_peaks.tsv`, containing peak number, observed and fitted fragment length, residual and peak signals;
 - `_fragment_size_nrl_regression.tsv` and `.png`, containing the fit summary and the square open-circle/dotted-line regression figure; and
 - `_fragment_size_nrl_summary.tsv`, collecting all label-level fits.

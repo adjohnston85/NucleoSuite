@@ -10,7 +10,7 @@ Filters can be combined in one pass. When percentile filtering is requested, reg
 
 Use `filter-peaks` when you want a reusable peak file containing only intervals that meet one or more quality or biological criteria before downstream analysis. It replaces separate score/length and coverage-filtering steps with one command, while preserving the input interval format by default.
 
-## Basic use
+## Basic usage
 
 Retain peaks with scores of at least 10:
 

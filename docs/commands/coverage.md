@@ -12,7 +12,7 @@ Use coverage to inspect fragment depth in a genome browser, extract regional dep
 
 Every accepted fragment contributes 1 to each base it covers. Overlapping fragments add together, so the final value at a base is the number of retained fragments spanning that position. See [Coverage, dyads, and fragment ends](../ALGORITHMS.md#coverage-dyads-and-fragment-ends).
 
-## Typical use
+## Basic usage
 
 ```bash
 nucleosuite coverage \
@@ -29,7 +29,7 @@ The fragment-length range should match the biological population whose coverage 
 
 Use indexed paired-end BAMs or materialized fragment BED/BED.gz/bigBed files. Fragment-input runs can use a chromosome-size table, BAM, or CRAM for complete contig lengths.
 
-## What it writes
+## Outputs
 
 The primary output is a coverage BigWig or compressed WIG, accompanied by fragment summary and fragment-length count outputs.
 

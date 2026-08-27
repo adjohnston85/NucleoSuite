@@ -13,7 +13,7 @@ Use this when:
 - you want to rerun combination after restoring missing per-contig outputs; or
 - a suite/run needs combined BigWig, bigBed, BED, or summary products regenerated.
 
-## Typical use
+## Basic usage
 
 ```bash
 nucleosuite combine \

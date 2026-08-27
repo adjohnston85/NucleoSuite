@@ -42,7 +42,7 @@ ANALYSIS_CHROM_SIZES_SOURCE=""
 SNS_FRAG_LOWER=120
 SNS_FRAG_UPPER=180
 SNS_MODE_LENGTH=147
-BIGBED_SCORE_SCALE=1000
+BIGBED_SCORE_SCALE=1
 FINE_FRAG_LOWER=146
 FINE_FRAG_UPPER=148
 EXACT_SIZE=147
@@ -254,7 +254,7 @@ Fragment selection:
   --score-frag-lower N            SNS lower fragment length. Default: 120.
   --score-frag-upper N            SNS upper fragment length. Default: 180.
   --score-mode-length N           SNS modal fragment length. Default: 147.
-  --bigbed-score-scale N        SNS peak multiplier used for integer bigBed scores. Default: 1000.
+  --bigbed-score-scale N        SNS peak multiplier used for integer bigBed scores. Default: 1.
   --fine-frag-lower N           Ranged dyad/WW lower length. Default: 146.
   --fine-frag-upper N           Ranged dyad/WW upper length. Default: 148.
   --exact-size N                Exact dyad and fragment-end length. Default: 147.
@@ -277,7 +277,7 @@ DAC, NRL and distance settings:
   --nrl-min-distance N          Main NRL lower bound. Default: 1.
   --nrl-max-distance N          Main NRL upper bound. Default: 1500.
   --nrl-peak-resolution N       Long-range NRL peak resolution in bp. Default: 160.
-                                Detection smoothing uses resolution/3 and local-max smoothing uses resolution/6, snapped down to 10n+1 windows.
+                                Detection smoothing uses resolution/2.5 and local-max smoothing uses resolution/6, snapped down to 10n+1 windows.
   --distance-x-major-tick N     Major x-axis tick interval for numeric distance plots. Default: automatic.
   --distance-x-minor-tick N     Minor x-axis tick interval. Default: derived from the major interval.
   --short-periodicity-min N     Short-periodicity lower bound. Default: 1.
@@ -1729,7 +1729,7 @@ if [[ "$SKIP_REGION_EXTRACT" -eq 0 ]]; then
     SNS_REGION_DIR="$REGION_DIR/ctcf/sns"; mkdir -p "$SNS_REGION_DIR"
     SNS_REGION_PREFIX="$SNS_REGION_DIR/${SAMPLE}_CTCF_SNS"
     queue_step "08_region_extract_sns" "${SNS_REGION_PREFIX}_sns_signal.tsv" "$NUCLEOSUITE_BIN" region-extract \
-        "${BLACKLIST_ARGS[@]}" --bed "$CTCF_EXPANDED" --coverage-bw "$SNS_COVERAGE_SCALED_BW" --pns-bw "$SNS_ANALYSIS_BW" \
+        "${BLACKLIST_ARGS[@]}" --bed "$CTCF_EXPANDED" --coverage-bw "$SNS_COVERAGE_SCALED_BW" --score-bw "$SNS_ANALYSIS_BW" \
         --nucleosome-peaks "$SNS_CALL_NUC" --breakpoint-peaks "$SNS_CALL_BRK" --peak-flank-bp "$REGION_PEAK_FLANK" \
         --peak-center-column 7 --peak-score-column 5 --out-prefix "$SNS_REGION_PREFIX" --chrom-mode auto \
         --missing-chrom error --progress-every 100 --overwrite

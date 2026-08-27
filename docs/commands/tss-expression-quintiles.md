@@ -8,7 +8,7 @@
 
 Use it to test whether a PNS, WPS, coverage, or other BigWig profile changes with expression level.
 
-## Typical use with bundled genes and expression
+## Basic usage
 
 The `hg19-gm12878` resource set supplies the bundled hg19 genes and HPA tissue-consensus expression table:
 
@@ -16,7 +16,7 @@ The `hg19-gm12878` resource set supplies the bundled hg19 genes and HPA tissue-c
 nucleosuite tss-expression-quintiles \
   --signal sample_PNS.bw \
   --sample sample \
-  --signal-label PNS \
+  --signal-label SNS \
   --resource-set hg19-gm12878 \
   --tissue bone_marrow \
   --window 2000 \
@@ -60,7 +60,7 @@ Underscores in the selector are interpreted as spaces. For example:
 
 selects `skeletal muscle` from the long-format tissue table.
 
-## What it writes
+## Outputs
 
 The command writes mean signal at every relative TSS position for all five quintiles, a gene-count and expression-range summary, a combined profile figure, and run metadata.
 

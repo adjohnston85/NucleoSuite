@@ -29,7 +29,7 @@ def register(subparsers):
         ),
     )
     add_bam_fragment_arguments(
-        parser, default_lower=137, default_upper=197,
+        parser, default_lower=None, default_upper=None,
         default_max_duplicates=1, default_even_dyad="split",
     )
     add_randomization_arguments(parser)
@@ -52,7 +52,20 @@ def register(subparsers):
             "(default: auto)."
         ),
     )
-    add_mode_estimation_arguments(parser)
+    add_mode_estimation_arguments(
+        parser, default_search_lower=137, default_search_upper=197
+    )
+    parser.add_argument(
+        "--frag-mode-padding",
+        type=int,
+        default=30,
+        help=(
+            "When --frag-lower and/or --frag-upper are omitted, derive each missing "
+            "scoring bound from the resolved mode plus or minus this many bp "
+            "(default: 30). Explicit fragment bounds override the corresponding "
+            "automatic bound independently."
+        ),
+    )
     parser.add_argument(
         "--smooth-window", type=int, default=0,
         help="Savitzky-Golay window for optional score smoothing; 0 disables (default: 0).",
@@ -95,7 +108,7 @@ def register(subparsers):
             "and optional sns_smoothed; PNS uses pns, posPNS, and optional "
             "pns_smoothed; BNS uses bns, posBNS, and optional bns_smoothed; TNS "
             "uses tns, posTNS, and optional tns_smoothed. The default writes the "
-            "raw score and non-negative reference tracks."
+            "raw score and matching non-negative reference tracks."
         ),
     )
     parser.add_argument(
@@ -113,11 +126,12 @@ def register(subparsers):
         ),
     )
     parser.add_argument(
-        "--bigbed-score-scale", type=float, default=1000.0,
+        "--bigbed-score-scale", type=float, default=None,
         help=(
             "Multiplier applied to floating BED peak scores when converting "
-            "the bigBed score field to an integer in the 0-1000 range "
-            "(default: 1000)."
+            "the bigBed score field to an integer in the 0-1000 range. "
+            "By default SNS is not rescaled (1); PNS, BNS and TNS retain the "
+            "1000-fold conversion used for their fractional score ranges."
         ),
     )
     parser.add_argument(
@@ -152,12 +166,44 @@ def register(subparsers):
     parser.set_defaults(command_runner=run)
 
 
+def _resolve_mode_and_fragment_range(args):
+    """Resolve the scoring mode, then fill omitted fragment bounds from mode +/- padding."""
+
+    import copy
+
+    if args.frag_mode_padding < 0:
+        raise ValueError("--frag-mode-padding must be non-negative")
+    if args.frag_lower is not None and args.frag_lower < 1:
+        raise ValueError("--frag-lower must be at least 1")
+    if args.frag_upper is not None and args.frag_upper < 1:
+        raise ValueError("--frag-upper must be at least 1")
+
+    if args.mode_length == "auto":
+        # Mode estimation is deliberately decoupled from the eventual scoring bounds.
+        # This lets the mode be estimated from a stable search interval first, after
+        # which the default scoring interval follows the observed mode.
+        estimate_args = copy.copy(args)
+        estimate_args.frag_lower = int(args.mode_search_lower)
+        estimate_args.frag_upper = int(args.mode_search_upper)
+        mode, estimate, mode_source, mode_seed = resolve_fragment_mode(
+            estimate_args, args.mode_length, command="nuc-score"
+        )
+    else:
+        mode, estimate, mode_source, mode_seed = resolve_fragment_mode(
+            args, args.mode_length, command="nuc-score"
+        )
+
+    args.mode_length = int(mode)
+    if args.frag_lower is None:
+        args.frag_lower = max(1, args.mode_length - args.frag_mode_padding)
+    if args.frag_upper is None:
+        args.frag_upper = args.mode_length + args.frag_mode_padding
+    return args.mode_length, estimate, mode_source, mode_seed
+
+
 def run(args):
+    mode, estimate, mode_source, mode_seed = _resolve_mode_and_fragment_range(args)
     validate_bam_arguments(args)
-    mode, estimate, mode_source, mode_seed = resolve_fragment_mode(
-        args, args.mode_length, command="nuc-score"
-    )
-    args.mode_length = mode
     if args.smooth_window < 0:
         raise ValueError("--smooth-window must be 0 or greater")
     if args.smooth_window and (args.smooth_window < 3 or args.smooth_window % 2 == 0):
@@ -168,6 +214,8 @@ def run(args):
         raise ValueError("--smooth-order must be non-negative")
     if args.min_region_length < 1 or args.max_neg_run < 0:
         raise ValueError("Peak-region lengths must be valid positive values")
+    if args.bigbed_score_scale is None:
+        args.bigbed_score_scale = 1.0 if args.scoring_method == "sns" else 1000.0
     if args.bigbed_score_scale < 0:
         raise ValueError("--bigbed-score-scale must be 0 or greater")
     if args.peak_coverage_threshold is not None:

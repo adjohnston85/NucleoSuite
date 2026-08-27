@@ -144,7 +144,7 @@ Because each fragment contributes total mass 1, `posPNS` reports the accumulated
 
 ## Sinusoidal nucleosome scoring
 
-Sinusoidal Nucleosome Scoring (SNS) is the default scoring kernel used by the standalone `nuc-score` command in NucleoSuite 0.11.0. SNS uses the same accepted fragments and the same fragment-length-dependent support geometry as PNS, but replaces endpoint triangles with one smooth signed sinusoidal contribution centred on each fragment. The score is constructed directly as a zero-sum kernel rather than by subtracting the mean of a non-negative distribution.
+Sinusoidal Nucleosome Scoring (SNS) is the default scoring kernel used by the standalone `nuc-score` command. SNS uses the same accepted fragments and the same fragment-length-dependent support geometry as PNS, but replaces endpoint triangles with one smooth signed sinusoidal contribution centred on each fragment. The score is constructed directly as a zero-sum kernel rather than by subtracting the mean of a non-negative distribution.
 
 ### Length-dependent support width
 
@@ -254,19 +254,21 @@ Positive SNS signal represents genomic positions collectively favoured as nucleo
 
 ### `posSNS`
 
-`posSNS` is a non-negative reference track derived from the positive half of the signed SNS kernel:
+`posSNS` preserves the complete SNS waveform but translates it vertically so that its minimum value is zero. For a signed single-fragment SNS kernel $\psi^{SNS}_{m,L}(j)$, let
 
 ```math
-u^{SNS,+}_{m,L}(j)=\frac{1}{50}\max\left(\psi^{SNS}_{m,L}(j),0\right).
+\psi_{min}=\min_j \psi^{SNS}_{m,L}(j).
 ```
 
-Because the positive mass of the signed SNS kernel is 50, division by 50 gives each fragment unit mass in `posSNS`:
+The corresponding non-negative kernel is
 
 ```math
-\sum_j u^{SNS,+}_{m,L}(j)=1.
+u^{SNS,+}_{m,L}(j)=\psi^{SNS}_{m,L}(j)-\psi_{min}.
 ```
 
-`posSNS` is used as a method-matched positive reference for operations such as replicate mean scaling. Peak calling uses the signed `sns` track, not `posSNS`.
+This is a pure vertical shift: no negative portion of the sinusoid is clipped or discarded, and the shifted kernel is not renormalized afterwards. `posSNS` therefore has the same support width, centre, symmetry and point-to-point waveform as `sns`, with its lowest value translated to zero.
+
+`posSNS` is used as the method-matched non-negative reference for operations such as replicate mean scaling. Peak calling uses the signed `sns` track, not `posSNS`.
 
 #### Example SNS distributions
 
@@ -276,7 +278,7 @@ The figure below shows the discrete signed SNS kernels for 120 bp, 167 bp, and 1
 
 ## Boxcar nucleosome scoring
 
-Boxcar nucleosome scoring (BNS) uses the same accepted fragments and [support length $n(L,m)$](#combining-the-two-fragment-ends) as PNS, but replaces the two endpoint triangles with one symmetric central boxcar. The uncentred boxcar has total mass 1 and zero outer flanks. Mean centring produces a positive central contribution and negative flanks whose total contribution sums to zero for every fragment.
+Boxcar nucleosome scoring (BNS) uses the same accepted fragments and support length $n(L,m)$ [defined above](#combining-the-two-fragment-ends) as PNS, but replaces the two endpoint triangles with one symmetric central boxcar. The uncentred boxcar has total mass 1 and zero outer flanks. Mean centring produces a positive central contribution and negative flanks whose total contribution sums to zero for every fragment.
 
 The ideal centred BNS kernel assigns equal-magnitude positive values to the central half of this support and negative values to the two outer quarters. Because genomic positions are discrete, not every support length divides exactly into four equal blocks. NucleoSuite uses symmetric half-weight or zero transition positions so that the positive and negative contributions remain balanced and the kernel stays centred.
 
@@ -335,7 +337,7 @@ The figure below shows the uncentred unit-mass boxcar and the resulting mean-cen
 
 ## Triangular nucleosome scoring
 
-Triangular nucleosome scoring (TNS) uses the same accepted fragments and [support length $n(L,m)$](#combining-the-two-fragment-ends) as PNS and BNS, but represents each fragment with one symmetric triangle centred on the fragment. The raw triangle has total mass 1 before mean centring.
+Triangular nucleosome scoring (TNS) uses the same accepted fragments and support length $n(L,m)$ [defined above](#combining-the-two-fragment-ends) as PNS and BNS, but represents each fragment with one symmetric triangle centred on the fragment. The raw triangle has total mass 1 before mean centring.
 
 A fragment shorter than the mode therefore receives a wider scoring support. For example, with $m=167$ bp, a 137 bp fragment is 30 bp shorter than the mode and uses a 197 bp support. A 197 bp fragment also uses a 197 bp support because it is longer than the mode. The two fragments therefore use the same precomputed TNS kernel shape.
 
@@ -397,7 +399,7 @@ A positive candidate region begins when the selected SNS, PNS, BNS or TNS signal
 
 Breakpoint calling applies the same procedure to the sign-inverted SNS, PNS, BNS or TNS signal, so negative regions are treated as positive during segmentation.
 
-Text SNS, PNS, BNS and TNS BED scores are written as six-decimal floating-point values after `--peak-score-scale` is applied. For bigBed output, let $B$ be `--bigbed-score-scale`, which defaults to 1000:
+Text SNS, PNS, BNS and TNS BED scores are written as six-decimal floating-point values after `--peak-score-scale` is applied. For bigBed output, let $B$ be `--bigbed-score-scale`. SNS uses $B=1$ by default so its native scores are not rescaled; PNS, BNS and TNS use $B=1000$ by default because their native peak-score ranges are fractional:
 
 ```math
 score_{bigBed}=\min\left(1000,\max\left(0,\mathrm{round}(B\,score_{BED})\right)\right).
@@ -456,7 +458,7 @@ Equal weighting prevents the deeper BAM group from determining the shared mode s
 
 ### Separate fragment selections and why they are used
 
-`cutn-suite` uses PNS for peak discovery by default; SNS, BNS and TNS remain explicit alternatives. After resolving the treatment and control modes, each discovery score accepts fragments from its corresponding mode minus 30 bp through mode plus 30 bp. This narrow range focuses the positioning model on fragments consistent with one protected nucleosome. The flank can be changed with `--score-fragment-flank`, while paired `--score-frag-lower` and `--score-frag-upper` arguments replace the derived bounds completely.
+`cutn-suite` uses SNS for peak discovery by default; PNS, BNS and TNS remain explicit alternatives. After resolving the treatment and control modes, each discovery score accepts fragments from its corresponding mode minus 30 bp through mode plus 30 bp. This narrow range focuses the positioning model on fragments consistent with one protected nucleosome. Change the automatic distance from the mode with `--frag-mode-padding`; `--score-frag-lower` and `--score-frag-upper` override their corresponding derived bounds independently.
 
 Coverage is generated by an independent pass that accepts 1–1,000 bp fragments by default. Coverage has a different purpose from the discovery score: it measures how much fragment signal supports a discovered interval. Retaining the broader fragment population avoids discarding subnucleosomal and longer fragments that may contribute to CUT&RUN or CUT&Tag enrichment. `--coverage-frag-lower` and `--coverage-frag-upper` change those bounds. Consequently, the discovery score answers where a nucleosome-positioned candidate is located, while broad-range coverage answers how strongly each replicate supports that candidate.
 
@@ -624,17 +626,17 @@ U_k=\max(Y_{T_k})-\min(Y_{C_k}).
 
 ### Cluster-centred method-matched score aggregate
 
-For treatment replicate $i$, PNS is normalized before averaging:
+For treatment replicate $i$, the selected nucleosome score is normalized before averaging:
 
 ```math
 S_{scaled,i}(x)=\frac{S_i(x)}{\mathrm{mean}(posS_i(x)\mid posS_i(x)>0)},
 \qquad
-\overline{PNS}_{scaled}(x)=\frac{1}{n}\sum_i PNS_{scaled,i}(x).
+\overline{S}_{scaled}(x)=\frac{1}{n}\sum_i S_{scaled,i}(x).
 ```
 
 Scaling before averaging removes usable-depth magnitude from each replicate so a deeper library does not dominate the condition mean. The selected discovery method supplies the positioning aggregate throughout: SNS is normalized by `posSNS`, PNS by `posPNS`, BNS by `posBNS`, and TNS by `posTNS`. Coverage-to-100 remains the abundance statistic used for treatment/control tests.
 
-Each Stage 1 cluster is aligned at the discovery summit of its strongest coverage-scored member. Stage 2 additionally builds one common union-locus anchor set and uses it for both conditions, allowing row-matched heatmaps with a shared symmetric colour scale. The default directional NRL caller uses 140 bp resolution, includes the central peak as order 0, retains called order numbers, fits orders 0–3 on both sides, and applies no central regression exclusion.
+Each Stage 1 cluster is aligned at the discovery summit of its strongest coverage-scored member. Stage 2 additionally builds one common union-locus anchor set and uses it for both conditions, allowing row-matched heatmaps with a shared symmetric colour scale. The default directional NRL caller uses 130 bp resolution, includes the central peak as order 0, retains called order numbers, fits orders 0–3 on both sides, and applies no central regression exclusion.
 
 Observed cluster-locus counts and occupied-base overlap are reported descriptively. This build does not perform a genomic randomization overlap test.
 
@@ -904,7 +906,7 @@ When contig-level results are combined, type percentages are recalculated from t
 
 ### Fragment-length counts
 
-`fragment-lengths` counts how many accepted fragments occur at each integer [fragment length $L_i$](#fragment-coordinates-and-filtering).
+`fragment-lengths` counts how many accepted fragments occur at each integer fragment length $L_i$ [defined above](#fragment-coordinates-and-filtering).
 
 When regions are supplied, a fragment is assigned using its midpoint
 
@@ -920,7 +922,7 @@ The primary fragment-length TSV contains raw counts. `fragment-heatmap` can tran
 
 For the fragment-size NRL method, NucleoSuite forms an integer fragment-length profile over the requested NRL range. The default range begins at 100 bp and ends at the longest counted fragment or 1000 bp, whichever is shorter. Counts within this range are converted to density; this normalization changes the vertical scale but not the called summit positions.
 
-The density profile uses the same resolution-based two-stage peak caller defined in [Nucleosome repeat length](#nucleosome-repeat-length). With the default resolution of 160 bp, broad multinucleosome peaks are detected after 51 bp smoothing and each summit is refined on a 21 bp-smoothed curve. Let the ordered fragment-size summits be
+The density profile uses the same resolution-based two-stage peak caller defined in [Nucleosome repeat length](#nucleosome-repeat-length). With the default resolution of 160 bp, broad multinucleosome peaks are detected after 61 bp smoothing and each summit is refined on a 21 bp-smoothed curve. Let the ordered fragment-size summits be
 
 ```math
 L_1,L_2,L_3,\ldots
@@ -1349,7 +1351,7 @@ Q(t)=10\left\lfloor\frac{\max(t-1,0)}{10}\right\rfloor+1.
 Here $Q=1$ represents no smoothing. The broad detection window is
 
 ```math
-W_{detect}=Q\left(\frac{R}{3}\right),
+W_{detect}=Q\left(\frac{R}{2.5}\right),
 ```
 
 and the finer local-maximum window is
@@ -1361,12 +1363,12 @@ W_{local}=Q\left(\frac{R}{6}\right).
 For the default $R=160$ bp,
 
 ```math
-W_{detect}=51\ \mathrm{bp},
+W_{detect}=61\ \mathrm{bp},
 \qquad
 W_{local}=21\ \mathrm{bp}.
 ```
 
-For example, a requested 60 bp window becomes 51 bp, not 61 bp.
+For example, the default broad-window target is 64 bp and is snapped down to 61 bp.
 
 ### Smooth at the two scales
 

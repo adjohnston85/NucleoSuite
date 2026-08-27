@@ -16,7 +16,8 @@ def test_save_figure_writes_parameter_metadata(tmp_path: Path) -> None:
     plt.close(fig)
     metadata = output.with_name(output.stem + "_metadata.tsv")
     text = metadata.read_text()
-    assert "nucleosuite_version\t0.10.13" in text
+    from nucleosuite import __version__
+    assert f"nucleosuite_version\t{__version__}" in text
     assert "parameter.alpha\t4" in text
     assert "parameter.beta\tvalue" in text
     assert "invocation\tnucleosuite example --alpha 4" in text

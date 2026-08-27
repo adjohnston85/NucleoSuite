@@ -19,20 +19,21 @@ The selected caller determines how the input signal is segmented and scored. Mat
 
 See [PNS peak calling](../ALGORITHMS.md#pns-peak-calling) and [WPS peak calling](../ALGORITHMS.md#wps-peak-calling) for the exact definitions.
 
-## Typical PNS use
+## Basic usage
 
 ```bash
 nucleosuite call-peaks \
-  --input-bigwig sample_pns.bw \
+  --input-bigwig sample_sns.bw \
   --peak-caller pns \
-  --out-prefix sample_pns_calls
+  --scoring-method sns \
+  --out-prefix sample_sns_calls
 ```
 
-PNS positive regions are called directly. Breakpoint calls apply the same region logic to the sign-inverted signal.
+The shared nucleosome-score caller segments positive score regions directly. Breakpoint calls apply the same region logic to the sign-inverted signal. `--scoring-method` records which score kernel produced the input and sets the method-aware bigBed conversion default.
 
-PNS text BED scores remain six-decimal floats. For PNS bigBed output, `--bigbed-score-scale` defaults to **1000** before integer rounding/clamping.
+Text BED scores remain six-decimal floats. SNS bigBed scores are **not rescaled by default** (`--bigbed-score-scale 1`). PNS, BNS and TNS inputs default to a 1000-fold conversion because their native peak scores are fractional. An explicit `--bigbed-score-scale` overrides either default.
 
-## Typical WPS use
+## WPS example
 
 ```bash
 nucleosuite call-peaks \
@@ -43,7 +44,7 @@ nucleosuite call-peaks \
 
 The WPS caller expects the WPS-family signal whose positive regions and above-median subruns should be evaluated. The default standalone `wps` workflow calls from `sm_mWPS`.
 
-## What it writes
+## Outputs
 
 Depending on the selected interval format, the command writes nucleosome-region and/or breakpoint-peak BED/bigBed files plus summaries/metadata describing the calling parameters.
 

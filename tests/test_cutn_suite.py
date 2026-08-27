@@ -95,7 +95,7 @@ def test_cutn_suite_defaults_to_sns_auto_mode_scoring_flank_and_coverage_range(
     )
     assert args.scoring_method == "sns"
     assert args.mode == "auto"
-    assert args.score_fragment_flank == 30
+    assert args.frag_mode_padding == 30
     assert args.score_frag_lower is None
     assert args.score_frag_upper is None
     assert (args.coverage_frag_lower, args.coverage_frag_upper) == (1, 1000)
@@ -108,7 +108,7 @@ def test_cutn_suite_defaults_to_sns_auto_mode_scoring_flank_and_coverage_range(
     assert args.stage1_gate_mode == "all-controls"
     assert args.cluster_max_non_member_gap == 1
     assert args.min_cluster_members == 2
-    assert args.cluster_aggregate_nrl_resolution == 140
+    assert args.cluster_aggregate_nrl_resolution == 130
     assert args.cluster_aggregate_nrl_min_order == 0
     assert args.cluster_aggregate_nrl_max_order == 3
     assert not hasattr(args, "compare_feature_level")
@@ -143,14 +143,14 @@ def test_cutn_suite_emits_score_and_coverage_in_one_tracks_pass_per_group(tmp_pa
             score_fields = lines[0].split("\t")
             coverage_fields = lines[1].split("\t")
             assert score_fields[0] == "137-197"
-            assert score_fields[2] == "pns,posPNS"
+            assert score_fields[2] == "sns,posSNS"
             assert coverage_fields[0] == "1-1000"
             assert coverage_fields[2] == "coverage"
             score_prefix = Path(score_fields[1])
             coverage_prefix = Path(coverage_fields[1])
             score_prefix.parent.mkdir(parents=True, exist_ok=True)
-            Path(f"{score_prefix}_pns.bw").touch()
-            Path(f"{score_prefix}_posPNS.bw").touch()
+            Path(f"{score_prefix}_sns.bw").touch()
+            Path(f"{score_prefix}_posSNS.bw").touch()
             Path(f"{coverage_prefix}_coverage.bw").touch()
             return
         assert command[0] == "call-peaks"
@@ -292,6 +292,42 @@ def test_explicit_cutn_score_range_overrides_mode_flank(tmp_path: Path):
     )
     _validate(args)
     assert _scoring_fragment_range(args, 167) == (125, 205)
+
+
+def test_cutn_score_padding_and_individual_bound_overrides(tmp_path: Path):
+    target = tmp_path / "target.bam"
+    control = tmp_path / "control.bam"
+    target.touch(); control.touch()
+
+    padded = build_parser().parse_args([
+        "--treatment1-bam", str(target),
+        "--control1-bam", str(control),
+        "--outdir", str(tmp_path / "out1"),
+        "--mode", "165",
+        "--frag-mode-padding", "25",
+    ])
+    _validate(padded)
+    assert _scoring_fragment_range(padded, 165) == (140, 190)
+
+    lower_only = build_parser().parse_args([
+        "--treatment1-bam", str(target),
+        "--control1-bam", str(control),
+        "--outdir", str(tmp_path / "out2"),
+        "--mode", "165",
+        "--score-frag-lower", "145",
+    ])
+    _validate(lower_only)
+    assert _scoring_fragment_range(lower_only, 165) == (145, 195)
+
+    upper_only = build_parser().parse_args([
+        "--treatment1-bam", str(target),
+        "--control1-bam", str(control),
+        "--outdir", str(tmp_path / "out3"),
+        "--mode", "165",
+        "--score-frag-upper", "188",
+    ])
+    _validate(upper_only)
+    assert _scoring_fragment_range(upper_only, 165) == (135, 188)
 
 
 def test_cutn_suite_locates_parameterized_multicontig_score_outputs(tmp_path: Path):

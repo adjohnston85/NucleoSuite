@@ -44,7 +44,7 @@ Downsampling is applied to raw integer counts before normalization. Use it when 
 
 `--downsample-to min` uses the smallest positive profile total as the target. Profiles already at or below the target are retained at their original counts.
 
-## Typical use
+## Basic usage
 
 ```bash
 nucleosuite fragment-heatmap \
@@ -54,7 +54,7 @@ nucleosuite fragment-heatmap \
   --out-prefix fragment_length_comparison
 ```
 
-## What it writes
+## Outputs
 
 The command writes:
 

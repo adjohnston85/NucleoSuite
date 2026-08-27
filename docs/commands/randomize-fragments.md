@@ -38,7 +38,7 @@ For failed dinucleotide matching:
 --fallback skip      omit the fragment
 ```
 
-## Typical use
+## Basic usage
 
 ```bash
 nucleosuite randomize-fragments \
@@ -67,7 +67,7 @@ nucleosuite nuc-score \
 
 The suite commands provide randomized-only execution with `--randomize`.
 
-## What it writes
+## Outputs
 
 Outputs include:
 

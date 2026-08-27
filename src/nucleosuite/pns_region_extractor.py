@@ -22,7 +22,7 @@ Extract the standard four PNS outputs::
     nucleosuite region-extract \
         --bed regions.bed \
         --coverage-bw sample_coverage.bw \
-        --pns-bw sample_pns.bw \
+        --score-bw sample_sns.bw \
         --nucleosome-peaks sample_nucleosome_regions.bb \
         --breakpoint-peaks sample_breakpoint_peaks.bb \
         --peak-flank-bp 2000 \
@@ -32,7 +32,7 @@ Extract only PNS signal::
 
     nucleosuite region-extract \
         --bed regions.bed \
-        --pns-bw sample_pns.bw
+        --score-bw sample_sns.bw
 
 Add arbitrary named tracks::
 
@@ -969,7 +969,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     signal_group = parser.add_argument_group("signal tracks")
     signal_group.add_argument("--coverage-bw", help="Coverage bigWig")
-    signal_group.add_argument("--pns-bw", help="PNS score bigWig")
+    signal_group.add_argument("--score-bw", "--pns-bw", dest="pns_bw", help="Nucleosome-score bigWig; --pns-bw is retained as a compatibility alias.")
     signal_group.add_argument(
         "--signal-track",
         action="append",

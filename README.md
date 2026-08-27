@@ -51,7 +51,7 @@ Analysis commands derive output filenames or prefixes from the primary input bas
 
 | Command | Function |
 |---|---|
-| [`call-peaks`](docs/commands/call-peaks.md) | Call nucleosome and breakpoint features from PNS or WPS BigWigs. |
+| [`call-peaks`](docs/commands/call-peaks.md) | Call nucleosome and breakpoint features from nucleosome-score or WPS BigWigs. |
 | [`pns-peak-fdr`](docs/commands/pns-peak-fdr.md) | Assign empirical FDR values to sample PNS peaks using fragment-randomized peaks. |
 | [`filter-peaks`](docs/commands/filter-peaks.md) | Filter peak intervals by score, score percentile, region length, and/or BigWig coverage. |
 | [`peak-score-frequency`](docs/commands/peak-score-frequency.md) | Compare peak-score distributions. |
@@ -72,7 +72,7 @@ Analysis commands derive output filenames or prefixes from the primary input bas
 | [`region-extract`](docs/commands/region-extract.md) | Export region-level signal vectors and nearby peaks. |
 | [`gene-sets`](docs/commands/gene-sets.md) | Define gene groups from chromatin-state overlaps. |
 | [`gene-expression`](docs/commands/gene-expression.md) | Relate expression to peak spacing or signal periodicity. |
-| [`tss-expression-quintiles`](docs/commands/tss-expression-quintiles.md) | Aggregate PNS/WPS around TSSs after splitting genes into tissue-expression quintiles. |
+| [`tss-expression-quintiles`](docs/commands/tss-expression-quintiles.md) | Aggregate nucleosome-score or WPS signal around TSSs after splitting genes into tissue-expression quintiles. |
 
 ### Workflows and utilities
 
@@ -106,7 +106,7 @@ nucleosuite nuc-score \
 
 Standalone `nuc-score` and `wps` estimate their protected-DNA mode automatically from the unsmoothed accepted-fragment histogram. The resolved estimate is printed and recorded; use an integer such as `--mode 167` to apply a fixed mode instead.
 
-A default SNS target/control CUT&RUN/CUT&Tag analysis with automatic bootstrap fragment-mode estimation is:
+A minimal target/control CUT&RUN/CUT&Tag analysis is:
 
 ```bash
 nucleosuite cutn-suite \
@@ -116,9 +116,7 @@ nucleosuite cutn-suite \
   --cores 8
 ```
 
-Use `--mode 167` to bypass mode estimation and apply that exact mode to both samples.
-
-Multiple BAMs are treated as independent biological replicates by default; treatment and control counts may differ, and `--bam-mode merged` pools each group as one logical sample. Peak discovery in `cutn-suite` defaults to SNS over each resolved mode ±30 bp; PNS, BNS or TNS can be selected instead. For every replicate, the mode-centred score/positive-score pair and broad 1–1,000 bp coverage are generated together in one `tracks` pass. The selected score is divided by the mean of its matching positive track (`posSNS`, `posPNS`, `posBNS`, or `posTNS`) before treatment replicates are averaged, while coverage is independently scaled to a non-zero mean of 100 for treatment/control measurements. A candidate passes Stage 1 by default only when every treatment replicate exceeds every control replicate (`--stage1-gate-mode all-controls`); `--stage1-gate-mode mean` selects the less conservative mean treatment > mean control rule. Welch p-values and BH FDR remain optional filters. Clusters are seeded by gate-passing p < 0.05 peaks; `--cluster-member-mode seed-and-gated` includes S and G members, while `significant-only` includes only S peaks. `--cluster-max-non-member-gap` controls bridging and defaults to 1. The selected scoring method is reused for cluster-centred heatmaps, confidence bands, and directional NRLs; SNS/BNS/TNS never trigger an additional PNS pass. Add `--treatment2-bam` and `--control2-bam` for cluster-only empirical-Bayes interaction tests plus Venn and occupied-base overlap summaries, or run [`cutn-compare`](docs/commands/cutn-compare.md) later from two Stage 1 manifests.
+`cutn-suite` uses SNS for nucleosome-aware peak discovery by default, with PNS, BNS and TNS available as alternatives. See the [`cutn-suite`](docs/commands/cutn-suite.md) page and [Workflows](docs/WORKFLOWS.md) for mode estimation, replicate handling, clustering, statistical comparison and aggregate analyses.
 
 Detailed command behaviour, advanced options, output layouts, resource handling, and workflow examples are documented in the pages linked above and in the guides below.
 

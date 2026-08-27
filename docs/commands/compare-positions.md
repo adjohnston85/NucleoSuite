@@ -8,7 +8,7 @@
 
 Use it to compare several nucleosome callsets against one common reference while retaining the main-callset score for stratification, grouped summaries and optional within-percentile tests. `--score-bigwig` is useful when you also want to ask how a signal such as coverage, accessibility, or another continuous track correlates with the main peak scores without treating that track as a positional callset.
 
-## Typical use
+## Basic usage
 
 ```bash
 nucleosuite compare-positions \

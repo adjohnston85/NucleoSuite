@@ -8,7 +8,7 @@
 
 Use the suite when the cfDNA track, sequence, spacing, periodicity and regional analyses should share the same fragment filtering, resources, provenance, combination step and post-combine normalization. Use standalone commands when only one analysis is needed or when different filters are required between analyses.
 
-## Typical run
+## Basic usage
 
 ```bash
 nucleosuite cfdna-suite \

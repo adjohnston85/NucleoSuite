@@ -8,7 +8,7 @@
 
 Use this command when you want reproducible gene groups such as active, weakly active, or repressed genes for downstream DAC, aggregation, expression, or regional analyses.
 
-## Typical use with bundled resources
+## Basic usage
 
 NucleoSuite includes an hg19 gene BED, the GM12878 ChromHMM states, and default gene-set rules. They can be passed directly:
 
@@ -55,7 +55,7 @@ See [Gene-set assignment](../ALGORITHMS.md#gene-set-assignment) for the exact se
 
 The bundled rules create active, weak, and repressed candidates. Their final categories are arranged so active/weak/repressed outputs are mutually exclusive, with an optional strict leftover group for genes in none of the candidate sets.
 
-## What it writes
+## Outputs
 
 The selected options control which outputs are written:
 

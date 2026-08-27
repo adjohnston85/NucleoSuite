@@ -16,7 +16,7 @@ Missing/non-finite positions, genomic gaps, selected-region boundaries, contig b
 
 The exact interval and signal-area definitions are in [Positive-signal runs](../ALGORITHMS.md#positive-signal-runs).
 
-## Typical use
+## Basic usage
 
 ```bash
 nucleosuite positive-runs \
@@ -27,7 +27,7 @@ nucleosuite positive-runs \
 
 Use the same threshold when comparing samples if the run-length distributions are meant to be directly comparable.
 
-## What it writes
+## Outputs
 
 For each retained run, NucleoSuite reports:
 

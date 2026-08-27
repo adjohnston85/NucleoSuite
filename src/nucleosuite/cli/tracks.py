@@ -155,11 +155,11 @@ def register(subparsers):
         help="Multiplier applied to score-derived peak scores written as six-decimal BED floats (default: 1).",
     )
     parser.add_argument(
-        "--bigbed-score-scale", type=float, default=1000.0,
+        "--bigbed-score-scale", type=float, default=None,
         help=(
             "Multiplier applied to floating score-derived peak BED scores during bigBed "
-            "conversion before integer rounding/clamping (default: 1000). "
-            "WPS peak conversion is unchanged."
+            "conversion before integer rounding/clamping. SNS defaults to 1 (no score "
+            "rescaling); PNS, BNS and TNS default to 1000. WPS peak conversion is unchanged."
         ),
     )
 
@@ -242,6 +242,8 @@ def _validate(args) -> None:
 
 
 def run(args):
+    if args.bigbed_score_scale is None:
+        args.bigbed_score_scale = 1.0 if args.scoring_method == "sns" else 1000.0
     _validate(args)
     from nucleosuite.workflows import tracks as workflow
     from nucleosuite.parallel import run_tracks_per_contig

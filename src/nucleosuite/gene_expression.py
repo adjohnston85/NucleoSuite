@@ -2,7 +2,7 @@
 """Relate nucleosome peak spacing and periodic signal to gene expression.
 
 The command implements three complementary analyses for any continuous signal
-track. PNS is the default signal label in NucleoSuite.
+track. SNS is the default signal label.
 
 * Peak-spacing analysis: median adjacent peak-centre distance in each gene body
   and 10 kb flanks, correlated with expression profiles.
@@ -1358,7 +1358,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="nucleosuite gene-expression",
         description=(
             "Relate PNS or WPS peak spacing and per-gene FFT intensity to long-format "
-            "gene-expression profiles. PNS is the default signal type."
+            "gene-expression profiles. SNS is the default signal type."
         ),
         formatter_class=NucleoSuiteHelpFormatter,
     )
@@ -1374,7 +1374,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--resource-set", default="hg19-gm12878", help="Bundled resource set used when --genes-bed is omitted.")
     parser.add_argument("--peaks", "--peak-bed", action="append", default=[], metavar="NAME=BED", help="Peak BED for spacing analysis; repeat for multiple samples.")
-    parser.add_argument("--signal", "--bigwig", action="append", default=[], metavar="NAME=BIGWIG", help="PNS/WPS BigWig for FFT analysis; repeat for multiple samples.")
+    parser.add_argument("--signal", "--bigwig", action="append", default=[], metavar="NAME=BIGWIG", help="SNS/PNS/BNS/TNS/WPS BigWig for FFT analysis; repeat for multiple samples.")
     parser.add_argument("--signal-type", choices=("sns", "pns", "wps", "other"), default="sns", help="Signal label used in metadata and plot text.")
     parser.add_argument("--analysis", choices=("all", "spacing", "fft"), default="all", help="Run peak-spacing correlations, FFT correlations, or both.")
     parser.add_argument("--output-prefix", "--out-prefix", help="Path prefix for analysis tables, metadata, and plots. Default: primary signal/peak input basename, or expression-table basename, plus _gene_expression.")

@@ -20,7 +20,7 @@ Use this command when a set of reference sites is divided into biological or tec
 
 The categories can represent cell lines, chromatin classes, transcription-factor site classes, experimental conditions, annotations, or any other labels stored in the reference BED. DNase-hypersensitive-site callsets are one example, analogous to the comparison in Snyder et al. (2016) Figure 5A, but the command is not specific to DHS data.
 
-## Typical command
+## Basic usage
 
 ```bash
 nucleosuite flank-spacing \

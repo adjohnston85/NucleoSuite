@@ -209,10 +209,11 @@ def precompute_distributions(
             centred[fragment_length] = combined - np.mean(combined)
         elif scoring_method == "sns":
             signed = sinusoidal_nucleosome_kernel(total_length)
-            # posSNS is a non-negative unit-mass reference track formed from
-            # the positive half-wave.  The SNS score itself retains exactly
-            # +50 positive mass and -50 negative mass per complete fragment.
-            positive_reference = np.clip(signed, 0.0, None) / 50.0
+            # posSNS preserves the complete SNS waveform and shifts it upward
+            # by the per-fragment minimum so that every value is non-negative.
+            # It is deliberately not clipped and is not renormalized after the
+            # vertical translation.
+            positive_reference = signed - float(np.min(signed))
             positive[fragment_length] = positive_reference
             centred[fragment_length] = signed
         elif scoring_method == "bns":

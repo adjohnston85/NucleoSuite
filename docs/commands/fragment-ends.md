@@ -14,7 +14,7 @@ For a fragment stored as BED interval `[start,end)`, the left end is the first c
 
 See [Coverage, dyads, and fragment ends](../ALGORITHMS.md#coverage-dyads-and-fragment-ends).
 
-## Typical use
+## Basic usage
 
 ```bash
 nucleosuite fragment-ends \
@@ -30,7 +30,7 @@ nucleosuite fragment-ends \
 
 `--max-per-coordinate` limits the maximum accumulated value that can be assigned to any single genomic base in the fragment-end track. It is applied after endpoint contributions are accumulated and is separate from `--max-duplicates`, which filters identical complete fragments.
 
-## What it writes
+## Outputs
 
 Depending on `--tracks`, the command writes combined, left-end, and/or right-end signal plus fragment summaries.
 

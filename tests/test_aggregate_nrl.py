@@ -50,7 +50,7 @@ def test_aggregate_nrl_calls_once_across_zero_then_regresses_directions() -> Non
         regression_min=100,
         regression_max=1000,
     )
-    assert result.detection_window == 51
+    assert result.detection_window == 61
     assert result.local_max_window == 21
     assert np.allclose(
         result.local_values,

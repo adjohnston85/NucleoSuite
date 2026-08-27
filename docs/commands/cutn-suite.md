@@ -33,7 +33,7 @@ For each treatment and control replicate, `cutn-suite` makes two deliberately di
 - an SNS, PNS, BNS, or TNS discovery track and its matching non-negative `posSNS`, `posPNS`, `posBNS`, or `posTNS` track, using fragments from the resolved mode ±30 bp by default; and
 - raw fragment coverage using all accepted fragments from 1–1,000 bp by default.
 
-The narrow, mode-centred range focuses the discovery score on fragments most consistent with one protected nucleosome and prevents very short or long assay fragments from changing the positioning signal. Override the symmetric flank with `--score-fragment-flank`, or set both `--score-frag-lower` and `--score-frag-upper` for fixed bounds. The broader coverage range retains the fragment abundance associated with the enriched locus, including subnucleosomal and longer fragments that can be informative in CUT&RUN or CUT&Tag. Change it with `--coverage-frag-lower` and `--coverage-frag-upper`.
+The narrow, mode-centred range focuses the discovery score on fragments most consistent with one protected nucleosome and prevents very short or long assay fragments from changing the positioning signal. Change the automatic ±30 bp distance with `--frag-mode-padding`. `--score-frag-lower` and `--score-frag-upper` can override the lower and upper bounds independently. The broader coverage range retains the fragment abundance associated with the enriched locus, including subnucleosomal and longer fragments that can be informative in CUT&RUN or CUT&Tag. Change it with `--coverage-frag-lower` and `--coverage-frag-upper`.
 
 The centred score locates protected-DNA structure. The positive track measures the overall amount of method-specific score support and is used only as the normalization reference. Raw broad-range coverage is retained so the original sequencing-depth scale remains available.
 
@@ -173,7 +173,7 @@ This normalization is done per replicate before averaging because raw score magn
 
 Each cluster is aligned at the SNS/PNS/BNS/TNS summit of its strongest coverage-scored member. Keeping the discovery summit rather than replacing it with the coordinate of the coverage maximum preserves the nucleosome-position estimate while using direct coverage only to decide which member is strongest.
 
-The default aggregate window is ±1,000 bp. Outputs include a replicate-combined heatmap and mean profile, individual replicate mean profiles and an overlay, a cluster-bootstrap 95% confidence band, and positive- and negative-direction NRL fits. Directional NRL calling defaults to 140 bp resolution, includes the aligned central peak as order 0, uses peak orders 0 through 3, and disables the usual central regression exclusion. Missing peak orders are not renumbered. Change these settings with the `--cluster-aggregate-*` options or use `--skip-cluster-aggregate` when only Stage 1 peak and cluster tables are needed.
+The default aggregate window is ±1,000 bp. Outputs include a replicate-combined heatmap and mean profile, individual replicate mean profiles and an overlay, a cluster-bootstrap 95% confidence band, and positive- and negative-direction NRL fits. Directional NRL calling defaults to 130 bp resolution, includes the aligned central peak as order 0, uses peak orders 0 through 3, and disables the usual central regression exclusion. Missing peak orders are not renumbered. Change these settings with the `--cluster-aggregate-*` options or use `--skip-cluster-aggregate` when only Stage 1 peak and cluster tables are needed.
 
 ## Replicates and merged input
 
@@ -331,7 +331,7 @@ nucleosuite cutn-suite \
 
 For Stage 1 analyses that will later be compared with `cutn-compare`, using the same explicit mode is the simplest way to guarantee compatibility.
 
-## Output layout
+## Outputs
 
 A one-condition run writes:
 

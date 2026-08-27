@@ -109,7 +109,7 @@ def test_dac_replot_default_is_raw_only_and_detection_uses_nrl_layers(tmp_path: 
     labels = [line.get_label() for line in detected_ax.lines]
     assert "Unsmoothed" in labels
     assert "Local maxima (21 bp)" in labels
-    assert "Peak detection (51 bp)" in labels
+    assert "Peak detection (61 bp)" in labels
     assert detected_ax.collections
     assert detected_ax.texts
     for annotation in detected_ax.texts:

@@ -8,7 +8,7 @@
 
 Most NucleoSuite fragment-based commands accept multiple BAMs directly. Use `merge-bams` when a downstream tool or archive requires one alignment file. Use [`fragments`](fragments.md) to combine fragment coordinates into BED intervals.
 
-## Typical use
+## Basic usage
 
 ```bash
 nucleosuite merge-bams \
@@ -18,7 +18,7 @@ nucleosuite merge-bams \
 
 The input BAMs should be compatible with the same reference assembly and contig lengths.
 
-## What it writes
+## Outputs
 
 The primary output is the merged BAM. Follow ordinary BAM indexing requirements before using it with commands that require indexed random access.
 

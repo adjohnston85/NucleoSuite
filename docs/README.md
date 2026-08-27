@@ -6,9 +6,8 @@ Choose a command by the analysis to perform and the output you need.
 
 - [Quick start](QUICKSTART.md) — common analyses from BAM to interpretable output.
 - [Choosing a command](CHOOSING_A_COMMAND.md) — choose a command for your analysis goal.
-- [Workflows](WORKFLOWS.md) — see how commands fit together in cfDNA, MNase-seq, CUT&RUN/CUT&Tag, empirical peak FDR, peak spacing, categorized [`flank-spacing`](commands/flank-spacing.md), chromatin-state, and gene-centred analyses.
+- [Workflows](WORKFLOWS.md) — see how commands fit together in cfDNA, MNase-seq, CUT&RUN/CUT&Tag, peak calling, spacing, chromatin-state, and gene-centred analyses.
 - [Command reference](COMMAND_REFERENCE.md) — links to every command page.
-- [`cutn-compare`](commands/cutn-compare.md) — compare two completed CUT&RUN/CUT&Tag Stage 1 analyses without returning to BAMs.
 
 ## Understanding the calculations
 
@@ -53,4 +52,3 @@ nucleosuite COMMAND --help-all   # all command-specific options and defaults
 nucleosuite COMMAND --help-plotting  # shared plot controls, when available
 ```
 
-- [`filter-peaks`](commands/filter-peaks.md) filters peak interval files by score, percentile, region length, and/or BigWig coverage.

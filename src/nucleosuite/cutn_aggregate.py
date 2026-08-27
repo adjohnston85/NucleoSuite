@@ -191,19 +191,19 @@ def run_cluster_aggregate(
     anchor_bed: str | Path,
     output_dir: str | Path,
     label: str,
-    scoring_method: str = "pns",
-    positive_track: str = "posPNS",
+    scoring_method: str = "sns",
+    positive_track: str = "posSNS",
     window_half: int = 1000,
     maximum_heatmap_rows: int = 5000,
     bootstrap_replicates: int = 200,
-    nrl_peak_resolution: float = 140.0,
+    nrl_peak_resolution: float = 130.0,
     nrl_min_order: int = 0,
     nrl_max_order: int = 3,
     seed: int = 12345,
     reporter: ProgressReporter | None = None,
     vlim: float | None = None,
 ) -> dict[str, object]:
-    """Align scaled PNS to cluster anchors and write profiles, heatmaps and NRLs."""
+    """Align the selected normalized nucleosome score to cluster anchors and write profiles, heatmaps and NRLs."""
 
     anchors = Path(anchor_bed).resolve()
     directory = Path(output_dir).resolve()

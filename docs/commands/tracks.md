@@ -86,7 +86,7 @@ fragment_range  output_prefix                                  tracks           
 
 `pns_peaks` invokes the shared PNS-style positive-region caller on the **currently selected** `--scoring-method`. It therefore works with SNS, PNS, BNS, or TNS without generating an extra PNS track. Text BED scores remain six-decimal floating-point values after `--score-peak-score-scale`.
 
-`--bigbed-score-scale` controls conversion to the integer bigBed score field and defaults to **1000**.
+`--bigbed-score-scale` controls conversion to the integer bigBed score field. SNS defaults to **1** (native score values are rounded/clamped without prior rescaling); PNS, BNS and TNS default to **1000**. An explicit value overrides the method-aware default.
 
 ## Duplicate limits versus sparse-coordinate limits
 

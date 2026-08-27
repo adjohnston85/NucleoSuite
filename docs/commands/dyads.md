@@ -22,7 +22,7 @@ places 0.5 on each central base. `left` or `right` places the full count 1 on th
 
 See [Coverage, dyads, and fragment ends](../ALGORITHMS.md#coverage-dyads-and-fragment-ends) for the coordinate definition.
 
-## Typical use
+## Basic usage
 
 ```bash
 nucleosuite dyads \
@@ -43,7 +43,7 @@ These options control different stages:
 
 The default coordinate cap is 0, meaning unlimited.
 
-## What it writes
+## Outputs
 
 The command writes a dyad BigWig or WIG plus fragment summaries and length counts.
 

@@ -15,13 +15,13 @@ The long-range peak caller is controlled by one setting: `--peak-resolution`.
 With the default resolution of 160 bp:
 
 1. candidate repeat peaks must be at least 160 bp apart;
-2. the profile is smoothed over 51 bp to find the broad peak locations;
+2. the profile is smoothed over 61 bp to find the broad peak locations;
 3. each detected peak is refined to the strongest local maximum in a 21 bp-smoothed profile; and
 4. the refined peak distances are fitted against peak number to estimate the repeating period.
 
 The two smoothing windows are derived from the selected resolution:
 
-- detection window = resolution / 3;
+- detection window = resolution / 2.5;
 - local-maximum window = resolution / 6.
 
 Each value is rounded **down** to the permitted `10n + 1` series: 11, 21, 31, 41, 51 bp, and so on. A derived value below 11 bp means no smoothing.
@@ -29,13 +29,13 @@ Each value is rounded **down** to the permitted `10n + 1` series: 11, 21, 31, 41
 For example, with `--peak-resolution 160`:
 
 ```text
-160 / 3 = 53.3  -> 51 bp detection smoothing
+160 / 2.5 = 64  -> 61 bp detection smoothing
 160 / 6 = 26.7  -> 21 bp local-maximum smoothing
 ```
 
 See [Nucleosome repeat length](../ALGORITHMS.md#nucleosome-repeat-length) for the exact calculations.
 
-## Typical use
+## Basic usage
 
 ```bash
 nucleosuite nrl sample_dac.tsv \
@@ -59,7 +59,7 @@ nucleosuite nrl sample_dac.tsv \
   --output-prefix sample_nrl_resolution200
 ```
 
-A 200 bp resolution gives a 61 bp detection window and a 31 bp local-maximum window.
+A 200 bp resolution gives a 71 bp detection window and a 31 bp local-maximum window.
 
 For analyses where no resolution-based smoothing or peak separation is wanted, use:
 
@@ -83,7 +83,7 @@ Their adjacent spacings are close to 185 bp. Fitting peak distance against peak 
 
 `R²` reports how closely the retained peak positions follow one regularly spaced series. A high R² means the peak positions are well described by one repeat length.
 
-## What it writes
+## Outputs
 
 The command writes:
 

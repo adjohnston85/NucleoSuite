@@ -7,7 +7,7 @@ This page shows how NucleoSuite commands connect. Each diagram is followed by a 
 ```mermaid
 flowchart TB
     A[Paired-end cfDNA BAM or fragment BED] --> B[cfdna-suite]
-    B --> C[PNS mode 167]
+    B --> C[SNS mode 167]
     B --> D[Dyads and fragment ends]
     B --> E[Dinucleotide and WW/SS analyses]
     C --> F[Peak calls]
@@ -100,7 +100,7 @@ flowchart TB
     G --> H[Differential cluster loci, overlap summaries and matched aggregates]
 ```
 
-[`cutn-suite`](commands/cutn-suite.md) defaults to SNS discovery over the resolved mode ±30 bp while broad coverage uses 1–1,000 bp fragments. Both ranges are generated together by `tracks` in one fragment pass. The narrow discovery range focuses the positioning score on nucleosome-sized fragments; the broad coverage range retains fragment abundance for measurement. Each replicate score is divided by the non-zero mean of its method-matched positive score (`posSNS`, `posPNS`, `posBNS`, or `posTNS`) before treatment replicates are averaged into the consensus discovery signal. The selected scoring method is reused throughout cluster-centred heatmaps, confidence bands and directional NRLs; SNS, BNS or TNS does not trigger an additional PNS pass. Raw coverage BigWigs are retained and independently scaled to a non-zero mean of 100 for treatment/control measurements. By default, a candidate passes only when every treatment replicate exceeds every control replicate; `--stage1-gate-mode mean` selects the less conservative mean treatment > mean control rule. Significant gate-passing peaks seed clusters at p < 0.05. `--cluster-member-mode seed-and-gated` includes both seed and other gate-passing peaks, whereas `significant-only` includes only significant seeds. The number of consecutive non-members allowed to bridge included members is controlled by `--cluster-max-non-member-gap` (default 1). Treatment and control groups are independent and may differ in size; `--bam-mode merged` pools each group. Stage 2 uses the saved coverage and method-matched normalized score tracks without revisiting BAMs. An explicit mode bypasses automatic mode estimation:
+[`cutn-suite`](commands/cutn-suite.md) defaults to SNS discovery over the resolved mode ±30 bp (`--frag-mode-padding 30`) while broad coverage uses 1–1,000 bp fragments. Both ranges are generated together by `tracks` in one fragment pass. The narrow discovery range focuses the positioning score on nucleosome-sized fragments; the broad coverage range retains fragment abundance for measurement. Each replicate score is divided by the non-zero mean of its method-matched positive score (`posSNS`, `posPNS`, `posBNS`, or `posTNS`) before treatment replicates are averaged into the consensus discovery signal. The selected scoring method is reused throughout cluster-centred heatmaps, confidence bands and directional NRLs; SNS, BNS or TNS does not trigger an additional PNS pass. Raw coverage BigWigs are retained and independently scaled to a non-zero mean of 100 for treatment/control measurements. By default, a candidate passes only when every treatment replicate exceeds every control replicate; `--stage1-gate-mode mean` selects the less conservative mean treatment > mean control rule. Significant gate-passing peaks seed clusters at p < 0.05. `--cluster-member-mode seed-and-gated` includes both seed and other gate-passing peaks, whereas `significant-only` includes only significant seeds. The number of consecutive non-members allowed to bridge included members is controlled by `--cluster-max-non-member-gap` (default 1). Treatment and control groups are independent and may differ in size; `--bam-mode merged` pools each group. Stage 2 uses the saved coverage and method-matched normalized score tracks without revisiting BAMs. An explicit mode bypasses automatic mode estimation:
 
 ```bash
 nucleosuite cutn-suite \
@@ -124,7 +124,7 @@ nucleosuite cutn-compare \
 ```mermaid
 flowchart TB
     A[MNase BAM or fragment BED] --> B[mnase-suite]
-    B --> C[PNS mode 147]
+    B --> C[SNS mode 147]
     B --> D[Coverage, dyads, and fragment ends]
     B --> E[Dinucleotide and WW/SS analyses]
     C --> F[Peak calls]
@@ -158,7 +158,7 @@ nucleosuite mnase-suite \
 ```mermaid
 flowchart LR
     A[Paired-end BAM or fragment BED] --> B[tracks]
-    B --> C[PNS and WPS]
+    B --> C[SNS and WPS]
     B --> D[Coverage and dyads]
     B --> E[Fragment ends]
     B --> F[Sequence profiles]
@@ -186,7 +186,7 @@ nucleosuite tracks \
 
 ```mermaid
 flowchart LR
-    A[Paired-end BAM or fragment BED] --> B[PNS or WPS]
+    A[Paired-end BAM or fragment BED] --> B[Nucleosome score or WPS]
     B --> C[BigWig signal]
     C --> D[call-peaks]
     D --> E[Nucleosome and breakpoint BED files]
@@ -196,12 +196,13 @@ flowchart LR
     click D href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/call-peaks.md" "Open call-peaks documentation"
 ```
 
-`pns` and `wps` can call peaks during signal generation. [`call-peaks`](commands/call-peaks.md) applies the same callers to an existing compatible BigWig.
+`nuc-score` and `wps` can call peaks during signal generation. [`call-peaks`](commands/call-peaks.md) applies the same callers to an existing compatible BigWig.
 
 ```bash
 nucleosuite call-peaks \
-  --input-bigwig sample_pns.bw \
+  --input-bigwig sample_sns.bw \
   --method pns \
+  --scoring-method sns \
   --signal both \
   --out-prefix sample_peaks
 ```

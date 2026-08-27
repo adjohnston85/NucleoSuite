@@ -57,9 +57,9 @@ def test_pooled_mode_equal_weights_target_and_control_histograms():
     assert pooled.mode != 166 or pooled.mode_search_fragments <= target.mode_search_fragments
 
 
-def test_pns_auto_mode_can_use_fragment_interval_input(tmp_path):
-    from nucleosuite.cli.common import resolve_fragment_mode
+def test_nuc_score_auto_mode_can_use_fragment_interval_input(tmp_path):
     from nucleosuite.cli.main import build_parser
+    from nucleosuite.cli.nuc_score import _resolve_mode_and_fragment_range
 
     fragments = tmp_path / "fragments.bed"
     fragments.write_text(
@@ -71,7 +71,7 @@ def test_pns_auto_mode_can_use_fragment_interval_input(tmp_path):
     )
     args = build_parser().parse_args(
         [
-            "pns",
+            "nuc-score",
             "--fragments",
             str(fragments),
             "--mode-min-fragments",
@@ -87,11 +87,10 @@ def test_pns_auto_mode_can_use_fragment_interval_input(tmp_path):
         ]
     )
 
-    mode, estimate, source, _seed = resolve_fragment_mode(
-        args, args.mode_length, command="pns"
-    )
+    mode, estimate, source, _seed = _resolve_mode_and_fragment_range(args)
 
     assert mode == 167
     assert source == "automatic"
     assert estimate is not None
     assert estimate.histogram_smoothing == "none"
+    assert (args.frag_lower, args.frag_upper) == (137, 197)

@@ -85,7 +85,7 @@ The default DCC value divides the raw A×B product sum by the number of valid A/
 
 `--normalize-by-signal-totals` applies an additional signal-total normalization when required. Percentage and per-million signal-pair columns are derived after the principal profile is formed.
 
-## What it writes
+## Outputs
 
 Each analysed state or category receives:
 

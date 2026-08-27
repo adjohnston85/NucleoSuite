@@ -17,7 +17,7 @@ nucleosuite validate-inputs --bam sample.bam --fasta genome.fa
 
 ## 2. Call nucleosome regions from a BAM
 
-Use `nuc-score` when you want a nucleosome-oriented signal and shared peak calls. In 0.11.0 the command uses SNS by default:
+Use `nuc-score` when you want a nucleosome-oriented signal and shared peak calls. The command uses SNS by default:
 
 ```bash
 nucleosuite nuc-score \
@@ -78,7 +78,7 @@ nucleosuite cutn-suite \
   --cores 8
 ```
 
-Use `--scoring-method sns`, `--scoring-method bns`, or `--scoring-method tns` to change the discovery score. Use `--mode 167` to bypass automatic sampling and use exactly 167 bp for both target and control; with the default flank this gives a 137–197 bp discovery range.
+Use `--scoring-method pns`, `--scoring-method bns`, or `--scoring-method tns` to select an alternative discovery score. Use `--mode 167` to bypass automatic sampling and use exactly 167 bp for both target and control; with the default `--frag-mode-padding 30` this gives a 137–197 bp discovery range.
 
 Each replicate score is divided by the mean of its method-matched positive track before treatment tracks are averaged. This prevents sequencing-depth differences from weighting the consensus peak-discovery track toward one replicate. The same shared pass also writes broad-range coverage, which is independently scaled to a non-zero mean of 100 for measurement. A candidate passes Stage 1 by default only when every treatment replicate exceeds every control replicate; `--stage1-gate-mode mean` selects the less conservative mean treatment > mean control rule. P-values and BH FDR remain annotations unless optional cutoffs are supplied. Clusters start at gate-passing peaks with p < 0.05. By default both S and G are members, one non-member bridge is allowed, at least two included members are required, and adjacent included-member summits cannot exceed 1,000 bp. `--cluster-member-mode significant-only` restricts membership to S peaks. The selected SNS/PNS/BNS/TNS score is reused for aggregate plots and directional NRLs. Treatment and control groups are independent, may contain different replicate counts, and are never paired by input order. Use `--bam-mode merged` to pool a group. Supplying `--treatment2-bam` and `--control2-bam` adds a log2 empirical-Bayes four-group interaction test. Two independently completed Stage 1 runs can instead be compared with [`cutn-compare`](commands/cutn-compare.md).
 

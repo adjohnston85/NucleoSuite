@@ -8,7 +8,7 @@
 
 Many genomic formats and analyses need reference-sequence lengths. Use this command when you want a reusable chromosome-size file in the same contig order and naming convention as your alignment data.
 
-## Typical use
+## Basic usage
 
 ```bash
 nucleosuite chrom-sizes \

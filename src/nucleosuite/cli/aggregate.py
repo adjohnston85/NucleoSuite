@@ -133,7 +133,7 @@ def add_aggregate_parser(subparsers: argparse._SubParsersAction) -> argparse.Arg
         default=160.0,
         help=(
             "Minimum separation for unified aggregate peak calling. The default "
-            "160 bp resolution gives 51 bp detection smoothing and 21 bp summit "
+            "160 bp resolution gives 61 bp detection smoothing and 21 bp summit "
             "refinement. The called peak nearest 0 within half this resolution is "
             "assigned peak number 0 in both directions before the effective "
             "regression exclusion is applied."

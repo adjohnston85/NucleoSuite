@@ -16,9 +16,9 @@ def register(subparsers):
     parser = subparsers.add_parser(
         "call-peaks",
         aliases=["peak-call", "peakcall"],
-        help="Convert a continuous PNS or WPS BigWig into discrete peak positions.",
+        help="Convert a continuous nucleosome-score or WPS BigWig into discrete peak positions.",
     )
-    parser.add_argument("-i", "--input-bigwig", required=True, help="PNS or WPS BigWig signal to segment.")
+    parser.add_argument("-i", "--input-bigwig", required=True, help="Nucleosome-score or WPS BigWig signal to segment.")
     parser.add_argument(
         "--blacklist-bed",
         help="BED blacklist; blacklisted signal is missing and overlapping calls are discarded.",
@@ -38,6 +38,14 @@ def register(subparsers):
         help="Write nucleosome calls, breakpoint calls, or both (default: both).",
     )
     parser.add_argument(
+        "--scoring-method", choices=("sns", "pns", "bns", "tns"), default="sns",
+        help=(
+            "Originating nucleosome-score kernel when --peak-caller pns is used. "
+            "This controls the method-aware default bigBed score conversion "
+            "(default: sns)."
+        ),
+    )
+    parser.add_argument(
         "-r", "--regions", nargs="+", default=None,
         help="Optional contigs/regions; supports all, autosomes and numeric ranges.",
     )
@@ -49,7 +57,7 @@ def register(subparsers):
     parser.add_argument(
         "--smooth-window", type=int, default=None,
         help=(
-            "Savitzky-Golay window. Defaults to 0 for PNS and 21 for raw WPS; "
+            "Savitzky-Golay window. Defaults to 0 for the nucleosome-score caller and 21 for raw WPS; "
             "use 0 to disable smoothing explicitly."
         ),
     )
@@ -59,20 +67,20 @@ def register(subparsers):
         help="Multiplier applied to called peak scores before BED output (default: 1).",
     )
     parser.add_argument(
-        "--bigbed-score-scale", type=float, default=1000.0,
+        "--bigbed-score-scale", type=float, default=None,
         help=(
-            "Multiplier applied to floating PNS BED peak scores during bigBed "
-            "conversion before integer rounding/clamping (default: 1000). "
-            "WPS bigBed scores use their standard BED integer scale."
+            "Multiplier applied to floating nucleosome-score BED peak scores during "
+            "bigBed conversion. SNS defaults to 1 (no rescaling); PNS, BNS and TNS "
+            "default to 1000. WPS bigBed scores use their standard BED integer scale."
         ),
     )
 
     pns = parser.add_argument_group("PNS-style caller")
-    pns.add_argument("--min-region-length", type=int, default=50, help="Minimum positive PNS region length retained as a call (default: 50 bp).")
+    pns.add_argument("--min-region-length", type=int, default=50, help="Minimum positive nucleosome-score region length retained as a call (default: 50 bp).")
     pns.add_argument(
         "--max-neg-run", type=int, default=0,
         help=(
-            "Maximum consecutive zero-or-negative bases allowed inside a PNS "
+            "Maximum consecutive zero-or-negative bases allowed inside a nucleosome-score "
             "positive region (default: 0)."
         ),
     )
@@ -106,6 +114,10 @@ def run(args):
     args.smooth_window = resolve_smooth_window(
         args.method, args.wps_input_mode, args.smooth_window
     )
+    if args.bigbed_score_scale is None:
+        args.bigbed_score_scale = (
+            1.0 if args.scoring_method == "sns" else 1000.0
+        )
     if args.chunk_bp < 1 or args.overlap_bp < 0:
         raise ValueError("Chunk size must be positive and overlap non-negative")
     if args.smooth_window < 0 or (

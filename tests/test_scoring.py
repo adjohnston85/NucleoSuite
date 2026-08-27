@@ -187,8 +187,20 @@ def test_sns_mode167_support_broadens_on_both_sides_of_167():
         assert np.allclose(centred[length], centred[length][::-1])
         assert np.isclose(centred[length][centred[length] > 0].sum(), 50.0)
         assert np.isclose(centred[length][centred[length] < 0].sum(), -50.0)
-        assert np.isclose(positive[length].sum(), 1.0)
+        assert np.allclose(positive[length], centred[length] - centred[length].min())
+        assert np.isclose(positive[length].min(), 0.0)
         assert np.all(positive[length] >= 0)
+        assert np.allclose(positive[length], positive[length][::-1])
+
+
+def test_possns_is_vertical_shift_of_complete_signed_wave_without_clipping_or_renormalization():
+    centred, positive = precompute_distributions([167], 167, "sns")
+    signed = centred[167]
+    shifted = positive[167]
+    assert np.allclose(shifted - signed, -signed.min())
+    assert np.isclose(shifted.min(), 0.0)
+    assert np.count_nonzero(shifted > 0) > np.count_nonzero(signed > 0)
+    assert not np.isclose(shifted.sum(), 1.0)
 
 
 def test_sns_odd_support_has_one_central_maximum_and_even_support_two():

@@ -174,7 +174,6 @@ def test_command_pages_have_matching_heading_and_back_link() -> None:
 def test_flank_spacing_is_discoverable_in_relevant_guides() -> None:
     required = [
         ROOT / "README.md",
-        ROOT / "docs" / "README.md",
         ROOT / "docs" / "CHOOSING_A_COMMAND.md",
         ROOT / "docs" / "COMMAND_REFERENCE.md",
         ROOT / "docs" / "QUICKSTART.md",
@@ -495,4 +494,4 @@ def test_tns_documentation_uses_renderer_safe_latex() -> None:
     assert r"q_n(j)=\min\left(j,n-1-j\right)." in text
     assert r"u^{TNS}_{m,L}(j)=\frac" in text
     assert r"n(L,m)=\max(L,2m-L)." in text
-    assert "[support length $n(L,m)$](#combining-the-two-fragment-ends)" in text
+    assert "support length $n(L,m)$ [defined above](#combining-the-two-fragment-ends)" in text

@@ -365,7 +365,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--signal", "--bigwig", required=True, help="Input PNS, WPS, or other BigWig.")
     parser.add_argument("--sample", default="sample", help="Sample label written to outputs.")
-    parser.add_argument("--signal-label", default="PNS", help="Signal label used in outputs and plots.")
+    parser.add_argument("--signal-label", default="SNS", help="Signal label used in outputs and plots (default: SNS).")
     parser.add_argument("--expression", help="Expression TSV/TSV.gz. Default: bundled HPA tissue consensus resource.")
     parser.add_argument("--tissue", default="bone_marrow", help="Profile name; underscores are interpreted as spaces.")
     parser.add_argument("--genes-bed", help="Gene BED. Default: genes from --resource-set.")

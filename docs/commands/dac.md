@@ -28,7 +28,7 @@ Supply one or more BigWigs and exactly one region source:
 
 Pairs never cross a region boundary.
 
-## Typical whole-genome use
+## Basic usage
 
 ```bash
 nucleosuite dac \
@@ -78,7 +78,7 @@ These are computational routes to the same pair-product definition.
 
 Missing or non-finite BigWig values are treated as zero signal but are still included when counting the genomic positions available for comparison. Blacklisted bases are excluded entirely from both the signal calculation and the number of available comparisons.
 
-## What it writes
+## Outputs
 
 Each analysed state, category, gene, or pooled profile receives:
 

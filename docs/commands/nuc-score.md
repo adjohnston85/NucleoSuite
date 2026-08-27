@@ -2,7 +2,7 @@
 
 ## What this command does
 
-`nuc-score` converts paired-end fragments into a nucleosome-position signal and calls positive nucleosome regions and negative breakpoint peaks. In NucleoSuite 0.11.0, the command uses **Sinusoidal Nucleosome Scoring (SNS)** by default. The historical Probabilistic Nucleosome Score remains available with `--scoring-method pns`; `--scoring-method bns` selects Boxcar Nucleosome Scoring and `--scoring-method tns` selects Triangular Nucleosome Scoring.
+`nuc-score` converts paired-end fragments into a nucleosome-position signal and calls positive nucleosome regions and negative breakpoint peaks. The command uses **Sinusoidal Nucleosome Scoring (SNS)** by default. The historical Probabilistic Nucleosome Score remains available with `--scoring-method pns`; `--scoring-method bns` selects Boxcar Nucleosome Scoring and `--scoring-method tns` selects Triangular Nucleosome Scoring.
 
 ## Why use it
 
@@ -10,7 +10,7 @@ Use SNS when you want each accepted fragment to contribute one smooth, symmetric
 
 ## How it works
 
-Before constructing a score, `nuc-score` resolves the protected-DNA mode. The default `--mode auto` samples accepted fragments from seeded randomly ordered genomic blocks and selects the most frequent integer length from the unsmoothed histogram. Use an integer such as `--mode 167` when a fixed geometry is required.
+Before constructing a score, `nuc-score` resolves the protected-DNA mode. The default `--mode auto` samples fragments from seeded randomly ordered genomic blocks and selects the most frequent integer length from the unsmoothed histogram. The automatic mode-search interval is 137–197 bp by default. After the mode is resolved, each omitted scoring bound is derived from the mode ± `--frag-mode-padding` (default 30 bp). Use an integer such as `--mode 167` when a fixed geometry is required.
 
 ### SNS — default
 
@@ -26,7 +26,7 @@ Across the discrete integer genomic positions of that support, SNS samples one i
 
 Because `W(L,m)` always has the same odd/even parity as `L`, odd fragments have one central genomic bin and even fragments have two equal central bins around the half-base midpoint. This keeps the discrete wave exactly symmetric without shifting even-length fragments by half a base.
 
-`posSNS` is the non-negative positive half-wave rescaled to unit mass. It is an auxiliary depth/reference track and is not the signed signal used for peak calling.
+`posSNS` is the complete SNS waveform shifted upward so that its minimum is zero. It is not clipped or renormalized after the shift; it is an auxiliary non-negative reference track and is not the signed signal used for peak calling.
 
 ### PNS
 
@@ -42,7 +42,7 @@ TNS uses the same support geometry and places one symmetric triangle across the 
 
 The full mathematical definitions are in [Algorithms](../ALGORITHMS.md), including [SNS](../ALGORITHMS.md#sinusoidal-nucleosome-scoring), [PNS](../ALGORITHMS.md#probabilistic-nucleosome-scoring), [BNS](../ALGORITHMS.md#boxcar-nucleosome-scoring), and [TNS](../ALGORITHMS.md#triangular-nucleosome-scoring).
 
-## Typical use
+## Basic usage
 
 Default SNS scoring:
 
@@ -74,7 +74,29 @@ nucleosuite nuc-score --bam sample.bam --scoring-method tns --out-prefix sample
 
 ## Defaults
 
-`nuc-score` uses fragment lengths **137–197 bp**, estimates the modal protected-DNA length automatically, and uses **SNS** as the scoring method. `--mode 167` bypasses mode estimation. `--scoring-method pns`, `bns`, or `tns` selects one of the alternative kernels.
+`nuc-score` estimates the modal protected-DNA length automatically and uses **SNS** as the scoring method. The default mode-search interval is **137–197 bp**. Once the mode is known, the scoring fragment interval defaults to **mode ±30 bp**. For example, an estimated mode of 165 bp gives a scoring range of **135–195 bp**. Change the distance with `--frag-mode-padding`; `--frag-lower` and `--frag-upper` override their corresponding automatic bounds independently. `--mode 167` bypasses mode estimation. `--scoring-method pns`, `bns`, or `tns` selects one of the alternative kernels.
+
+
+### Controlling the mode-centred fragment range
+
+The automatic scoring bounds are resolved only after the mode is known:
+
+```math
+L_{lower}=\max(1,m-p),
+\qquad
+L_{upper}=m+p,
+```
+
+where `m` is the resolved mode and `p` is `--frag-mode-padding` (default 30 bp). For example:
+
+```bash
+nucleosuite nuc-score \
+  --bam sample.bam \
+  --frag-mode-padding 25 \
+  --out-prefix sample
+```
+
+If the estimated mode is 165 bp, this scores fragments from 140–190 bp. An explicit `--frag-lower` or `--frag-upper` replaces only that side of the automatic interval. `--mode-search-lower` and `--mode-search-upper` control which fragment lengths are considered when estimating an automatic mode; they do not fix the final scoring interval.
 
 Raw SNS/PNS/BNS/TNS signal is used for peak calling by default. Savitzky–Golay smoothing is available but disabled (`--smooth-window 0`). Mode-histogram smoothing is also disabled by default; `--mode-histogram-smoothing binomial` is an independent option that affects only mode estimation.
 
@@ -102,9 +124,9 @@ Breakpoint peaks are not filtered by this option. Existing callsets can be filte
 
 ## Peak scores and bigBed
 
-Text BED peak scores remain floating-point values written to six decimal places after `--peak-score-scale`. `--bigbed-score-scale` controls conversion to the required integer BED5 score and defaults to 1000, followed by rounding and clamping to 0–1000.
+Text BED peak scores remain floating-point values written to six decimal places after `--peak-score-scale`. `--bigbed-score-scale` controls conversion to the required integer BED5 score. SNS defaults to **1**, so native SNS peak scores are not rescaled before integer rounding/clamping. PNS, BNS and TNS default to **1000** because their native peak scores are fractional. An explicit value overrides the method-aware default.
 
-## What it writes
+## Outputs
 
 For SNS, the score tracks are `sns`, `posSNS`, and optionally `sns_smoothed`. PNS uses `pns`, `posPNS`, and optionally `pns_smoothed`; BNS uses `bns`, `posBNS`, and optionally `bns_smoothed`; TNS uses `tns`, `posTNS`, and optionally `tns_smoothed`.
 

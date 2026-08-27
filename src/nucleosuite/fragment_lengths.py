@@ -1061,7 +1061,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=160.0,
         help=(
             "Minimum spacing of multinucleosome fragment-size peaks. This gives "
-            "51 bp detection smoothing and 21 bp summit refinement at the default "
+            "61 bp detection smoothing and 21 bp summit refinement at the default "
             "160 bp resolution."
         ),
     )

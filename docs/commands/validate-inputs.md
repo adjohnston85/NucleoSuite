@@ -8,7 +8,7 @@
 
 Run it before a long multicontig or suite job so input problems are found before expensive analysis begins.
 
-## Typical use
+## Basic usage
 
 ```bash
 nucleosuite validate-inputs \

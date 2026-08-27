@@ -160,7 +160,7 @@ CORE_DESTINATIONS: dict[str, set[str]] = {
         "treatment1_bam", "control1_bam", "treatment2_bam", "control2_bam",
         "outdir", "sample_name", "condition1_name", "condition2_name",
         "inspect_run", "rerun_from", "exclude_sample", "bam_mode",
-        "scoring_method", "mode", "mode_strategy", "score_fragment_flank",
+        "scoring_method", "mode", "mode_strategy", "frag_mode_padding",
         "score_frag_lower", "score_frag_upper", "coverage_frag_lower",
         "coverage_frag_upper", "blacklist_bed", "contigs", "cores",
         "peak_min_region_length", "peak_max_neg_run", "stage1_p_value", "peak_fdr",

@@ -151,7 +151,7 @@ The default category labels are `active_genes`, `weak_genes`, `repressed_genes`,
 
 ### Peak BED8
 
-`pns`, `wps`, `call-peaks`, and filtered peak output from `distances` use BED8:
+`nuc-score`, `wps`, `call-peaks`, and filtered peak output from `distances` use BED8:
 
 ```text
 chrom    chromStart    chromEnd    name    score    strand    thickStart    thickEnd
@@ -168,7 +168,7 @@ chrom    chromStart    chromEnd    name    score    strand    thickStart    thic
 | 7 | `thickStart` | Representative call centre |
 | 8 | `thickEnd` | Representative call centre plus one base |
 
-For PNS, column 7 is the retained positive- or negative-region midpoint; for WPS it is the selected above-median subrun midpoint. PNS BED files preserve six decimal places in column 5. PNS peak bigBed output multiplies that score by `--bigbed-score-scale` (default 1000), rounds to the nearest integer, and clamps it to 0–1000. Commands that accept peak tracks, including `region-extract`, use column 7 by default.
+For SNS/PNS/BNS/TNS score-derived calls, column 7 is the retained positive- or negative-region midpoint; for WPS it is the selected above-median subrun midpoint. Score-derived BED files preserve six decimal places in column 5. During bigBed conversion, SNS uses `--bigbed-score-scale 1` by default, while PNS, BNS and TNS use 1000; the scaled value is rounded to the nearest integer and clamped to 0–1000. Commands that accept peak tracks, including `region-extract`, use column 7 by default.
 
 ### Empirical-FDR peak BED
 
@@ -233,7 +233,7 @@ Standalone `nuc-score` and `wps` write `*_fragment_mode_estimation.tsv`. The tab
 
 `cluster_overlap_components.tsv` maps every overlap-connected locus to all contributing condition 1 and condition 2 cluster IDs and labels shared topology as one-to-one, one-to-many, many-to-one, or many-to-many. `cluster_overlap_summary.tsv` reports raw and overlapping cluster counts, locus counts, occupied bases, overlapping bases, condition-specific overlap percentages, and base-pair Jaccard percentage. `cluster_locus_venn.png` plots shared and condition-only locus counts; it does not imply an overlap-significance test.
 
-Cluster aggregate directories contain the anchor BED, replicate-combined heatmap matrix and image, complete and plotted means, individual replicate profiles, replicate overlay, bootstrap 95% profile table and plot, unified NRL peak profile, directional order regressions, and NRL summary. CUT&RUN/CUT&Tag aggregates default to 140 bp peak resolution, order 0 through order 3, and no central exclusion.
+Cluster aggregate directories contain the anchor BED, replicate-combined heatmap matrix and image, complete and plotted means, individual replicate profiles, replicate overlay, bootstrap 95% profile table and plot, unified NRL peak profile, directional order regressions, and NRL summary. CUT&RUN/CUT&Tag aggregates default to 130 bp peak resolution, order 0 through order 3, and no central exclusion.
 
 ## Compressed WIG
 

@@ -74,7 +74,7 @@ With multiple inputs:
 - `--dedup-scope all_bams` applies the limit across the full input collection;
 - `per_bam` applies it independently within each source input.
 
-## What it writes
+## Outputs
 
 Depending on `--output-format`, the command writes BED, BED.gz, and/or bigBed fragment intervals plus summaries describing the retained fragment population.
 

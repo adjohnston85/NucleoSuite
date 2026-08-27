@@ -82,9 +82,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=160.0,
         help=(
             "Minimum distance between long-range peaks in bp. This also sets the "
-            "peak-detection and local-maximum smoothing windows: resolution/3 and "
+            "peak-detection and local-maximum smoothing windows: resolution/2.5 and "
             "resolution/6, each rounded down to 10n+1 bp windows. Values below "
-            "11 bp use no smoothing. Default: 160 bp (51 bp detection, 21 bp refinement)."
+            "11 bp use no smoothing. Default: 160 bp (61 bp detection, 21 bp refinement)."
         ),
     )
     parser.add_argument(
@@ -288,7 +288,7 @@ def resolution_smoothing_windows(peak_resolution: float) -> tuple[int, int]:
     if peak_resolution < 0:
         raise ValueError("--peak-resolution must be 0 or greater.")
     return (
-        snap_smoothing_window(float(peak_resolution) / 3.0),
+        snap_smoothing_window(float(peak_resolution) / 2.5),
         snap_smoothing_window(float(peak_resolution) / 6.0),
     )
 

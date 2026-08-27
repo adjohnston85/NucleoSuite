@@ -42,7 +42,7 @@ ANALYSIS_CHROM_SIZES_SOURCE=""
 SNS_FRAG_LOWER=137
 SNS_FRAG_UPPER=197
 SNS_MODE_LENGTH=167
-BIGBED_SCORE_SCALE=1000
+BIGBED_SCORE_SCALE=1
 SNS_SMOOTH_WINDOW=0
 SNS_SMOOTH_ORDER=2
 SNS_MAX_NEG_RUN=0
@@ -229,7 +229,7 @@ Fragment classes:
   --score-frag-lower N            SNS lower fragment length. Default: 137.
   --score-frag-upper N            SNS upper fragment length. Default: 197.
   --score-mode-length N           SNS modal fragment length. Default: 167.
-  --bigbed-score-scale N        SNS peak multiplier used for integer bigBed scores. Default: 1000.
+  --bigbed-score-scale N        SNS peak multiplier used for integer bigBed scores. Default: 1.
   --score-smooth-window N         Optional Savitzky-Golay window; 0 disables. Default: 0.
   --score-smooth-order N          Optional smoothing polynomial order. Default: 2.
   --score-max-neg-run N           Zero-or-negative bases bridged within SNS peaks. Default: 0.
@@ -250,7 +250,7 @@ Analysis:
   --nrl-min-distance N          Long-range NRL regression lower distance. Default: 1.
   --nrl-max-distance N          Long-range NRL regression upper distance. Default: 1500.
   --nrl-peak-resolution N       Long-range NRL peak resolution in bp. Default: 160.
-                                Detection smoothing uses resolution/3 and local-max smoothing uses resolution/6, snapped down to 10n+1 windows.
+                                Detection smoothing uses resolution/2.5 and local-max smoothing uses resolution/6, snapped down to 10n+1 windows.
   --skip-nrl                    Skip NRL and periodicity analysis of DAC profiles.
   --ctcf-flank N                Region-extraction half-width. Default: 2000.
   --region-peak-flank N         Peak search flank for region extraction. Default: 2000.
@@ -1491,7 +1491,7 @@ if [[ "$SKIP_REGION_EXTRACT" -eq 0 ]]; then
   sns_dir="$REGION_DIR/ctcf/sns"; mkdir -p "$sns_dir"
   SNS_REGION_PREFIX="$sns_dir/${SAMPLE}_CTCF_SNS"
   queue_step "08_region_extract_sns" "${SNS_REGION_PREFIX}_sns_signal.tsv" "$NUCLEOSUITE_BIN" region-extract \
-    "${BLACKLIST_ARGS[@]}" --bed "$CTCF_EXPANDED" --coverage-bw "$SNS_COVERAGE_SCALED_BW" --pns-bw "$SNS_ANALYSIS_BW" \
+    "${BLACKLIST_ARGS[@]}" --bed "$CTCF_EXPANDED" --coverage-bw "$SNS_COVERAGE_SCALED_BW" --score-bw "$SNS_ANALYSIS_BW" \
     --nucleosome-peaks "$SNS_NUC" --breakpoint-peaks "$SNS_BRK" --peak-flank-bp "$REGION_PEAK_FLANK" \
     --peak-center-column 7 --peak-score-column 5 --out-prefix "$SNS_REGION_PREFIX" \
     --chrom-mode auto --missing-chrom error --progress-every 100 --overwrite

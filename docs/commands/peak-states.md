@@ -8,7 +8,7 @@
 
 Use it to identify preferential peak occurrence in promoters, enhancers, insulators, transcribed regions, heterochromatin, or other annotated states, including changes among stronger peaks.
 
-## Typical use with the bundled GM12878 states
+## Basic usage
 
 ```bash
 nucleosuite peak-states sample_nucleosome_regions.bed \
@@ -102,7 +102,7 @@ The default categorical x-axis gives each threshold or bin equal width. `--plot-
 
 to make adjacent bars touch.
 
-## What it writes
+## Outputs
 
 - state coverage table;
 - peak counts, percentages, density, and coverage-adjusted enrichment;

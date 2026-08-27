@@ -70,7 +70,7 @@ Subtraction of a vector's arithmetic mean from every value. PNS, BNS and TNS use
 
 ## Mode estimation
 
-Estimation of the dominant accepted fragment length used to set SNS, PNS, BNS, TNS, or standalone WPS scoring geometry. `pns`, `wps`, and `cutn-suite` sample accepted fragments from seeded randomly ordered genomic blocks and bootstrap the raw integer length histogram until the mode stabilizes. Histogram smoothing is disabled by default and is available explicitly with `--mode-histogram-smoothing binomial`. `cutn-suite` uses an equal-weight pooled treatment/control mode by default. An integer `--mode` bypasses estimation.
+Estimation of the dominant accepted fragment length used to set SNS, PNS, BNS, TNS, or standalone WPS scoring geometry. `nuc-score`, `wps`, and `cutn-suite` sample accepted fragments from seeded randomly ordered genomic blocks and bootstrap the raw integer length histogram until the mode stabilizes. Histogram smoothing is disabled by default and is available explicitly with `--mode-histogram-smoothing binomial`. `cutn-suite` uses an equal-weight pooled treatment/control mode by default. An integer `--mode` bypasses estimation.
 
 ## NRL
 
@@ -102,11 +102,11 @@ The non-negative BNS unit-mass boxcar before mean subtraction. Each accepted fra
 
 ## SNS
 
-**Sinusoidal nucleosome scoring.** SNS is the default scoring kernel of the standalone `nuc-score` command in NucleoSuite 0.11.0. For fragment length $L$ and protected-DNA mode $m$, the support width is $m+|L-m|$, so the wave is narrowest at the mode and broadens for both shorter and longer fragments. One inverted cosine cycle is sampled at integer genomic positions, then its positive and negative samples are normalized separately to exactly +50 and −50 mass. The complete signed fragment contribution therefore sums to zero and has total absolute mass 100.
+**Sinusoidal nucleosome scoring.** SNS is the default scoring kernel of the standalone `nuc-score` command. For fragment length $L$ and protected-DNA mode $m$, the support width is $m+|L-m|$, so the wave is narrowest at the mode and broadens for both shorter and longer fragments. One inverted cosine cycle is sampled at integer genomic positions, then its positive and negative samples are normalized separately to exactly +50 and −50 mass. The complete signed fragment contribution therefore sums to zero and has total absolute mass 100.
 
 ## `posSNS`
 
-The non-negative SNS positive-reference track. It is the positive half of the signed SNS kernel divided by 50, giving unit mass per complete fragment. `posSNS` is used for method-matched mean scaling; peak calling uses the signed `sns` track.
+The non-negative SNS reference track. For each fragment, the complete signed SNS waveform is shifted upward by its minimum so that the lowest value becomes zero. No part of the sinusoid is clipped and the shifted waveform is not renormalized. `posSNS` is used for method-matched mean scaling; peak calling uses the signed `sns` track.
 
 ## TNS
 

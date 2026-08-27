@@ -14,7 +14,7 @@ NucleoSuite counts WW and SS dinucleotides at predefined minor-groove-associated
 
 The two enrichment results define four fragment classes. See [WW/SS fragment classes](../ALGORITHMS.md#dinucleotide-profiles-and-wwss-classes) for the exact position counts, scaling, and type definitions.
 
-## Typical use
+## Basic usage
 
 ```bash
 nucleosuite ww-types \
@@ -25,7 +25,7 @@ nucleosuite ww-types \
   --out-prefix sample_145_147
 ```
 
-## What it writes
+## Outputs
 
 Selected options control whether the command writes a combined classified BED, type-specific BED files and dyad tracks, type counts and percentages, and summary figures. Multicontig percentages are calculated from the combined counts.
 

@@ -64,7 +64,7 @@ def test_distribution_plot_stops_at_longest_counted_fragment(tmp_path, monkeypat
 
 def test_fragment_size_nrl_uses_resolution_caller_and_regression() -> None:
     result = analyse_fragment_size_nrl({"all": _multinucleosome_counts()})[0]
-    assert result.detection_window == 51
+    assert result.detection_window == 61
     assert result.local_max_window == 21
     assert [peak.distance for peak in result.peaks] == [150, 330, 510, 690, 870]
     assert result.regression.slope == pytest.approx(180.0)

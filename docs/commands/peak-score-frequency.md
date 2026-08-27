@@ -8,7 +8,7 @@
 
 Use `peak-score-frequency` to inspect or compare the distribution of peak strengths across one or more callsets on shared bins, with optional display scaling when the stored score units are inconvenient for plotting.
 
-## Typical use
+## Basic usage
 
 A single input needs no explicit output prefix:
 

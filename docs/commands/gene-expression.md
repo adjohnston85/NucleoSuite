@@ -97,7 +97,7 @@ Multiple samples can be supplied by repeating `--peaks NAME=FILE` or `--signal N
 | Correlation | Pearson |
 | Minimum matched genes | 30 |
 
-## What it writes
+## Outputs
 
 Spacing analysis writes expression-correlation summaries and figures by default. A compressed plot-source table retains only the points used for the spacing scatter so it can be recreated with `nucleosuite plot`.
 

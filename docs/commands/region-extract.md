@@ -8,12 +8,12 @@
 
 Use this command to retain each region's values for downstream statistics, modelling, or inspection. [`aggregate`](aggregate.md) produces a centred heatmap and mean profile across the regions.
 
-## Typical use
+## Basic usage
 
 ```bash
 nucleosuite region-extract \
   --bed regions.bed \
-  --pns-bw sample_pns.bw \
+  --score-bw sample_sns.bw \
   --nucleosome-peaks sample_nucleosomes.bed \
   --peak-flank-bp 2000 \
   --out-prefix sample_regions
@@ -26,14 +26,14 @@ Multiple named signal tracks can be supplied with repeated `--signal-track NAME=
 ```bash
 nucleosuite region-extract \
   --bed "$(nucleosuite resources path gm12878-hg19-ctcf)" \
-  --pns-bw sample_pns.bw \
+  --score-bw sample_sns.bw \
   --nucleosome-peaks sample_nucleosomes.bed \
   --out-prefix sample_ctcf_regions
 ```
 
-This exports each CTCF site's PNS vector and nearest flanking nucleosome calls.
+This exports each CTCF site's SNS vector and nearest flanking nucleosome calls.
 
-## What it writes
+## Outputs
 
 Depending on the supplied tracks:
 
@@ -46,7 +46,7 @@ Depending on the supplied tracks:
 ```bash
 nucleosuite region-extract \
   --bed regions.bed \
-  --pns-bw sample_pns.bw \
+  --score-bw sample_sns.bw \
   --cores 4 \
   --out-prefix sample_regions
 ```

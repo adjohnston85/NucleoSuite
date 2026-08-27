@@ -14,7 +14,7 @@ Each fragment is aligned to the right-hand central base. Dinucleotides are count
 
 A fragment is included in sequence profiling only when its complete extracted sequence contains canonical A/C/G/T bases. The exact coordinate and frequency definitions are in [Dinucleotide profiles and WW/SS classes](../ALGORITHMS.md#dinucleotide-profiles-and-wwss-classes).
 
-## Typical use
+## Basic usage
 
 ```bash
 nucleosuite dinuc-profile \
@@ -27,7 +27,7 @@ nucleosuite dinuc-profile \
 
 Repeat with another exact or narrow fragment-length class when you want to compare their rotational sequence profiles.
 
-## What it writes
+## Outputs
 
 The command writes per-position counts and frequencies, optional WW/SS summary profiles, and profile figures. Multicontig runs sum raw counts and valid-fragment denominators before recalculating frequencies.
 

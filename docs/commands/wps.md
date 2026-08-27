@@ -24,7 +24,7 @@ NucleoSuite can smooth raw WPS and subtract a 1,000 bp running-median baseline. 
 
 See [Windowed protection score](../ALGORITHMS.md#windowed-protection-score) for the kernel examples, exact preprocessing, and peak-calling steps.
 
-## Typical use
+## Basic usage
 
 ```bash
 nucleosuite wps \
@@ -67,7 +67,7 @@ The WPS caller:
 
 See [WPS peak calling](../ALGORITHMS.md#wps-peak-calling) for the exact segmentation and selection rules.
 
-## What it writes
+## Outputs
 
 WPS can write raw, smoothed, median-adjusted, and smoothed median-adjusted signals. It can also write coverage and dyad tracks, nucleosome and breakpoint calls, and fragment summaries.
 

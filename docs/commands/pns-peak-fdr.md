@@ -10,7 +10,7 @@ The observed and randomized peaks must have been produced with identical PNS mod
 
 Use it to quantify how often peaks at least as strong as each observed peak arise after fragment coordinates are randomized, while retaining a complete annotated peak file for threshold exploration and reproducible filtering.
 
-## Typical run
+## Basic usage
 
 ```bash
 nucleosuite pns-peak-fdr \

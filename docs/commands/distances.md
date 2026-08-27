@@ -42,7 +42,7 @@ and order-2 distances are:
 
 The exact definition is given in [Peak distances](../ALGORITHMS.md#peak-distances).
 
-## Typical nearest-neighbour analysis
+## Basic usage
 
 ```bash
 nucleosuite distances sample_nucleosome_regions.bed \
@@ -188,7 +188,7 @@ When multiple neighbour orders are plotted together in smoothed mode, each smoot
 
 See [Nucleosome repeat length](../ALGORITHMS.md#nucleosome-repeat-length) for the related peak-period fitting used by the standalone `nrl` command.
 
-## What it writes
+## Outputs
 
 The requested options determine which outputs are written:
 

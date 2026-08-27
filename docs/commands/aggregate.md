@@ -18,11 +18,11 @@ Each accepted BED feature defines an aggregation centre. NucleoSuite extracts Bi
 
 The complete aggregate profile is the mean of the valid signal values at each relative position. The exact handling of missing and blacklisted positions is described in [Regional aggregation](../ALGORITHMS.md#regional-aggregation).
 
-By default, `aggregate` also calls long-range peaks once across the complete negative-to-positive aggregate alignment. With the default 160 bp peak resolution, the complete profile is smoothed continuously across position 0 using 51 bp detection smoothing and 21 bp summit refinement. The resulting unified peak set is then divided by direction for two independent repeat-length regressions. The called peak nearest 0 within half the peak-calling resolution is assigned order 0 on both sides before regression filtering; remaining positive and negative peaks are ordered outward from it.
+By default, `aggregate` also calls long-range peaks once across the complete negative-to-positive aggregate alignment. With the default 160 bp peak resolution, the complete profile is smoothed continuously across position 0 using 61 bp detection smoothing and 21 bp summit refinement. The resulting unified peak set is then divided by direction for two independent repeat-length regressions. The called peak nearest 0 within half the peak-calling resolution is assigned order 0 on both sides before regression filtering; remaining positive and negative peaks are ordered outward from it.
 
 Every default x-axis is labelled `Distance from reference-site centre (bp)`. `--axis-label` remains available for an explicit alternative.
 
-## Typical use around CTCF sites
+## Basic usage
 
 Use the bundled GM12878 CTCF resource directly:
 
@@ -114,7 +114,7 @@ nucleosuite aggregate \
 
 This fits positive peaks from +200 to +1200 bp and negative peaks from −200 to −1200 bp. Peaks outside that range remain present in the unified peak table and plot.
 
-Peak-order filters can be applied independently of distance filters. `--nrl-regression-min-order 0 --nrl-regression-max-order 3` includes the central order-0 peak, when present, plus outward orders 1–3. Peak calling still covers the complete aggregate, and missing or excluded orders are not renumbered. The cluster aggregates in `cutn-suite` use this 0–3 order range with 140 bp resolution and `--no-nrl-exclusion` by default.
+Peak-order filters can be applied independently of distance filters. `--nrl-regression-min-order 0 --nrl-regression-max-order 3` includes the central order-0 peak, when present, plus outward orders 1–3. Peak calling still covers the complete aggregate, and missing or excluded orders are not renumbered. The cluster aggregates in `cutn-suite` use this 0–3 order range with 130 bp resolution and `--no-nrl-exclusion` by default.
 
 By default, an inclusive regression-only exclusion interval spans half the peak resolution on either side of 0. It is therefore −80 to +80 bp at the default 160 bp resolution and changes automatically when `--nrl-peak-resolution` changes. This avoids making the reference-centred peak determine both outward fits. Use `--no-nrl-exclusion` to include an eligible central peak as order 0 in both regressions.
 
@@ -160,7 +160,7 @@ By default, ordinary missing BigWig positions become zero, which supports sparse
 
 Recognized NucleoSuite BigWig suffixes set track-specific labels automatically. Unknown tracks use `Score` and `Mean score`. Dyad inputs ending in `_dyad.bw` also default to `--zero-thresh 0` and `--max-score inf`; explicit options always win. If every region is rejected, the error reports rejection counts and suggests these disabling values only when the corresponding filters rejected data.
 
-## What it writes
+## Outputs
 
 A standard `aggregate` run writes the complete aggregate profile, mean-profile figure, processing/parameter summaries, and the NRL outputs described below when NRL is enabled.
 

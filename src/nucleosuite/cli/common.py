@@ -20,25 +20,38 @@ def auto_or_integer_mode(text: str) -> str | int:
     return integer
 
 
-def add_mode_estimation_arguments(parser: argparse.ArgumentParser) -> None:
+def add_mode_estimation_arguments(
+    parser: argparse.ArgumentParser,
+    *,
+    default_search_lower: int | None = None,
+    default_search_upper: int | None = None,
+) -> None:
     """Add options shared by commands that resolve an automatic fragment mode."""
 
     parser.add_argument(
         "--mode-search-lower",
         type=int,
-        default=None,
+        default=default_search_lower,
         help=(
             "Lower fragment length considered during automatic mode estimation. "
-            "Default: --frag-lower."
+            + (
+                f"Default: {default_search_lower}."
+                if default_search_lower is not None
+                else "Default: --frag-lower."
+            )
         ),
     )
     parser.add_argument(
         "--mode-search-upper",
         type=int,
-        default=None,
+        default=default_search_upper,
         help=(
             "Upper fragment length considered during automatic mode estimation. "
-            "Default: --frag-upper."
+            + (
+                f"Default: {default_search_upper}."
+                if default_search_upper is not None
+                else "Default: --frag-upper."
+            )
         ),
     )
     parser.add_argument("--mode-min-fragments", type=int, default=100_000, help="Minimum accepted fragments before convergence checks (default: 100000).")
@@ -146,8 +159,8 @@ def resolve_fragment_mode(args, value: str | int, *, command: str):
 def add_fragment_input_arguments(
     parser: argparse.ArgumentParser,
     *,
-    default_lower: int,
-    default_upper: int,
+    default_lower: int | None,
+    default_upper: int | None,
     default_max_duplicates: int = 1,
     default_even_dyad: str = "split",
     include_even_dyad: bool = True,
@@ -191,17 +204,27 @@ def add_fragment_input_arguments(
             "autosomes, all, and forms such as chr2:100000-200000."
         ),
     )
+    lower_help = (
+        f"Inclusive minimum accepted fragment length in bp (default: {default_lower})."
+        if default_lower is not None
+        else "Inclusive minimum accepted fragment length in bp; when omitted the command resolves its automatic lower bound."
+    )
+    upper_help = (
+        f"Inclusive maximum accepted fragment length in bp (default: {default_upper})."
+        if default_upper is not None
+        else "Inclusive maximum accepted fragment length in bp; when omitted the command resolves its automatic upper bound."
+    )
     parser.add_argument(
         "--frag-lower",
         type=int,
         default=default_lower,
-        help=f"Inclusive minimum accepted fragment length in bp (default: {default_lower}).",
+        help=lower_help,
     )
     parser.add_argument(
         "--frag-upper",
         type=int,
         default=default_upper,
-        help=f"Inclusive maximum accepted fragment length in bp (default: {default_upper}).",
+        help=upper_help,
     )
     parser.add_argument(
         "--max-duplicates",
