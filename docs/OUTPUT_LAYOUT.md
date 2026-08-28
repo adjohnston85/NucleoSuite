@@ -1,74 +1,106 @@
-# Output layout
+# Full-suite output layout
 
-NucleoSuite keeps source-derived outputs, combined outputs, reports, and figures in predictable directories. Exact filenames include the selected sample, mode, fragment bounds, smoothing, and requested output family.
-
-## Single-command outputs
-
-For a single-contig `pns` run, the requested prefix receives:
+`mnase-suite` and `cfdna-suite` use the same numbered analysis tree for their coordinated track, periodicity, spacing, regional and summary analyses.
 
 ```text
-sample_pns.bw
-sample_posPNS.bw
-sample_pns_smoothed.bw       # when smoothing is requested
-sample_nucleosome_regions.bed|bb
-sample_breakpoint_peaks.bed|bb
-sample_coverage.bw
-sample_dyad.bw
-sample_fragment_ends.bw
-sample_fragment_left_ends.bw
-sample_fragment_right_ends.bw
-sample_fragment_mode_estimation.tsv
+00_setup/
+00_gene_sets/
+01_combined_tracks/
+02_dac/
+04_nrl/
+05_ctcf_aggregation/
+06_tss_aggregation/
+06_tss_expression_quintiles/
+07_distances/
+08_region_extract/
+09_fragment_lengths/
+10_fragment_heatmaps/
+11_gene_expression/
+12_positive_runs/
+13_peak_analysis/
+logs/
+.done/
 ```
 
-Only requested tracks and reports are written. The signed PNS and `posPNS` values are native outputs; they are not divided by a reference mean or otherwise rescaled by `pns`.
-
-## Multicontig commands
-
-Commands that support chromosome-wise execution use a command-specific parallel directory and a combined output directory:
+## Combined tracks and scaling
 
 ```text
-<output>/
-├── parallel/
-│   ├── chr1/
-│   ├── chr2/
-│   └── nucleosuite_multicontig_manifest.json
-└── combined/
-    ├── <combined tracks and intervals>
-    └── <completion reports>
+01_combined_tracks/
+├── sns/
+├── scaled/
+├── dyads/
+│   ├── exact/<length>/
+│   └── ranges/<lower-upper>/
+├── fragment_ends/
+│   ├── exact/<length>/
+│   └── ranges/<lower-upper>/
+├── sequence/
+│   ├── dinucleotide_profiles/{exact,ranges}/
+│   ├── ww_types/ranges/
+│   ├── type_dyads/ranges/
+│   └── summaries/
+├── manifest.tsv
+└── completion_report.tsv
 ```
 
-The manifest records input signatures, resolved parameters, contigs, and per-contig output paths. `combine` validates the per-contig set before writing combined tracks and interval files. `--skip-combine` leaves the per-contig outputs available for a later combine stage.
+Raw SNS, posSNS, coverage, nucleosome-region and breakpoint-peak outputs are written beneath `sns/`. After chromosome combination, `scaled/` receives mean-scaled coverage, mean-scaled posSNS, SNS scaled relative to the mean raw combined nucleosome-peak score, and mean-scaled nucleosome-region and breakpoint-peak BEDs. Downstream peak-based suite analyses use the mean-scaled peak BEDs, while SNS aggregate stages use the scaled SNS track.
 
-## `tracks` outputs
+MNase uses the 146–148 bp ranged class, exact 147 bp dyads/ends, and exact 145/147 bp dinucleotide profiles. cfDNA uses ranged classes 144–146, 160–162 and 166–168 bp plus exact 145, 161 and 167 bp dyads/ends.
 
-`tracks` groups outputs by the requested fragment range and output prefix. A range may contain PNS, `posPNS`, WPS, coverage, dyads, fragment ends, dinucleotide profiles, WW/SS summaries, type-specific dyads, and PNS/WPS peak calls. Exact lengths and ranges can coexist in the same run.
+## Downstream organisation
 
-## `cutn-suite` outputs
-
-A Stage 1 run is organized as:
+`02_dac/` contains DAC from ranged dyads. `04_nrl/from_dac/` mirrors the DAC range paths and stores the long, short, and intermediate periodicity fits.
 
 ```text
-cutn_results/
-├── 00_setup/                  input, mode, and track specifications
-├── 01_score_tracks/           per-replicate native PNS, posPNS, and coverage
-├── 02_mean_scaled_tracks/     condition means and normalized coverage products
-├── 03_peak_calls/             treatment candidates and breakpoint calls
-├── 04_peak_statistics/        replicate measurements and gate results
-├── 05_cluster_aggregate/      cluster-centred PNS aggregates and NRLs
-├── cutn_stage1_manifest.json
-└── cutn_suite_summary.tsv
+05_ctcf_aggregation/{sns,dyads,type_dyads}/
+06_tss_aggregation/<signal>/<gene-set>/
+07_distances/pns_peaks/
+08_region_extract/ctcf/sns/
+11_gene_expression/sns/
+12_positive_runs/sns/
+13_peak_analysis/score_frequencies/sns/
 ```
 
-The `02_mean_scaled_tracks` name identifies the coverage-normalization stage and is retained for layout compatibility. PNS score BigWigs and PNS peak scores are not mean-scaled. Coverage alone is normalized to a non-zero mean of 100 for Stage 1 treatment/control measurement.
+Fragment-length products remain under:
 
-With biological replicates, the manifest retains each replicate’s native PNS/`posPNS` paths, normalized coverage path, condition-level PNS score path, modes, fragment ranges, gate settings, cluster settings, and downstream output paths. This allows `--rerun-from` and `cutn-compare` to reuse compatible files without reopening the BAMs.
+```text
+09_fragment_lengths/combined_chromosomes/
+09_fragment_lengths/chromhmm_states/
+10_fragment_heatmaps/combined/
+```
 
-Stage 2 adds comparison tables, all/robust/significant gain and loss BEDs, cluster-overlap summaries, and matched condition aggregates beneath the comparison output directory.
+## Multicontig runs
 
-## Coordinated cfDNA and MNase workflows
+With `--analysis-scope combined-only` (default), per-contig workers create combine prerequisites beneath `per_contig/<contig>/`; complete tracks are combined beneath `combined/`, then scaling and downstream analyses run once on the pooled selected chromosomes. `--resume` reuses matching completed work and `--force` reruns it.
 
-The cfDNA and MNase suites create workflow-specific directories for fragment preparation, PNS/coverage and coordinate tracks, sequence profiles, peak analysis, spacing, regional aggregation, gene analyses, and plots. Their PNS directories use `pns` and `posPNS` names. Raw PNS score BigWigs and PNS peak BEDs are passed to downstream analyses; coverage normalization remains a separate product.
+Randomized runs use the same tree and mark their sample/output names with `_randomized_control`.
 
-## Replotting and reproducibility
+With `--with-randomized-control`, the observed and randomized trees are both completed before FDR annotation. Combined observed nucleosome and breakpoint BEDs with appended FDR are written beneath:
 
-Reports and TSV outputs are the inputs to `plot`, so figures can be recreated without rerunning fragment processing. Seeded mode estimation, randomized controls, and saved manifests preserve the settings needed to reproduce a run.
+```text
+combined/13_peak_analysis/sns/empirical_fdr/
+```
+
+If the suite is not using the multicontig wrapper layout, the same directory is created directly beneath the suite root.
+
+## CUT&RUN/CUT&Tag suite
+
+`cutn-suite` uses a separate target/control layout:
+
+```text
+00_setup/                 fragment-mode and score-scaling reports
+01_score_tracks/          method-specific discovery score/positive score plus raw broad-range coverage
+02_mean_scaled_tracks/    normalized method-specific score tracks and coverage scaled to mean 100
+03_peak_calls/            treatment nucleosome candidates only
+04_peak_statistics/              replicate statistics, gate-selected peaks and seeded clusters
+05_cluster_aggregate/     strongest-member anchors, method-specific heatmap/profiles, confidence band, NRLs
+<sample>_cutn_suite_summary.tsv
+cutn_stage1_manifest.json
+cutn_suite_run_manifest.json
+```
+
+With biological replicates, `01_score_tracks/` and `02_mean_scaled_tracks/` retain replicate-specific outputs. The resolved mode-centred SNS/`posSNS` pair and broad 1–1,000 bp coverage are generated together for each replicate. Each SNS track is normalized by its own `posSNS` mean before treatment tracks are averaged for candidate discovery. Broad coverage is independently scaled to a non-zero mean of 100 for Stage 1 interval measurement, using the mean across each peak by default. Automatic S/G clustering rules depend on replicate count and are recorded in the Stage 1 manifest. The normalized SNS tracks are reused for cluster heatmaps, aggregate profiles, confidence bands and directional NRLs. An explicit `--mode` is recorded with `mode_source=explicit`; automatic runs retain treatment, control and pooled mode estimates.
+
+A four-group run places the two layouts under `01_condition1_stage1/` and `02_condition2_stage1/`. `03_condition_comparison/` contains the complete cluster-only differential table, all-direction, robust-direction and FDR-significant BEDs, overlap-component mapping, Venn and occupied-base summaries, matched cluster-locus method-specific aggregates, and `cutn_comparison_manifest.json`. The root `cutn_suite_run_manifest.json` records both biological conditions, their BAM membership, the Stage 1 manifests, run-level parameters and the Stage 2 manifest. The standalone `cutn-compare` command writes the same Stage 2 layout from two existing Stage 1 manifests.
+
+Fast reruns created with `cutn-suite --rerun-from` are written inside the source run as `rerun_01/`, `rerun_excluding_<sample>_01/`, or `rerun_excluding_<N>_samples_01/`, with the numeric suffix incremented when a matching rerun already exists. These rerun trees deliberately omit `01_score_tracks/`: their Stage 1 manifests reference the retained per-replicate score and coverage BigWigs in the source run, while new condition-mean tracks, peak calls, replicate statistics, clusters, Stage 2 outputs and aggregates are written beneath the rerun directory. Each rerun has its own `cutn_suite_run_manifest.json` recording the source run, exclusions and downstream parameter changes.

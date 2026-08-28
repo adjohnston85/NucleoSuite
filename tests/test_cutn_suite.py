@@ -76,7 +76,7 @@ def _cluster_record(index: int, state: str) -> ReplicatePeakStatistics:
     )
 
 
-def test_cutn_suite_defaults_to_pns_auto_mode_scoring_flank_and_coverage_range(
+def test_cutn_suite_defaults_to_sns_auto_mode_scoring_flank_and_coverage_range(
     tmp_path: Path,
 ):
     target = tmp_path / "target.bam"
@@ -89,7 +89,7 @@ def test_cutn_suite_defaults_to_pns_auto_mode_scoring_flank_and_coverage_range(
             "--outdir", str(tmp_path / "out"),
         ]
     )
-    assert not hasattr(args, "scoring_method")
+    assert args.scoring_method == "sns"
     assert args.mode == "auto"
     assert args.frag_mode_padding == 30
     assert args.score_frag_lower is None
@@ -140,14 +140,14 @@ def test_cutn_suite_emits_score_and_coverage_in_one_tracks_pass_per_group(tmp_pa
             score_fields = lines[0].split("\t")
             coverage_fields = lines[1].split("\t")
             assert score_fields[0] == "137-197"
-            assert score_fields[2] == "pns,posPNS"
+            assert score_fields[2] == "sns,posSNS"
             assert coverage_fields[0] == "1-1000"
             assert coverage_fields[2] == "coverage"
             score_prefix = Path(score_fields[1])
             coverage_prefix = Path(coverage_fields[1])
             score_prefix.parent.mkdir(parents=True, exist_ok=True)
-            Path(f"{score_prefix}_pns.bw").touch()
-            Path(f"{score_prefix}_posPNS.bw").touch()
+            Path(f"{score_prefix}_sns.bw").touch()
+            Path(f"{score_prefix}_posSNS.bw").touch()
             Path(f"{coverage_prefix}_coverage.bw").touch()
             return
         assert command[0] == "call-peaks"
@@ -178,22 +178,20 @@ def test_cutn_suite_emits_score_and_coverage_in_one_tracks_pass_per_group(tmp_pa
     assert len(tracks_commands) == 2
     assert all(command[0] == "tracks" for command in tracks_commands)
     assert all("--output-dir" in command for command in tracks_commands)
-    removed_option = "--" + "scoring-" + "method"
-    assert all(removed_option not in command for command in tracks_commands)
+    assert all(command[command.index("--scoring-method") + 1] == "sns" for command in tracks_commands)
     summary = (tmp_path / "out" / "sample_cutn_suite_summary.tsv").read_text()
     assert "target_raw_coverage_track\t" in summary
     assert "control_raw_coverage_track\t" in summary
     assert "condition_mean_treatment_coverage\t" in summary
     assert "condition_mean_control_coverage\t" in summary
     call = analyze_mock.call_args.kwargs
-    assert call["seed_gate_mode"] == "all-controls"
-    assert call["member_gate_mode"] == "all-controls"
+    assert call["gate_mode"] == "all-controls"
     assert call["cluster_member_mode"] == "seed-and-gated"
     assert len(call["target_replicate_bigwigs"]) == 1
     assert len(call["control_replicate_bigwigs"]) == 1
     manifest = json.loads((tmp_path / "out" / "cutn_stage1_manifest.json").read_text())
     assert manifest["control_candidate_peaks"] is None
-    assert manifest["stage1_statistics"] == "gate_only"
+    assert manifest["stage1_selection"] == "all_treatments_exceed_all_controls"
     assert manifest["condition_mean_treatment_cluster_aggregate_score"]
 
 
@@ -331,7 +329,7 @@ def test_cutn_score_padding_and_individual_bound_overrides(tmp_path: Path):
 
 def test_cutn_suite_locates_parameterized_multicontig_score_outputs(tmp_path: Path):
     requested = tmp_path / "tracks" / "cutn_target"
-    direct = _resolved_prefix(requested, "pns", 153, 120, 500)
+    direct = _resolved_prefix(requested, "tns", 153, 120, 500)
     root = requested.parent / f"{requested.name}_multicontig"
     combined = root / "combined"
     combined.mkdir(parents=True)
@@ -342,18 +340,18 @@ def test_cutn_suite_locates_parameterized_multicontig_score_outputs(tmp_path: Pa
         ),
         encoding="utf-8",
     )
-    for suffix in ("_pns.bw", "_posPNS.bw", "_coverage.bw"):
+    for suffix in ("_tns.bw", "_posTNS.bw", "_coverage.bw"):
         (combined / f"{combined_name}{suffix}").touch()
 
     located = _locate_completed_prefix(
-        requested, direct, ("_pns.bw", "_posPNS.bw", "_coverage.bw")
+        requested, direct, ("_tns.bw", "_posTNS.bw", "_coverage.bw")
     )
 
     assert located == combined / combined_name
 
 
 def test_cutn_suite_locates_multicontig_peak_outputs(tmp_path: Path):
-    requested = tmp_path / "peaks" / "cutn_target_pns_mean"
+    requested = tmp_path / "peaks" / "cutn_target_tns_mean_scaled"
     root = requested.parent / f"{requested.name}_multicontig"
     combined = root / "combined"
     combined.mkdir(parents=True)
@@ -374,13 +372,13 @@ def test_cutn_suite_locates_multicontig_peak_outputs(tmp_path: Path):
 
 def test_cutn_suite_prefers_existing_serial_outputs(tmp_path: Path):
     requested = tmp_path / "tracks" / "cutn_target"
-    direct = _resolved_prefix(requested, "pns", 153, 120, 500)
+    direct = _resolved_prefix(requested, "tns", 153, 120, 500)
     direct.parent.mkdir(parents=True)
-    for suffix in ("_pns.bw", "_posPNS.bw", "_coverage.bw"):
+    for suffix in ("_tns.bw", "_posTNS.bw", "_coverage.bw"):
         Path(f"{direct}{suffix}").touch()
 
     located = _locate_completed_prefix(
-        requested, direct, ("_pns.bw", "_posPNS.bw", "_coverage.bw")
+        requested, direct, ("_tns.bw", "_posTNS.bw", "_coverage.bw")
     )
 
     assert located == direct
@@ -520,8 +518,8 @@ def test_cluster_aggregate_writes_combined_heatmap_profiles_and_directional_nrl(
     )
 
     outputs = run_cluster_aggregate(
-        mean_score=paths[2],
-        replicate_scores=paths[:2],
+        mean_scaled_score=paths[2],
+        replicate_scaled_scores=paths[:2],
         anchor_bed=anchors,
         output_dir=tmp_path / "aggregate",
         label="treatment",
@@ -736,8 +734,8 @@ def _stage1_manifest(
         treatment_records.append(
             {
                 "replicate": index,
-                "score": str(target_path),
-                "coverage_scaled": str(target_path),
+                "scaled_score": str(target_path),
+                "scaled_coverage": str(target_path),
             }
         )
     for index, control in enumerate(control_values, 1):
@@ -746,8 +744,8 @@ def _stage1_manifest(
         control_records.append(
             {
                 "replicate": index,
-                "score": str(control_path),
-                "coverage_scaled": str(control_path),
+                "scaled_score": str(control_path),
+                "scaled_coverage": str(control_path),
             }
         )
     manifest = {
@@ -755,10 +753,10 @@ def _stage1_manifest(
         "schema_version": 2,
         "condition_name": name,
         "bam_mode": "replicates",
-        "scoring_method": "pns",
-        "score_track": "pns",
-        "positive_track": "posPNS",
-        "peak_discovery_track": "pns",
+        "scoring_method": "tns",
+        "score_track": "tns",
+        "positive_track": "posTNS",
+        "peak_discovery_track": "tns",
         "peak_measurement_track": "coverage_divided_by_nonzero_mean_x100",
         "target_mode": 167,
         "control_mode": 167,
@@ -767,10 +765,10 @@ def _stage1_manifest(
         "contigs": ["chr1"],
         "treatment_replicates": treatment_records,
         "control_replicates": control_records,
-        "condition_mean_treatment_score": treatment_records[0]["score"],
-        "condition_mean_control_score": control_records[0]["score"],
-        "condition_mean_treatment_coverage": treatment_records[0]["coverage_scaled"],
-        "condition_mean_control_coverage": control_records[0]["coverage_scaled"],
+        "condition_mean_treatment_score": treatment_records[0]["scaled_score"],
+        "condition_mean_control_score": control_records[0]["scaled_score"],
+        "condition_mean_treatment_coverage": treatment_records[0]["scaled_coverage"],
+        "condition_mean_control_coverage": control_records[0]["scaled_coverage"],
         "significant_peaks": str(significant_peaks),
         "significant_clusters": str(significant_clusters),
     }
@@ -779,7 +777,7 @@ def _stage1_manifest(
     return path
 
 
-def test_cutn_compare_uses_native_bigwig_replicates_without_bams(tmp_path: Path):
+def test_cutn_compare_uses_scaled_bigwig_replicates_without_bams(tmp_path: Path):
     length = 300
     first_treatment = [[0.0] * length for _ in range(2)]
     first_control = [[0.0] * length for _ in range(2)]
@@ -809,7 +807,7 @@ def test_cutn_compare_uses_native_bigwig_replicates_without_bams(tmp_path: Path)
     assert gain_fields[-1] == "overlap_union"
     assert Path(payload["cluster_overlap"]["summary"]).is_file()
     assert Path(payload["cluster_overlap"]["venn_plot"]).is_file()
-    assert payload["cluster_aligned_aggregates"]["status"] == "complete"
+    assert payload["cluster_aligned_aggregates"]["status"] == "unavailable"
 
 
 def test_cutn_compare_uses_unpaired_unequal_four_group_interaction(tmp_path: Path):
@@ -844,7 +842,7 @@ def test_cutn_compare_uses_unpaired_unequal_four_group_interaction(tmp_path: Pat
     assert "condition1_treatment_replicate_3" in header
     assert "condition1_control_replicate_3" not in header
     assert "condition2_control_replicate_3" in header
-    assert row[header.index("raw_interaction_difference")] == "11.25"
+    assert row[header.index("raw_interaction_difference")] == "1800"
     assert float(row[header.index("log2_interaction_difference")]) > 0
     assert row[header.index("replicate_consistency")] == "robust_gain"
     assert row[-1] == "significant_gain"

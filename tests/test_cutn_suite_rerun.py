@@ -15,8 +15,8 @@ def _source_manifest(root: Path, *, condition_name: str = "condition1") -> Path:
         for index in (1, 2):
             bam = root / f"{role}_{index}.bam"
             bam.touch()
-            score = root / f"{role}_{index}_score.bw"
-            coverage = root / f"{role}_{index}_coverage_scaled.bw"
+            score = root / f"{role}_{index}_scaled_score.bw"
+            coverage = root / f"{role}_{index}_scaled_coverage.bw"
             raw_coverage = root / f"{role}_{index}_coverage.bw"
             score.touch(); coverage.touch(); raw_coverage.touch()
             counts = root / f"{role}_{index}_fragment_length_counts.tsv"
@@ -36,9 +36,11 @@ def _source_manifest(root: Path, *, condition_name: str = "condition1") -> Path:
                     "score": str(score),
                     "positive_score": str(score),
                     "coverage": str(raw_coverage),
-                    "coverage_scaled": str(coverage),
+                    "scaled_score": str(score),
+                    "scaled_coverage": str(coverage),
                     "fragment_length_counts": str(counts),
                     "fragment_summary": str(summary),
+                    "positive_score_mean": 0.5,
                     "coverage_nonzero_mean": 2.0,
                 }
             )
@@ -199,13 +201,13 @@ def test_rerun_directory_number_increments(tmp_path: Path):
     assert cutn_suite._next_rerun_directory(root, ["a.bam", "b.bam"]).name == "rerun_excluding_2_samples_01"
 
 
-def test_rerun_rejects_removed_options(tmp_path: Path):
+def test_rerun_rejects_bigwig_generating_parameter_changes(tmp_path: Path):
     root = tmp_path / "run"
     _source_manifest(root)
-    with pytest.raises(SystemExit):
+    with pytest.raises(ValueError, match="cannot be changed"):
         cutn_suite.main(
             [
                 "--rerun-from", str(root),
-                "--removed-option",
+                "--scoring-method", "bns",
             ]
         )

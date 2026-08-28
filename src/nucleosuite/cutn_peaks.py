@@ -397,7 +397,7 @@ def analyze_cutn_replicate_peaks(
 
     with statistics_table.open("wt", encoding="utf-8") as handle:
         handle.write(
-            "chromosome\tstart\tend\tsummit\tdiscovery_score\tcondition_mean_coverage_"
+            "chromosome\tstart\tend\tsummit\tdiscovery_score\tcondition_mean_scaled_coverage_"
             f"{coverage_statistic}\ttreatment_replicate_{coverage_statistic}s\tcontrol_replicate_{coverage_statistic}s\t"
             "treatment_mean\tcontrol_mean\ttreatment_minus_control\tminimum_treatment\tmaximum_control\t"
             "conservative_excess\tconservative_fold_enrichment_pseudocount1\tconservative_log2_enrichment_pseudocount1\t"
@@ -460,3 +460,4 @@ def analyze_cutn_replicate_peaks(
         "selected_clusters": selected_clusters,
         "significant_clusters": selected_clusters,
     }
+

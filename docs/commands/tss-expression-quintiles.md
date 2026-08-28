@@ -16,7 +16,7 @@ The `hg19-gm12878` resource set supplies the bundled hg19 genes and HPA tissue-c
 nucleosuite tss-expression-quintiles \
   --signal sample_PNS.bw \
   --sample sample \
-  --signal-label PNS \
+  --signal-label SNS \
   --resource-set hg19-gm12878 \
   --tissue bone_marrow \
   --window 2000 \

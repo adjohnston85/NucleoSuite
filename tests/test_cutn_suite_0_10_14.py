@@ -59,7 +59,7 @@ def test_significant_only_and_non_member_gap_split_clusters():
 
 def test_cutn_suite_shared_tracks_pass_contains_score_and_broad_coverage(tmp_path: Path):
     from unittest.mock import patch
-    from nucleosuite.cutn_suite import _generate_tracks
+    from nucleosuite.cutn_suite import _generate_and_scale
     from nucleosuite.progress import ProgressReporter
 
     bam = tmp_path / "sample.bam"
@@ -73,7 +73,7 @@ def test_cutn_suite_shared_tracks_pass_contains_score_and_broad_coverage(tmp_pat
         "--contigs", "chr1",
     ])
     tracks_dir = tmp_path / "tracks"
-    scaled_dir = tmp_path / "coverage_scaled"
+    scaled_dir = tmp_path / "scaled"
     setup_dir = tmp_path / "setup"
     for directory in (tracks_dir, scaled_dir, setup_dir):
         directory.mkdir()
@@ -105,7 +105,7 @@ def test_cutn_suite_shared_tracks_pass_contains_score_and_broad_coverage(tmp_pat
         patch("nucleosuite.cutn_suite._run_nucleosuite", side_effect=fake_run),
         patch("nucleosuite.cutn_suite.scale_bigwig_by_reference", side_effect=fake_scale),
     ):
-        record = _generate_tracks(
+        record = _generate_and_scale(
             args=args,
             reporter=ProgressReporter("test"),
             bam_paths=[str(bam)],
@@ -126,28 +126,28 @@ def test_cutn_suite_shared_tracks_pass_contains_score_and_broad_coverage(tmp_pat
     assert record["coverage_frag_upper"] == 1000
 
 
-def test_stage2_manifest_uses_pns_score_tracks(tmp_path: Path):
+def test_stage2_manifest_uses_selected_method_score_tracks(tmp_path: Path):
     from nucleosuite.cutn_compare import _manifest_score_tracks
 
-    mean = tmp_path / "mean_pns.bw"
-    rep1 = tmp_path / "rep1_pns.bw"
-    rep2 = tmp_path / "rep2_pns.bw"
+    mean = tmp_path / "mean_bns.bw"
+    rep1 = tmp_path / "rep1_bns.bw"
+    rep2 = tmp_path / "rep2_bns.bw"
     for path in (mean, rep1, rep2):
         path.touch()
     manifest = {
-        "scoring_method": "pns",
-        "positive_track": "posPNS",
+        "scoring_method": "bns",
+        "positive_track": "posBNS",
         "condition_mean_treatment_cluster_aggregate_score": str(mean),
         "treatment_replicates": [
-            {"score": str(rep1)},
-            {"score": str(rep2)},
+            {"scaled_score": str(rep1)},
+            {"scaled_score": str(rep2)},
         ],
     }
     resolved = _manifest_score_tracks(manifest)
     assert resolved is not None
     assert resolved[0] == mean.resolve()
     assert resolved[1] == [rep1.resolve(), rep2.resolve()]
-    assert resolved[2:] == ("pns", "posPNS")
+    assert resolved[2:] == ("bns", "posBNS")
 
 
 def test_stage1_statistics_and_seed_beds_append_raw_p(tmp_path: Path, monkeypatch):

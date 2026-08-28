@@ -32,7 +32,12 @@ from nucleosuite.mode_estimation import (
 from nucleosuite.progress import ProgressReporter
 
 
-_TRACK_NAMES = {"pns": ("pns", "posPNS")}
+_TRACK_NAMES = {
+    "sns": ("sns", "posSNS"),
+    "tns": ("tns", "posTNS"),
+    "bns": ("bns", "posBNS"),
+    "pns": ("pns", "posPNS"),
+}
 _MULTICONTIG_MANIFEST = "nucleosuite_multicontig_manifest.json"
 _RUN_MANIFEST = "cutn_suite_run_manifest.json"
 _RUN_MANIFEST_SCHEMA = "nucleosuite-cutn-suite-run"
@@ -292,6 +297,10 @@ def build_parser() -> argparse.ArgumentParser:
             "Treat BAMs as independent biological replicates, or pool each BAM "
             "group as one logical merged sample (default: replicates)."
         ),
+    )
+    parser.add_argument(
+        "--scoring-method", choices=("sns", "pns", "bns", "tns"), default="sns",
+        help="Nucleosome scoring kernel: sns, pns, bns, or tns (default: sns).",
     )
     parser.add_argument(
         "--mode", type=_mode_value, default="auto",
@@ -688,7 +697,7 @@ def _estimate_modes(
     return target_mode, control_mode, f"automatic_{args.mode_strategy}", list(estimates)
 
 
-def _generate_tracks(
+def _generate_and_scale(
     *,
     args: argparse.Namespace,
     reporter: ProgressReporter,
@@ -707,7 +716,7 @@ def _generate_tracks(
         f"Generating {label} {score_track}/{positive_track} from {score_lower}-{score_upper} bp "
         f"and coverage from {args.coverage_frag_lower}-{args.coverage_frag_upper} bp in one tracks pass"
     )
-    score_base = (tracks_dir / f"{args.sample_name}_{label}_pns_discovery").resolve()
+    score_base = (tracks_dir / f"{args.sample_name}_{label}_{args.scoring_method}_discovery").resolve()
     coverage_base = (tracks_dir / f"{args.sample_name}_{label}_coverage_all_fragments").resolve()
     spec_path = setup_dir / f"{args.sample_name}_{label}_tracks_spec.tsv"
     with spec_path.open("wt", encoding="utf-8") as handle:
@@ -724,6 +733,7 @@ def _generate_tracks(
         "tracks", "--bam", *bam_paths,
         "--spec-file", str(spec_path),
         "--output-dir", str(tracks_dir.resolve()),
+        "--scoring-method", args.scoring_method,
         "--score-mode-length", str(mode),
         "--output-format", "bigwig",
         "--interval-format", "bed",
@@ -745,16 +755,17 @@ def _generate_tracks(
     score_path = Path(f"{score_prefix}_{score_track}.bw").resolve()
     positive_path = Path(f"{score_prefix}_{positive_track}.bw").resolve()
     coverage_path = Path(f"{coverage_prefix}_coverage.bw").resolve()
-    # The native PNS BigWig is retained for discovery and aggregation. Its
-    # values already use the percent-based kernel mass and are not rescaled by
-    # the CUT&RUN/CUT&Tag workflow.
-    reporter.stage(f"Using raw {label} {score_track} without score scaling")
-    coverage_scaled_path = (scaled_dir / f"{args.sample_name}_{label}_coverage_divided_by_mean_x100.bw").resolve()
+    scaled_path = (scaled_dir / f"{args.sample_name}_{label}_{score_track}_divided_by_mean_{positive_track}.bw").resolve()
+    reporter.stage(f"Scaling {label} {score_track} by mean {positive_track}")
+    _scaled, reference_mean, reference_count = scale_bigwig_by_reference(
+        score_path, positive_path, scaled_path, scale=1.0, reporter=reporter
+    )
+    scaled_coverage_path = (scaled_dir / f"{args.sample_name}_{label}_coverage_divided_by_mean_x100.bw").resolve()
     reporter.stage(f"Scaling {label} coverage to a non-zero mean of 100")
     _coverage_scaled, coverage_mean, coverage_count = scale_bigwig_by_reference(
-        coverage_path, coverage_path, coverage_scaled_path, scale=100.0, reporter=reporter
+        coverage_path, coverage_path, scaled_coverage_path, scale=100.0, reporter=reporter
     )
-    with (setup_dir / f"{args.sample_name}_{label}_score_tracks.tsv").open(
+    with (setup_dir / f"{args.sample_name}_{label}_score_scaling.tsv").open(
         "wt", encoding="utf-8"
     ) as handle:
         handle.write("field\tvalue\n")
@@ -766,11 +777,12 @@ def _generate_tracks(
             f"coverage_fragment_range\t{args.coverage_frag_lower}-"
             f"{args.coverage_frag_upper}\n"
         )
-        handle.write("score_scaling\tnone\n")
-        handle.write(f"analysis_score_track\t{score_path}\n")
+        handle.write(f"positive_reference_mean\t{reference_mean:.12g}\n")
+        handle.write(f"finite_nonzero_reference_bases\t{reference_count}\n")
+        handle.write(f"scaled_track\t{scaled_path}\n")
         handle.write(f"coverage_nonzero_mean\t{coverage_mean:.12g}\n")
         handle.write(f"coverage_finite_nonzero_bases\t{coverage_count}\n")
-        handle.write(f"coverage_scaled_to_mean_100\t{coverage_scaled_path}\n")
+        handle.write(f"coverage_scaled_to_mean_100\t{scaled_coverage_path}\n")
     fragment_summary = Path(f"{coverage_prefix}_fragment_summary.tsv").resolve()
     fragment_length_counts = Path(f"{coverage_prefix}_fragment_length_counts.tsv").resolve()
     fragment_stats = _fragment_statistics(
@@ -780,7 +792,9 @@ def _generate_tracks(
     return {
         "bams": [str(Path(path).resolve()) for path in bam_paths],
         "score": str(score_path), "positive_score": str(positive_path), "coverage": str(coverage_path),
-        "coverage_scaled": str(coverage_scaled_path),
+        "scaled_score": str(scaled_path), "scaled_coverage": str(scaled_coverage_path),
+        "positive_score_mean": float(reference_mean),
+        "positive_score_finite_nonzero_bases": int(reference_count),
         "coverage_nonzero_mean": float(coverage_mean), "coverage_finite_nonzero_bases": int(coverage_count),
         "score_frag_lower": score_lower, "score_frag_upper": score_upper,
         "coverage_frag_lower": int(args.coverage_frag_lower), "coverage_frag_upper": int(args.coverage_frag_upper),
@@ -797,15 +811,15 @@ def _call_peaks(
     args: argparse.Namespace,
     reporter: ProgressReporter,
     *,
-    score_path: Path,
+    scaled_path: Path,
     label: str,
     peaks_dir: Path,
     score_track: str,
 ) -> Path:
-    peak_prefix = peaks_dir / f"{args.sample_name}_{label}_{score_track}_mean"
+    peak_prefix = peaks_dir / f"{args.sample_name}_{label}_{score_track}_mean_scaled"
     command = [
         "call-peaks",
-        "--input-bigwig", str(score_path),
+        "--input-bigwig", str(scaled_path),
         "--peak-caller", "pns",
         "--call-type", "nucleosome",
         "--out-prefix", str(peak_prefix),
@@ -819,7 +833,7 @@ def _call_peaks(
     ]
     if args.blacklist_bed:
         command.extend(["--blacklist-bed", args.blacklist_bed])
-    reporter.stage(f"Calling {label} peaks on the mean {score_track} track")
+    reporter.stage(f"Calling {label} peaks on the mean scaled {score_track} track")
     _run_nucleosuite(command)
     completed = _locate_completed_prefix(
         peak_prefix, peak_prefix, ("_nucleosome_regions.bed",)
@@ -884,10 +898,10 @@ def _run_stage1(
 
     treatment_records: list[dict[str, object]] = []
     control_records: list[dict[str, object]] = []
-    target_score_paths: list[Path] = []
-    control_score_paths: list[Path] = []
-    target_coverage_paths: list[Path] = []
-    control_coverage_paths: list[Path] = []
+    target_scaled: list[Path] = []
+    control_scaled: list[Path] = []
+    target_scaled_coverage: list[Path] = []
+    control_scaled_coverage: list[Path] = []
 
     def generate_group(
         groups: Sequence[Sequence[str]],
@@ -897,11 +911,11 @@ def _run_stage1(
         seed_start: int,
     ) -> tuple[list[dict[str, object]], list[Path], list[Path]]:
         records: list[dict[str, object]] = []
-        score_paths: list[Path] = []
-        coverage_paths: list[Path] = []
+        scaled_scores: list[Path] = []
+        scaled_coverages: list[Path] = []
         for index, bam_group in enumerate(groups, 1):
             suffix = "" if len(groups) == 1 else f"_rep{index}"
-            generated = _generate_tracks(
+            generated = _generate_and_scale(
                 args=args,
                 reporter=reporter,
                 bam_paths=bam_group,
@@ -914,8 +928,8 @@ def _run_stage1(
                 positive_track=positive_track,
                 seed=seed_start + index,
             )
-            score_paths.append(Path(str(generated["score"])))
-            coverage_paths.append(Path(str(generated["coverage_scaled"])))
+            scaled_scores.append(Path(str(generated["scaled_score"])))
+            scaled_coverages.append(Path(str(generated["scaled_coverage"])))
             records.append(
                 {
                     "replicate": index,
@@ -923,7 +937,12 @@ def _run_stage1(
                     "score": generated["score"],
                     "positive_score": generated["positive_score"],
                     "coverage": generated["coverage"],
-                    "coverage_scaled": generated["coverage_scaled"],
+                    "scaled_score": generated["scaled_score"],
+                    "scaled_coverage": generated["scaled_coverage"],
+                    "positive_score_mean": generated["positive_score_mean"],
+                    "positive_score_finite_nonzero_bases": generated[
+                        "positive_score_finite_nonzero_bases"
+                    ],
                     "coverage_nonzero_mean": generated["coverage_nonzero_mean"],
                     "coverage_finite_nonzero_bases": generated[
                         "coverage_finite_nonzero_bases"
@@ -939,70 +958,70 @@ def _run_stage1(
                     "total_fragments_used": generated.get("total_fragments_used"),
                 }
             )
-        return records, score_paths, coverage_paths
+        return records, scaled_scores, scaled_coverages
 
     (
         treatment_records,
-        target_score_paths,
-        target_coverage_paths,
+        target_scaled,
+        target_scaled_coverage,
     ) = generate_group(
         target_groups,
         role="target",
         mode=target_mode,
         seed_start=args.seed + seed_offset + 100,
     )
-    control_records, control_score_paths, control_coverage_paths = generate_group(
+    control_records, control_scaled, control_scaled_coverage = generate_group(
         control_groups,
         role="control",
         mode=control_mode,
         seed_start=args.seed + seed_offset + 200,
     )
 
-    if len(target_score_paths) == 1:
-        mean_target = target_score_paths[0]
-        mean_target_coverage = target_coverage_paths[0]
+    if len(target_scaled) == 1:
+        mean_target = target_scaled[0]
+        mean_target_coverage = target_scaled_coverage[0]
     else:
-        reporter.stage(f"Averaging {condition_name} native treatment PNS tracks")
+        reporter.stage(f"Averaging {condition_name} replicate-scaled treatment tracks")
         mean_target = average_bigwigs(
-            target_score_paths,
+            target_scaled,
             scaled_dir / f"{args.sample_name}_condition_mean_target_{score_track}.bw",
         )
-        reporter.stage(f"Averaging {condition_name} normalized treatment coverage")
+        reporter.stage(f"Averaging {condition_name} replicate-scaled treatment coverage")
         mean_target_coverage = average_bigwigs(
-            target_coverage_paths,
+            target_scaled_coverage,
             scaled_dir / f"{args.sample_name}_condition_mean_target_coverage_x100.bw",
         )
 
-    if len(control_score_paths) == 1:
-        mean_control = control_score_paths[0]
-        mean_control_coverage = control_coverage_paths[0]
+    if len(control_scaled) == 1:
+        mean_control = control_scaled[0]
+        mean_control_coverage = control_scaled_coverage[0]
     else:
-        reporter.stage(f"Averaging {condition_name} native control PNS tracks")
+        reporter.stage(f"Averaging {condition_name} replicate-scaled control tracks")
         mean_control = average_bigwigs(
-            control_score_paths,
+            control_scaled,
             scaled_dir / f"{args.sample_name}_condition_mean_control_{score_track}.bw",
         )
-        reporter.stage(f"Averaging {condition_name} normalized control coverage")
+        reporter.stage(f"Averaging {condition_name} replicate-scaled control coverage")
         mean_control_coverage = average_bigwigs(
-            control_coverage_paths,
+            control_scaled_coverage,
             scaled_dir / f"{args.sample_name}_condition_mean_control_coverage_x100.bw",
         )
 
     target_peaks = _call_peaks(
-        args, reporter, score_path=mean_target, label="target", peaks_dir=peaks_dir,
+        args, reporter, scaled_path=mean_target, label="target", peaks_dir=peaks_dir,
         score_track=score_track,
     )
     reporter.stage(
-        f"Testing {condition_name} treatment candidates across all normalized-coverage replicates"
+        f"Testing {condition_name} treatment candidates across all scaled-coverage replicates"
     )
     cluster_rules = _resolve_cluster_rules(
-        args, target_coverage_paths, control_coverage_paths
+        args, target_scaled_coverage, control_scaled_coverage
     )
     outputs = analyze_cutn_replicate_peaks(
         target_peaks,
         output_dir=fdr_dir,
-        target_replicate_bigwigs=target_coverage_paths,
-        control_replicate_bigwigs=control_coverage_paths,
+        target_replicate_bigwigs=target_scaled_coverage,
+        control_replicate_bigwigs=control_scaled_coverage,
         target_mean_bigwig=mean_target_coverage,
         cluster_seed_pvalue=args.cluster_seed_p_value,
         seed_mode=str(cluster_rules["seed_mode"]),
@@ -1027,8 +1046,8 @@ def _run_stage1(
         }
     else:
         aggregate_outputs = run_cluster_aggregate(
-            mean_score=mean_target,
-            replicate_scores=target_score_paths,
+            mean_scaled_score=mean_target,
+            replicate_scaled_scores=target_scaled,
             anchor_bed=anchor_bed,
             output_dir=aggregate_dir,
             label=condition_name,
@@ -1374,7 +1393,7 @@ def inspect_run(value: str | Path) -> int:
         name = str(manifest.get("condition_name") or f"condition{condition_index}")
         print(f"\nCondition {condition_index}: {name}")
         print(f"  manifest: {manifest_path}")
-        print("  scoring method: PNS")
+        print(f"  scoring method: {manifest.get('scoring_method', 'sns')}")
         print(
             "  analysis modes: "
             f"treatment={manifest.get('target_mode', 'unknown')} bp; "
@@ -1428,6 +1447,8 @@ def inspect_run(value: str | Path) -> int:
                     print(f"      BAM: {bam}")
                 print(f"      fragment mode: {mode if mode is not None else 'unavailable'}" + (" bp" if mode is not None else ""))
                 print(f"      fragments used (coverage range): {used if used is not None else 'unavailable'}")
+                if record.get("positive_score_mean") is not None:
+                    print(f"      positive-score mean: {record['positive_score_mean']}")
                 if record.get("coverage_nonzero_mean") is not None:
                     print(f"      coverage non-zero mean before x100 scaling: {record['coverage_nonzero_mean']}")
     return 0
@@ -1493,7 +1514,7 @@ def _inherit_rerun_parameters(args: argparse.Namespace, manifest: dict[str, obje
     if not _explicit(args, "--sample-name"):
         args.sample_name = _infer_sample_name(manifest)
     args.bam_mode = str(manifest.get("bam_mode") or "replicates")
-    args.scoring_method = "pns"
+    args.scoring_method = str(manifest.get("scoring_method") or "sns")
     args.frag_mode_padding = int(manifest.get("frag_mode_padding", manifest.get("score_fragment_flank", 30)))
     args.score_frag_lower = manifest.get("target_score_frag_lower", manifest.get("frag_lower"))
     args.score_frag_upper = manifest.get("target_score_frag_upper", manifest.get("frag_upper"))
@@ -1512,7 +1533,7 @@ def _inherit_rerun_parameters(args: argparse.Namespace, manifest: dict[str, obje
 def _validate_rerun_immutable_options(args: argparse.Namespace) -> None:
     immutable = {
         "--treatment1-bam", "--control1-bam", "--treatment2-bam", "--control2-bam",
-        "--bam-mode", "--mode", "--mode-strategy",
+        "--bam-mode", "--scoring-method", "--mode", "--mode-strategy",
         "--frag-mode-padding", "--score-frag-lower", "--score-frag-upper",
         "--coverage-frag-lower", "--coverage-frag-upper", "--mode-search-lower",
         "--mode-search-upper", "--mode-min-fragments", "--mode-batch-fragments",
@@ -1741,50 +1762,50 @@ def _run_stage1_reuse(
         directory.mkdir(parents=True, exist_ok=True)
 
     score_track, positive_track = _TRACK_NAMES[args.scoring_method]
-    target_score_paths = [Path(str(record["score"])) for record in treatment_records]
-    control_score_paths = [Path(str(record["score"])) for record in control_records]
-    target_coverage_paths = [Path(str(record["coverage_scaled"])) for record in treatment_records]
-    control_coverage_paths = [Path(str(record["coverage_scaled"])) for record in control_records]
-    for path in [*target_score_paths, *control_score_paths, *target_coverage_paths, *control_coverage_paths]:
+    target_scaled = [Path(str(record["scaled_score"])) for record in treatment_records]
+    control_scaled = [Path(str(record["scaled_score"])) for record in control_records]
+    target_scaled_coverage = [Path(str(record["scaled_coverage"])) for record in treatment_records]
+    control_scaled_coverage = [Path(str(record["scaled_coverage"])) for record in control_records]
+    for path in [*target_scaled, *control_scaled, *target_scaled_coverage, *control_scaled_coverage]:
         if not path.is_file():
             raise FileNotFoundError(
                 f"A retained per-sample BigWig required for rerun is missing: {path}"
             )
 
-    if len(target_score_paths) == 1:
-        mean_target = target_score_paths[0]
-        mean_target_coverage = target_coverage_paths[0]
+    if len(target_scaled) == 1:
+        mean_target = target_scaled[0]
+        mean_target_coverage = target_scaled_coverage[0]
     else:
-        reporter.stage(f"Re-averaging {condition_name} retained native treatment PNS tracks")
+        reporter.stage(f"Re-averaging {condition_name} retained treatment score tracks")
         mean_target = average_bigwigs(
-            target_score_paths,
+            target_scaled,
             scaled_dir / f"{args.sample_name}_condition_mean_target_{score_track}.bw",
         )
-        reporter.stage(f"Re-averaging {condition_name} retained normalized treatment coverage tracks")
+        reporter.stage(f"Re-averaging {condition_name} retained treatment coverage tracks")
         mean_target_coverage = average_bigwigs(
-            target_coverage_paths,
+            target_scaled_coverage,
             scaled_dir / f"{args.sample_name}_condition_mean_target_coverage_x100.bw",
         )
 
-    if len(control_score_paths) == 1:
-        mean_control = control_score_paths[0]
-        mean_control_coverage = control_coverage_paths[0]
+    if len(control_scaled) == 1:
+        mean_control = control_scaled[0]
+        mean_control_coverage = control_scaled_coverage[0]
     else:
-        reporter.stage(f"Re-averaging {condition_name} retained native control PNS tracks")
+        reporter.stage(f"Re-averaging {condition_name} retained control score tracks")
         mean_control = average_bigwigs(
-            control_score_paths,
+            control_scaled,
             scaled_dir / f"{args.sample_name}_condition_mean_control_{score_track}.bw",
         )
-        reporter.stage(f"Re-averaging {condition_name} retained normalized control coverage tracks")
+        reporter.stage(f"Re-averaging {condition_name} retained control coverage tracks")
         mean_control_coverage = average_bigwigs(
-            control_coverage_paths,
+            control_scaled_coverage,
             scaled_dir / f"{args.sample_name}_condition_mean_control_coverage_x100.bw",
         )
 
     target_peaks = _call_peaks(
         args,
         reporter,
-        score_path=mean_target,
+        scaled_path=mean_target,
         label="target",
         peaks_dir=peaks_dir,
         score_track=score_track,
@@ -1793,13 +1814,13 @@ def _run_stage1_reuse(
         f"Retesting {condition_name} treatment candidates across retained coverage replicates"
     )
     cluster_rules = _resolve_cluster_rules(
-        args, target_coverage_paths, control_coverage_paths
+        args, target_scaled_coverage, control_scaled_coverage
     )
     outputs = analyze_cutn_replicate_peaks(
         target_peaks,
         output_dir=fdr_dir,
-        target_replicate_bigwigs=target_coverage_paths,
-        control_replicate_bigwigs=control_coverage_paths,
+        target_replicate_bigwigs=target_scaled_coverage,
+        control_replicate_bigwigs=control_scaled_coverage,
         target_mean_bigwig=mean_target_coverage,
         cluster_seed_pvalue=args.cluster_seed_p_value,
         seed_mode=str(cluster_rules["seed_mode"]),
@@ -1824,8 +1845,8 @@ def _run_stage1_reuse(
         }
     else:
         aggregate_outputs = run_cluster_aggregate(
-            mean_score=mean_target,
-            replicate_scores=target_score_paths,
+            mean_scaled_score=mean_target,
+            replicate_scaled_scores=target_scaled,
             anchor_bed=anchor_bed,
             output_dir=aggregate_dir,
             label=condition_name,
@@ -2102,7 +2123,6 @@ def _run_rerun(args: argparse.Namespace) -> int:
     return 0
 
 def run(args: argparse.Namespace) -> int:
-    args.scoring_method = "pns"
     _validate(args)
     if args.inspect_run:
         return inspect_run(args.inspect_run)

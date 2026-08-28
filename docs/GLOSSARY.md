@@ -1,69 +1,143 @@
 # Glossary
 
-## Breakpoint peak
+## Aggregate profile
 
-A retained negative-score region from PNS, or a region called from the sign-inverted WPS signal. It marks a location compatible with fragment termination or exposed DNA.
+The mean genomic signal obtained after centring multiple regions on a common reference position. For strand-aware analyses, negative-strand regions are reversed before the mean is calculated.
 
-## Chromosome-wise run
+## BigWig
 
-A run in which selected contigs are processed independently, often in parallel, before compatible outputs are combined into genome-level files.
+An indexed binary format for continuous genomic signal. BigWig files support efficient regional access and display in genome browsers.
 
-## Coverage
+## Breakpoint
 
-The number of accepted fragments covering each genomic base. In cutn-suite, coverage—not the PNS score—is normalized to a non-zero mean of 100 for Stage 1 measurements.
+A genomic feature associated with frequent fragment termination or exposed DNA. SNS, PNS, BNS and TNS breakpoint calls are retained negative-score regions, while WPS breakpoint calls are obtained by applying WPS segmentation to the sign-inverted calling signal.
+
+## BNS
+
+**Boxcar nucleosome score.** BNS uses the same fragment-length-dependent scoring support as PNS but places a symmetric unit-mass central boxcar within that support. Mean centring produces a positive central contribution and negative flanks with zero total contribution for every fragment. Half-weight or zero transition positions preserve symmetry when the discrete support cannot be divided into four equal integer blocks.
+
+## Chromosome and contig
+
+A contig is a named reference sequence in a genome assembly. Human chromosomes such as `chr1` and `chrX` are contigs, as are unplaced scaffolds. NucleoSuite can analyse contigs separately across multiple processor cores and combine compatible outputs afterward.
+
+For BAM-based workflows, generated contig names follow the BAM headers. Equivalent `chr`/non-`chr` spellings are matched conservatively during analysis; when multiple BAMs mix both spellings, the canonical output uses the `chr` form.
+
+## DAC
+
+**Distance autocorrelation coefficient.** At distance $d$, DAC sums the products $S(x)S(x+d)$ for eligible pairs of positions within the same selected region. It is commonly applied to nucleosome dyad signal to detect regular nucleosome spacing. For binary dyad tracks, the raw DAC is the number of dyad pairs separated by $d$; for weighted tracks, each pair contributes the product of its values.
+
+For example, if nucleosome dyads occur at positions 1,000, 1,185, 1,370 and 1,555 bp, the dyads are separated by 185 bp. The DAC profile will show peaks at 185, 370 and 555 bp, corresponding to one, two and three nucleosome spacings. The spacing between successive DAC peaks can be used to estimate nucleosome repeat length.
+
+## DCC
+
+**Distance cross-correlation coefficient.** At signed lag $\ell$, DCC sums the products $A(x)B(x+\ell)$ for eligible position pairs. NucleoSuite defines lag as `position_B - position_A`.
+
+A DCC peak at 0 bp indicates that the signals tend to occur at the same positions. A peak at `+10 bp` indicates that the second signal is most strongly associated with positions 10 bp downstream of the first. DCC can compare dyads from different fragment-length classes or compare corresponding fragment-end signals.
+
+## Dinucleotide profile
+
+The frequency of each adjacent two-base sequence at each position across aligned fragments. Each retained fragment contributes its sequence once. Sequence-aware profiles use only fragments whose complete extracted sequence contains canonical bases (`A`, `C`, `G` or `T`); a fragment containing any non-ACGT base is skipped in full.
 
 ## Dyad
 
-The central position of a paired-end fragment, using the configured convention for even-length fragments.
+The central position of nucleosome-bound DNA. A dyad track uses the centre of each fragment as an estimate of this position. Odd-length fragments have one central base. Even-length fragments have two central bases; dyad tracks split the signal equally between them by default. `--even-dyad left` and `--even-dyad right` assign the full count to one central base.
+
+Dinucleotide profiles do not split even-length fragments between alternative centres.
+
+## Empirical FDR
+
+An estimate of the fraction of retained discoveries expected to be false. `empirical-peak-fdr` uses peak-score counts from fragment-randomized runs and reports both pooled empirical p-values and monotonic empirical q-values. `cutn-compare` applies Benjamini-Hochberg correction to empirical-Bayes moderated four-group interaction tests across overlap-connected cluster loci. In `cutn-suite` Stage 1, replicate-aware seed selection uses raw one-sided Welch p-values when both treatment and control have at least three biological replicates.
+
+## Flanking spacing
+
+The distance between the nearest nucleosome centre strictly upstream of a reference site and the nearest nucleosome centre strictly downstream. In `flank-spacing`, these distances are compared across categories defined in a reference BED.
 
 ## Fragment
 
-A zero-based, half-open interval [start,end) inferred from a properly paired alignment or supplied directly as an interval. Its length is end-start.
+The genomic interval spanned by a properly paired sequencing-read pair. Fragment coordinates are represented as zero-based, half-open intervals.
 
-## PNS
+## Lag
 
-The probabilistic nucleosome score. PNS places a symmetric, length-adaptive inverted-cosine kernel across each accepted fragment’s scoring support. Each complete fragment contributes positive mass 100 and negative mass -100, so the positive distribution is represented in percent, the signed contribution sums to zero, and total absolute mass is 200. The native signed PNS BigWig is not score-scaled.
+The signed positional difference `position_B - position_A` used by DCC. A positive lag places signal B downstream of signal A; a negative lag places B upstream. For strand-aware regions, minus-strand inputs are reversed so this interpretation remains feature-oriented.
 
-## posPNS
+## L-WPS
 
-The non-negative PNS reference track made by shifting each signed PNS kernel upward until its minimum is zero. It retains the waveform and is not renormalized after shifting.
-
-## PNS support
-
-The genomic interval used by one fragment’s PNS kernel. For fragment length L and protected-DNA mode m, its width is W(L,m)=m+|L-m|. Short fragments extend around their dyad; fragments at or above the mode use their observed interval.
-
-## Flank spacing
-
-The [`flank-spacing`](commands/flank-spacing.md) analysis compares nucleosome spacing immediately upstream and downstream of reference sites, optionally by category.
-
-## Protected-DNA mode
-
-The dominant accepted fragment length used to define PNS geometry. pns and cutn-suite can estimate it from seeded samples and bootstrap stability, or an integer --mode can set it explicitly.
+**Long-window protection score.** NucleoSuite's WPS implementation was written to reproduce the L-WPS algorithm used by [Snyder et al.](https://doi.org/10.1016/j.cell.2015.11.050). It uses the same default parameters: 120–180 bp fragments, a 120 bp protection window, a 1,000 bp running-median adjustment, and 21 bp second-order Savitzky–Golay smoothing.
 
 ## Mean centring
 
-Subtracting a vector mean from every value. PNS does not need a separate mean-centring step because its signed kernel is constructed with positive mass 100 and negative mass -100.
+Subtraction of a vector's arithmetic mean from every value. PNS, BNS and TNS use mean centring to make each complete fragment contribution sum to zero. SNS is already constructed as a zero-sum signed kernel and therefore does not require mean subtraction.
 
-## Native score
+## Mode estimation
 
-A signal or interval score as produced by the scoring calculation, before a user-requested display multiplier or reference-mean normalization. PNS BigWigs and PNS peak scores remain native by default.
+Estimation of the dominant accepted fragment length used to set SNS, PNS, BNS and TNS scoring geometry. `nuc-score` and `cutn-suite` sample accepted fragments from seeded randomly ordered genomic blocks and bootstrap the raw integer length histogram until the mode stabilizes. Histogram smoothing is disabled by default and is available explicitly with `--mode-histogram-smoothing binomial`. `cutn-suite` uses an equal-weight pooled treatment/control mode by default. An integer `--mode` bypasses estimation.
 
-## Probability represented in percent
+## NRL
 
-The PNS convention in which the positive part of each complete fragment distribution sums to 100 rather than 1. The value describes a percent-scale distribution; it does not imply that a genome-wide BigWig is itself a probability density.
+**Nucleosome repeat length.** The average centre-to-centre spacing between successive nucleosomes, including nucleosomal DNA and linker DNA.
 
-## Window protection score (WPS)
+NucleoSuite estimates NRL by detecting regularly spaced DAC or DCC peaks and fitting a regression of peak position against nucleosome order. The fitted slope is the estimated repeat length.
 
-A signal that rewards fragments enclosing a fixed protection window and penalizes fragments whose endpoints fall inside that window. NucleoSuite supports raw, smoothed, baseline-adjusted, and WPS peak-calling signals.
+## Nucleosome order
 
-## Mean-scale
+The sequential number assigned to recurring spacing peaks. The first peak represents approximately one nucleosome spacing, the second represents two spacings, and so on.
 
-The mean-scale command divides a signal or interval score by a finite, non-zero reference mean and applies a requested multiplier. It is available for explicit downstream normalization; cutn-suite does not use it on PNS score BigWigs.
+## Opportunity normalization
 
-## Stage 1 and Stage 2
+Adjustment for the number of position pairs that can contribute at each separation distance. Fewer comparisons may be possible at long distances or near region boundaries. Dividing the raw DAC or DCC value by the number of available comparisons makes distances with different numbers of opportunities comparable.
 
-In cutn-suite, Stage 1 performs PNS discovery, coverage measurement, replicate gating, and cluster formation for one condition. Stage 2 compares two completed conditions using saved coverage, cluster overlap, interaction statistics, and matched aggregates.
+## PNS
 
-## Seed and member gates
+**Probabilistic nucleosome score.** PNS constructs one dyad-support triangle from each fragment end. Each triangle has discrete probability mass 0.5, giving their combined distribution mass 1 for every fragment length. Odd mode lengths produce one maximum in each triangle; even mode lengths produce two equal maxima. Subtracting the combined distribution's mean makes the values contributed by each complete fragment sum to zero.
 
-The S gate decides which candidate peaks seed clusters. The G gate decides which neighbouring candidates can extend a cluster. Their modes, p-value threshold, bridge gap, and cluster size are independently configurable.
+The fragment contributions are summed at each genomic position. Positive regions support nucleosome dyads, and negative regions are compatible with fragment boundaries or cleavage. A called nucleosome region receives its maximum PNS value as its score.
+
+## `posPNS`
+
+The non-negative PNS distribution before mean subtraction. `posPNS` adds the two endpoint-derived triangles from every accepted fragment. Each fragment contributes total mass 1. The name refers to this distribution, not to values clipped from the PNS track.
+
+## `posBNS`
+
+The non-negative BNS unit-mass boxcar before mean subtraction. Each accepted fragment contributes total mass 1.
+
+## SNS
+
+**Sinusoidal nucleosome scoring.** SNS is the default scoring kernel of the standalone `nuc-score` command. For fragment length $L$ and protected-DNA mode $m$, the support width is $m+|L-m|$, so the wave is narrowest at the mode and broadens for both shorter and longer fragments. One inverted cosine cycle is sampled at integer genomic positions, then its positive and negative samples are normalized separately to exactly +50 and −50 mass. The complete signed fragment contribution therefore sums to zero and has total absolute mass 100.
+
+## `posSNS`
+
+The non-negative SNS reference track. For each fragment, the complete signed SNS waveform is shifted upward by its minimum so that the lowest value becomes zero. No part of the sinusoid is clipped and the shifted waveform is not renormalized. `posSNS` is used for method-matched mean scaling; peak calling uses the signed `sns` track.
+
+## TNS
+
+**Triangular nucleosome score.** TNS places one symmetric unit-mass triangle across the fragment scoring support. The triangle is zero at both support boundaries, has one central maximum for odd support lengths and a two-base central plateau for even support lengths, and is mean-centred before genome-wide accumulation.
+
+## `posTNS`
+
+The non-negative TNS unit-mass triangle before mean subtraction. Each accepted fragment contributes total mass 1.
+
+## Positional offset
+
+The separation between two genomic positions, measured in base pairs. A signed offset retains direction: negative values indicate upstream displacement and positive values indicate downstream displacement. An absolute offset reports only the separation.
+
+## Positive-score mean scaling
+
+Division of an SNS, TNS, BNS, or PNS score track by the finite, non-zero mean of its matching non-negative positive-reference track. This places matched target and control tracks on a comparable per-positive-score scale without subtracting the control signal.
+
+## Summit
+
+The representative coordinate of a called peak. It may be read from a specified interval column or derived from the interval midpoint.
+
+## WPS
+
+**Window protection score.** A window is centred at each genomic position. Fragments spanning the complete window increase the score, while fragments terminating within the window decrease it. High WPS values indicate regions frequently protected within intact fragments; low values indicate frequent fragmentation within the window.
+
+NucleoSuite can also write Savitzky–Golay-smoothed WPS (`wps_smoothed`), raw WPS minus its running-median baseline (`mWPS`), and smoothed WPS minus the running median of raw WPS (`sm_mWPS`). The default peak caller evaluates `sm_mWPS`.
+
+## WW and SS dinucleotides
+
+WW dinucleotides contain two weak bases (`A` or `T`): `AA`, `AT`, `TA` and `TT`. SS dinucleotides contain two strong bases (`C` or `G`): `CC`, `CG`, `GC` and `GG`.
+
+## WW/SS classification
+
+Classification of fragments using a centred 147 bp reference core and predefined minor- and major-groove-associated positions. WW and SS enrichment are evaluated independently, and fragments are assigned to `type1`–`type4` according to the resulting enrichment pattern.

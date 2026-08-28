@@ -1,6 +1,6 @@
 # NucleoSuite
 
-NucleoSuite is a command-line toolkit for turning paired-end alignments or fragment intervals into reproducible genomic signals, peak calls, sequence profiles, spacing measurements, and coordinated workflows. It supports fragment preparation and QC, nucleosome-oriented and window-protection signals, coverage and fragment-coordinate tracks, cfDNA and MNase-seq analyses, matched CUT&RUN/CUT&Tag comparisons, chromatin-state and gene-centred analyses, and periodicity or cross-correlation measurements.
+NucleoSuite is a command-line toolkit that converts paired-end alignments or fragment intervals into nucleosome-positioning signals, cfDNA and MNase-seq fragmentomic analyses, matched CUT&RUN/CUT&Tag analyses, peak calls, chromatin-state profiles, sequence profiles, spacing measurements, and coordinated workflows.
 
 <p align="center">
   <img src="docs/images/PNS_example_tracks_BH01.png" alt="Example NucleoSuite genomic track outputs displayed in IGV" width="100%">
@@ -19,17 +19,7 @@ nucleosuite --version
 nucleosuite --help
 ```
 
-## What the suite can do
-
-| Analysis area | Typical uses |
-|---|---|
-| Prepare fragments | Convert paired-end BAMs to fragment intervals, merge or randomize fragment sets, inspect fragment lengths, and build fragment heatmaps. |
-| Build signals | Generate PNS, WPS, coverage, dyad, fragment-end, dinucleotide, and WW/SS sequence tracks, including several range-specific outputs in one pass. |
-| Find and compare features | Call nucleosome, breakpoint, or WPS peaks; filter and annotate calls; compare positions; measure spacing; and estimate recurring periods or signal offsets. |
-| Interpret genomic context | Aggregate signal around reference sites, extract regional profiles, stratify peaks by chromatin state, and relate signal or spacing to gene sets and expression. |
-| Run complete analyses | Coordinate cfDNA, MNase-seq, and matched CUT&RUN/CUT&Tag workflows with randomized controls, replicate handling, clustering, statistical comparison, and reusable output manifests. |
-
-The commands are composable: a signal or peak file produced by one command can be passed to downstream analysis commands, and existing chromosome-wise results can be combined or replotted without repeating the upstream calculation.
+Analysis commands derive output filenames or prefixes from the primary input basename by default. Explicit output options remain available when a specific destination or prefix is required.
 
 ## Commands
 
@@ -47,11 +37,11 @@ The commands are composable: a signal or peak file produced by one command can b
 
 | Command | Function |
 |---|---|
-| [`tracks`](docs/commands/tracks.md) | Generate multiple range-specific signal, coordinate, and sequence tracks in one fragment pass. |
-| [`pns`](docs/commands/pns.md) | Generate the probabilistic nucleosome score, its non-negative percent reference, and shared nucleosome/breakpoint peak calls. |
-| [`wps`](docs/commands/wps.md) | Generate window protection score tracks and WPS peak calls. |
+| [`tracks`](docs/commands/tracks.md) | Generate multiple range-specific signal and coordinate tracks in one fragment pass. |
+| [`nuc-score`](docs/commands/nuc-score.md) | Calculate SNS, PNS, BNS or TNS nucleosome score tracks and shared peak calls; SNS is the standalone default. |
+| [`wps`](docs/commands/wps.md) | Calculate window protection score tracks and WPS peak calls. |
 | [`coverage`](docs/commands/coverage.md) | Calculate per-base fragment coverage. |
-| [`mean-scale`](docs/commands/mean-scale.md) | Express BigWig signal or BED-family scores relative to a calculated or supplied reference mean. |
+| [`mean-scale`](docs/commands/mean-scale.md) | Mean-normalize BigWig signal or BED-family scores relative to a calculated or supplied reference mean. |
 | [`dyads`](docs/commands/dyads.md) | Generate fragment-centre tracks. |
 | [`fragment-ends`](docs/commands/fragment-ends.md) | Generate combined, left-end, and right-end tracks. |
 | [`dinuc-profile`](docs/commands/dinuc-profile.md) | Calculate positional dinucleotide profiles. |
@@ -61,14 +51,14 @@ The commands are composable: a signal or peak file produced by one command can b
 
 | Command | Function |
 |---|---|
-| [`call-peaks`](docs/commands/call-peaks.md) | Call nucleosome/breakpoint or WPS features from an existing signal track. |
-| [`empirical-peak-fdr`](docs/commands/empirical-peak-fdr.md) | Compare observed peaks with fragment-randomized peak callsets and report empirical p-values and FDR. |
-| [`filter-peaks`](docs/commands/filter-peaks.md) | Filter peak intervals by score, percentile, length, or BigWig coverage. |
+| [`call-peaks`](docs/commands/call-peaks.md) | Call nucleosome and breakpoint features from nucleosome-score or WPS BigWigs. |
+| [`empirical-peak-fdr`](docs/commands/empirical-peak-fdr.md) | Compare observed peak scores with fragment-randomized peak callsets and report empirical p-values and FDR. |
+| [`filter-peaks`](docs/commands/filter-peaks.md) | Filter peak intervals by score, score percentile, region length, and/or BigWig coverage. |
 | [`peak-score-frequency`](docs/commands/peak-score-frequency.md) | Compare peak-score distributions. |
 | [`peak-states`](docs/commands/peak-states.md) | Measure peak abundance and score-dependent enrichment by chromatin state. |
-| [`compare-positions`](docs/commands/compare-positions.md) | Compare one main callset with one or more positional callsets and optional score comparators. |
+| [`compare-positions`](docs/commands/compare-positions.md) | Compare one main callset with one or more positional callsets and optional BigWig score comparators. |
 | [`distances`](docs/commands/distances.md) | Calculate adjacent and higher-order distances between called positions. |
-| [`flank-spacing`](docs/commands/flank-spacing.md) | Compare spacing between nucleosomes flanking categorized reference sites. |
+| [`flank-spacing`](docs/commands/flank-spacing.md) | Compare the spacing between nucleosomes flanking categorized reference sites and rank category-specific distributions. |
 | [`dac`](docs/commands/dac.md) | Calculate distance autocorrelation within one signal. |
 | [`dcc`](docs/commands/dcc.md) | Calculate distance cross-correlation between two signals. |
 | [`nrl`](docs/commands/nrl.md) | Estimate nucleosome repeat length from recurring DAC or DCC peaks. |
@@ -82,49 +72,41 @@ The commands are composable: a signal or peak file produced by one command can b
 | [`region-extract`](docs/commands/region-extract.md) | Export region-level signal vectors and nearby peaks. |
 | [`gene-sets`](docs/commands/gene-sets.md) | Define gene groups from chromatin-state overlaps. |
 | [`gene-expression`](docs/commands/gene-expression.md) | Relate expression to peak spacing or signal periodicity. |
-| [`tss-expression-quintiles`](docs/commands/tss-expression-quintiles.md) | Aggregate PNS or WPS signal around TSSs split into expression quintiles. |
+| [`tss-expression-quintiles`](docs/commands/tss-expression-quintiles.md) | Aggregate nucleosome-score or WPS signal around TSSs after splitting genes into tissue-expression quintiles. |
 
-### Coordinated workflows and utilities
+### Workflows and utilities
 
 | Command | Function |
 |---|---|
-| [`mnase-suite`](docs/commands/mnase-suite.md) | Run a coordinated MNase-seq analysis with signal, sequence, peak, spacing, and regional outputs. |
-| [`cfdna-suite`](docs/commands/cfdna-suite.md) | Run a coordinated cfDNA fragmentomics and nucleosome-positioning analysis. |
-| [`cutn-suite`](docs/commands/cutn-suite.md) | Run matched target/control CUT&RUN or CUT&Tag discovery, measurement, clustering, and optional two-condition comparison. |
-| [`cutn-compare`](docs/commands/cutn-compare.md) | Compare Stage 1 clusters between two completed conditions. |
+| [`mnase-suite`](docs/commands/mnase-suite.md) | Run the coordinated MNase-seq workflow. |
+| [`cfdna-suite`](docs/commands/cfdna-suite.md) | Run the coordinated cfDNA fragmentomics workflow. |
+| [`cutn-suite`](docs/commands/cutn-suite.md) | Run matched target-control CUT&RUN/CUT&Tag SNS, TNS, BNS or PNS analysis. |
+| [`cutn-compare`](docs/commands/cutn-compare.md) | Compare Stage 1 clusters between two conditions and summarize cluster overlap. |
 | [`combine`](docs/commands/combine.md) | Combine outputs from an existing chromosome-wise run. |
 | [`chrom-sizes`](docs/commands/chrom-sizes.md) | Write chromosome names and lengths from a BAM or CRAM header. |
 | [`resources`](docs/commands/resources.md) | List, locate, validate, or copy bundled resources. |
 | [`validate-inputs`](docs/commands/validate-inputs.md) | Validate input integrity and reference compatibility before a run. |
-| [`plot`](docs/commands/plot.md) | Recreate and customize applicable figures from existing NucleoSuite output tables. |
+| [`plot`](docs/commands/plot.md) | Recreate and deeply customize all applicable figures from existing NucleoSuite output tables. |
+
 
 ## Typical workflows
 
-Start with the narrowest command that produces the data object you need. Use `pns` or `wps` for a single signal and its calls, `tracks` when several fragment-derived outputs share the same input pass, and the suite commands when the analysis includes multiple downstream products or replicate-aware stages. Use `combine` for existing chromosome-wise results and `plot` to regenerate or customize figures from saved tables.
+For a single analysis, run the command that produces the required signal, profile, peak set, or spacing result. For coordinated analyses, use [`mnase-suite`](docs/commands/mnase-suite.md), [`cfdna-suite`](docs/commands/cfdna-suite.md), or the matched target/control [`cutn-suite`](docs/commands/cutn-suite.md). Existing chromosome-wise runs can be recombined with [`combine`](docs/commands/combine.md), and generated figures can be recreated or customized with [`plot`](docs/commands/plot.md).
 
-A compact PNS run is:
+A minimal `nuc-score` command using the default SNS kernel:
 
 ```bash
-nucleosuite pns \
+nucleosuite nuc-score \
   --bam sample.bam \
   --fasta genome.fa \
-  --contigs chr1 chr2 \
+  --contigs chr1 chr2 chr3 chr4 \
   --cores 4 \
   --out-prefix sample
 ```
 
-A multi-output pass is:
+Standalone `nuc-score` estimates its protected-DNA mode automatically from the unsmoothed accepted-fragment histogram. The resolved estimate is printed and recorded; use an integer such as `--mode 167` to apply a fixed mode instead. `wps` uses a fixed 120 bp protection window with 120–180 bp fragments by default.
 
-```bash
-nucleosuite tracks \
-  --bam sample.bam \
-  --fasta genome.fa \
-  --chrom-sizes genome.chrom.sizes \
-  --spec-file track_spec.tsv \
-  --output-dir tracks
-```
-
-For matched CUT&RUN/CUT&Tag data:
+A minimal target/control CUT&RUN/CUT&Tag analysis is:
 
 ```bash
 nucleosuite cutn-suite \
@@ -134,20 +116,68 @@ nucleosuite cutn-suite \
   --cores 8
 ```
 
-See the command pages and [Workflows](docs/WORKFLOWS.md) for mode estimation, replicate handling, clustering, statistical comparison, aggregate analyses, and output interpretation.
+`cutn-suite` uses SNS for nucleosome-aware peak discovery by default, with PNS, BNS and TNS available as alternatives. See the [`cutn-suite`](docs/commands/cutn-suite.md) page and [Workflows](docs/WORKFLOWS.md) for mode estimation, replicate handling, clustering, statistical comparison and aggregate analyses.
+
+Detailed command behaviour, advanced options, output layouts, resource handling, and workflow examples are documented in the pages linked above and in the guides below.
 
 ## Installation
 
-NucleoSuite is intended to run in the supplied Conda environment. The recommended installation is to clone the repository, create that environment, build the package locally, and install the generated wheel. See [Installation](docs/INSTALLATION.md) for prerequisites, alternative installation methods, updates, and troubleshooting.
+### Recommended installation
+
+NucleoSuite is intended to run in the supplied Conda environment. The recommended installation is to clone the repository, create that environment, build the package locally, and install the generated wheel.
+
+Before starting, ensure that [Git](docs/INSTALLATION.md#installing-git) and [Conda or Mamba](docs/INSTALLATION.md#installing-conda-and-mamba) are available.
+
+1. Choose a directory for the repository and clone NucleoSuite:
+
+```bash
+mkdir -p ~/software
+cd ~/software
+git clone https://github.com/adjohnston85/NucleoSuite.git
+cd NucleoSuite
+```
+
+2. Create and activate the supplied environment. Mamba is recommended for environment creation:
 
 ```bash
 mamba env create -f environment.yml
 conda activate nucleosuite
+```
+
+If Mamba is not available, use Conda instead:
+
+```bash
+conda env create -f environment.yml
+conda activate nucleosuite
+```
+
+3. Build the wheel and source distribution:
+
+```bash
+rm -rf dist/
 python -m build
+```
+
+4. Install the wheel into the active environment:
+
+```bash
 python -m pip install --upgrade --force-reinstall --no-deps dist/*.whl
 ```
 
-Verify the installed command with `nucleosuite --version` and `nucleosuite --help`.
+The supplied environment already provides NucleoSuite's dependencies, so `--no-deps` prevents pip from replacing Conda-managed packages.
+
+5. Verify the installation:
+
+```bash
+nucleosuite --version
+nucleosuite --help
+```
+
+The `dist/` directory is generated locally and is intentionally excluded from Git.
+
+Other common installation approaches are also supported. See [Alternative installation methods](docs/INSTALLATION.md#alternative-installation-methods), including direct source installation, editable development installs, source distributions, and installation of an already-built wheel.
+
+For complete setup, prerequisite, update, and troubleshooting instructions, see [Installation](docs/INSTALLATION.md).
 
 ## Documentation
 
@@ -157,7 +187,6 @@ Verify the installed command with `nucleosuite --version` and `nucleosuite --hel
 - [Workflows](docs/WORKFLOWS.md)
 - [Command reference](docs/COMMAND_REFERENCE.md)
 - [File formats](docs/FILE_FORMATS.md)
-- [Output layout](docs/OUTPUT_LAYOUT.md)
 - [Glossary](docs/GLOSSARY.md)
 - [Algorithms](docs/ALGORITHMS.md)
 - [Plot customization](docs/PLOTTING.md)

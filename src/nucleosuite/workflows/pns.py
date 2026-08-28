@@ -1,4 +1,4 @@
-"""Probabilistic nucleosome-scoring workflow used by ``nucleosuite pns``."""
+"""Nucleosome-scoring workflow used by ``nucleosuite nuc-score``."""
 
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ from nucleosuite.workflows.common import (
 
 
 def _remove_stale_outputs(output_prefix: str) -> None:
-    all_tracks = set(pns_scoring.PNS_TRACKS) | set(basic_tracks.BASIC_TRACKS)
+    all_tracks = set(pns_scoring.PNS_TRACKS) | set(pns_scoring.SNS_TRACKS) | set(pns_scoring.BNS_TRACKS) | set(pns_scoring.TNS_TRACKS) | set(basic_tracks.BASIC_TRACKS)
     for group in ALL_OUTPUT_GROUPS:
         prefix = group_output_prefix(output_prefix, group)
         remove_stale_track_outputs(prefix, all_tracks)

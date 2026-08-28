@@ -2,28 +2,42 @@
 
 ## What this command does
 
-`tracks` generates several fragment-derived outputs in one pass through a BAM or fragment file. Each requested fragment-length range specifies the signals, profiles, or calls to produce, so related outputs share the same filtering, deduplication, blacklist, and contig settings.
-
-Available output families include PNS and WPS signals, shared peak calls, coverage, dyads, fragment ends, dinucleotide profiles, and WW/SS sequence classifications. Sequence-dependent outputs require `--fasta`.
+`tracks` generates multiple fragment-derived outputs in one pass through a BAM or fragment file. Each requested fragment-length range specifies the signals, profiles, or calls to produce.
 
 ## Why use it
 
-Use `tracks` to make related signal families or fragment-length ranges in one coordinated pass, keeping filters, blacklist handling, and output metadata aligned.
+Use `tracks` when several outputs must share the same fragment filters. It avoids rereading the input for each track. Available output groups cover SNS/PNS/BNS/TNS and WPS scoring, shared peak calls, coverage/dyad/end tracks, and sequence-based profiles.
 
 ```mermaid
 flowchart LR
     A[BAM or fragment intervals] --> B[Shared fragment pass]
-    B --> C[PNS and WPS signals]
+    B --> C[SNS/PNS/BNS/TNS and WPS]
     B --> D[Coverage, dyads, and ends]
-    B --> E[Sequence profiles and classes]
+    B --> E[Dinucleotide and WW/SS analyses]
     C --> F[Peak calls]
 ```
 
+Sequence-dependent outputs require `--fasta`.
+
 ## Define fragment-length ranges
 
-Use one `--fragment-range RANGE=TRACKS` for each output group. An exact length is written as `145=dyad,dinuc_profile`; an inclusive range is written as `137-197=pns,posPNS,coverage,pns_peaks`.
+Use one `--fragment-range RANGE=TRACKS` for each output group.
 
-A fragment contributes to every requested range that contains its length:
+An exact length:
+
+```text
+145=dyad,dinuc_profile
+```
+
+An inclusive range:
+
+```text
+137-197=sns,posSNS,coverage,pns_peaks
+```
+
+A fragment can contribute to every requested range that contains its length.
+
+Example:
 
 ```bash
 nucleosuite tracks \
@@ -31,44 +45,61 @@ nucleosuite tracks \
   --fasta genome.fa \
   --output-dir tracks \
   --output-prefix sample \
-  --fragment-range "137-197=pns,posPNS,coverage,pns_peaks" \
+  --fragment-range "137-197=sns,posSNS,coverage,pns_peaks" \
   --fragment-range "120-180=wps,wps_smoothed,mWPS,sm_mWPS,wps_peaks" \
   --fragment-range "145-147=dyad,fragment_left_ends,fragment_right_ends" \
   --fragment-range "145=dyad,dinuc_profile" \
   --fragment-range "145-147=ww_types,type_dyads"
 ```
 
-`pns_peaks` calls the PNS positive-region caller on the PNS signal for that range. With score smoothing enabled it uses the smoothed score for the call while still allowing the raw score to be written.
+A 145 bp fragment contributes to every compatible range above.
 
-## Specification files
+### SNS range example
 
-A tab-separated specification is useful for larger workflows or exact output prefixes:
+Select SNS globally for the nucleosome-score ranges and request its method-specific track names:
+
+```bash
+nucleosuite tracks \
+  --bam sample.bam \
+  --scoring-method sns \
+  --score-mode-length 167 \
+  --fragment-range "137-197=sns,posSNS,pns_peaks" \
+  --output-dir sample_tracks
+```
+
+`pns_peaks` is the name of the shared peak-calling token; with `--scoring-method sns`, it evaluates `sns` (or `sns_smoothed` when score smoothing is enabled).
+
+## Use a specification file for larger workflows
+
+A tab-separated spec file is easier to maintain when many ranges or exact output prefixes are needed:
 
 ```text
 fragment_range  output_prefix                                  tracks                                      basic_scope
-137-197         results/sample_pns_mode167_lower137_upper197   pns,posPNS,coverage,pns_peaks              range
-120-180         results/sample_wps_prot120                     coverage,wps,wps_smoothed,mWPS,sm_mWPS    range
-145             results/sample_145_dyads                        dyad                                        range
+137-197         results/sample_SNS_methodsns_mode167_lower137_upper197_smooth0x2   sns,posSNS,coverage,pns_peaks              range
+120-180         results/sample_WPS_prot120_lower120_upper180_baseline1000_sg21x2_callerwps   coverage,wps,wps_smoothed,mWPS,sm_mWPS    range
+145             results/sample_145_dyads_lower145_upper145     dyad                                        range
 ```
 
-`basic_scope=range` uses the stated range for coverage, dyads, and ends. `basic_scope=all` uses every accepted fragment for those basic tracks; PNS and WPS continue to use their stated ranges.
+`basic_scope=range` uses the stated fragment range for coverage, dyads, and ends. `basic_scope=all` uses every accepted fragment for those basic tracks; the selected nucleosome score and WPS continue to use their stated ranges.
 
-## PNS values and peak scores
+## Nucleosome-score peak calls
 
-PNS uses the fixed length-adaptive probabilistic kernel described in [Algorithms](../ALGORITHMS.md). Its positive distribution represents probability in percent, with positive mass 100 and negative mass -100 for each complete fragment. PNS BigWig values are written natively; `tracks` does not apply score normalization.
+`pns_peaks` invokes the shared PNS-style positive-region caller on the **currently selected** `--scoring-method`. It therefore works with SNS, PNS, BNS, or TNS without generating an extra PNS track. Text BED scores remain six-decimal floating-point values after `--score-peak-score-scale`.
 
-Text BED scores remain six-decimal floating-point values after `--score-peak-score-scale`. `--bigbed-score-scale` converts them to the integer bigBed score field and defaults to `1` for PNS, so no additional score rescaling is applied unless explicitly requested.
+`--bigbed-score-scale` controls conversion to the integer bigBed score field. SNS defaults to **1** (native score values are rounded/clamped without prior rescaling); PNS, BNS and TNS default to **1000**. An explicit value overrides the method-aware default.
 
-## Duplicate and coordinate limits
+## Duplicate limits versus sparse-coordinate limits
 
-- `--max-duplicates 1` limits identical complete fragments `(contig,start,end)`.
+These control different things:
+
+- `--max-duplicates 1` limits identical complete fragments `(contig,start,end)`;
 - `--max-per-coordinate 0` leaves final dyad/end pile-ups uncapped.
 
-A positive `--max-per-coordinate` affects only sparse output coordinates after fragments have been accumulated.
+A positive `--max-per-coordinate` affects only the sparse output coordinate after fragments have been accumulated.
 
 ## Randomized controls
 
-Create a randomized fragment set first, then run `tracks` with the same specification:
+Create the randomized fragment set first, then run `tracks` on that materialized control with the same track specification:
 
 ```bash
 nucleosuite randomize-fragments \
@@ -85,9 +116,9 @@ nucleosuite tracks \
   --max-duplicates 0
 ```
 
-## Multicontig runs and completion
+All tracks in this run then use the same randomized coordinates.
 
-Indexed inputs can be processed by contig in parallel:
+## Multicontig use
 
 ```bash
 nucleosuite tracks \
@@ -97,12 +128,22 @@ nucleosuite tracks \
   --contigs chr1-22,chrX \
   --cores 8 \
   --output-dir sample_tracks \
-  --fragment-range "137-197=pns,posPNS,coverage,pns_peaks" \
+  --fragment-range "137-197=sns,posSNS,coverage,pns_peaks" \
   --fragment-range "120-180=wps,sm_mWPS,wps_peaks"
 ```
 
-Use `--skip-combine` to stop after per-contig outputs and run [`combine`](combine.md) later. `--report PATH` records the track specification and fragment limits after all requested outputs complete; the coordinated suites use this report when resuming work.
+Indexed inputs can be processed by contig in parallel. Plain unindexed BED/TSV fragment inputs run serially.
 
-See [Plot customization](../PLOTTING.md) for shared figure options and [Workflows](../WORKFLOWS.md) for downstream uses.
+Use `--skip-combine` when you want to stop after per-contig outputs and run `nucleosuite combine` later.
+
+## Completion report
+
+`--report PATH` is written after all requested outputs complete. It records the track specification and fragment limits used by the run. The suites use it when resuming work.
+
+## Plot customization
+
+Sequence-profile and fragment-summary figures use the shared options in [Plot customization](../PLOTTING.md).
+
+See [Workflows](../WORKFLOWS.md) for examples showing how this command connects to downstream analyses.
 
 [Back to the command reference](../COMMAND_REFERENCE.md)

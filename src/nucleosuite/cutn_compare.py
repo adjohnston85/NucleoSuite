@@ -572,7 +572,7 @@ def _group_tracks(manifest: dict[str, object]) -> tuple[list[Path], list[Path]]:
             for record in records:
                 if not isinstance(record, dict):
                     raise ValueError(f"Invalid {label} replicate record")
-                path = Path(str(record.get("coverage_scaled") or record.get("coverage", ""))).resolve()
+                path = Path(str(record.get("coverage") or record.get("scaled_coverage", ""))).resolve()
                 if not path.is_file():
                     raise FileNotFoundError(path)
                 output.append(path)
@@ -589,8 +589,8 @@ def _group_tracks(manifest: dict[str, object]) -> tuple[list[Path], list[Path]]:
     for record in records:
         if not isinstance(record, dict):
             raise ValueError("Invalid replicate record in Stage 1 manifest")
-        target_path = Path(str(record.get("treatment_coverage_scaled", ""))).resolve()
-        control_path = Path(str(record.get("control_coverage_scaled", ""))).resolve()
+        target_path = Path(str(record.get("treatment_scaled_coverage", ""))).resolve()
+        control_path = Path(str(record.get("control_scaled_coverage", ""))).resolve()
         if not target_path.is_file():
             raise FileNotFoundError(target_path)
         if not control_path.is_file():
@@ -1074,16 +1074,25 @@ def _compare_regions(
 def _manifest_score_tracks(
     manifest: dict[str, object],
 ) -> tuple[Path, list[Path], str, str] | None:
-    """Return native PNS treatment score tracks for aggregate analyses."""
+    """Return method-matched normalized treatment score tracks for aggregates.
 
-    method = "pns"
-    positive_track = "posPNS"
+    Generic score paths are preferred. A narrow PNS-only fallback is retained
+    for older Stage 1 manifests that predate generic score-path fields.
+    """
+
+    method = str(manifest.get("scoring_method") or "sns").lower()
+    positive_track = str(manifest.get("positive_track") or ({
+        "sns": "posSNS", "pns": "posPNS", "bns": "posBNS", "tns": "posTNS"
+    }.get(method, "posSNS")))
     mean_value = manifest.get("condition_mean_treatment_cluster_aggregate_score")
     records = manifest.get("treatment_replicates")
-    replicate_field = "score"
+    replicate_field = "scaled_score"
 
     if not isinstance(mean_value, str) or not mean_value:
-        mean_value = manifest.get("condition_mean_treatment_score")
+        if method != "pns":
+            return None
+        mean_value = manifest.get("condition_mean_treatment_pns_divided_by_mean_posPNS")
+        replicate_field = "scaled_pns"
 
     if not isinstance(mean_value, str) or not mean_value or not isinstance(records, list):
         return None
@@ -1110,8 +1119,8 @@ def _run_shared_cluster_aggregates(
         return {
             "status": "unavailable",
             "reason": (
-                "Stage 1 manifest lacks native replicate PNS score tracks; "
-                "rerun Stage 1 with NucleoSuite 0.11.3 or later."
+                "Stage 1 manifest lacks method-matched normalized replicate score tracks; "
+                "rerun Stage 1 with NucleoSuite 0.10.11 or later."
             ),
         }
     aggregate_dir = output_dir / "cluster_aligned_aggregates"
@@ -1135,8 +1144,8 @@ def _run_shared_cluster_aggregates(
     first_name = str(first.get("condition_name") or "condition1")
     second_name = str(second.get("condition_name") or "condition2")
     first_outputs = run_cluster_aggregate(
-        mean_score=first_tracks[0],
-        replicate_scores=first_tracks[1],
+        mean_scaled_score=first_tracks[0],
+        replicate_scaled_scores=first_tracks[1],
         output_dir=aggregate_dir / "condition1",
         label=first_name,
         scoring_method=first_tracks[2],
@@ -1145,8 +1154,8 @@ def _run_shared_cluster_aggregates(
         **common,
     )
     second_outputs = run_cluster_aggregate(
-        mean_score=second_tracks[0],
-        replicate_scores=second_tracks[1],
+        mean_scaled_score=second_tracks[0],
+        replicate_scaled_scores=second_tracks[1],
         output_dir=aggregate_dir / "condition2",
         label=second_name,
         scoring_method=second_tracks[2],

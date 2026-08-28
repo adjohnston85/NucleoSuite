@@ -2,33 +2,36 @@
 
 ## What this command does
 
-`call-peaks` applies the PNS positive-region caller or the WPS caller to an existing compatible BigWig signal. Use it when calling parameters should be changed, a previously combined signal should be called, or signal generation and peak calling should be separate stages.
+`call-peaks` applies the PNS-style positive-region caller or the WPS caller to an existing compatible BigWig signal. The PNS-style caller is shared by SNS, centred PNS, BNS, and TNS tracks.
 
 ## Why use it
 
-Use it to separate signal generation from feature calling or to apply a consistent caller to an already combined track.
+Use it to change calling parameters, call a previously combined signal, or run track generation and peak calling as separate workflow stages.
 
-## Choose the caller
+## Choose the caller that matches the signal
 
 ```text
 --peak-caller pns
 --peak-caller wps
 ```
 
-Match `pns` to a signed PNS BigWig and `wps` to the WPS-family signal being evaluated. See [PNS peak calling](../ALGORITHMS.md#pns-peak-calling) and [WPS peak calling](../ALGORITHMS.md#wps-peak-calling) for the segmentation rules.
+The selected caller determines how the input signal is segmented and scored. Match `pns` to an SNS, PNS, BNS, or TNS signal and `wps` to the WPS-family signal being evaluated.
 
-## PNS example
+See [PNS peak calling](../ALGORITHMS.md#pns-peak-calling) and [WPS peak calling](../ALGORITHMS.md#wps-peak-calling) for the exact definitions.
+
+## Basic usage
 
 ```bash
 nucleosuite call-peaks \
-  --input-bigwig sample_pns.bw \
+  --input-bigwig sample_sns.bw \
   --peak-caller pns \
-  --out-prefix sample_pns_calls
+  --scoring-method sns \
+  --out-prefix sample_sns_calls
 ```
 
-The PNS caller segments positive score regions directly. Breakpoint calls apply the same region logic to the sign-inverted signal. Text BED scores remain six-decimal floating-point values after `--peak-score-scale`.
+The shared nucleosome-score caller segments positive score regions directly. Breakpoint calls apply the same region logic to the sign-inverted signal. `--scoring-method` records which score kernel produced the input and sets the method-aware bigBed conversion default.
 
-For bigBed output, `--bigbed-score-scale` converts the BED score to the integer 0–1000 field. The PNS default is `1`, so native values are rounded and clamped without additional rescaling. An explicit multiplier overrides the default.
+Text BED scores remain six-decimal floats. SNS bigBed scores are **not rescaled by default** (`--bigbed-score-scale 1`). PNS, BNS and TNS inputs default to a 1000-fold conversion because their native peak scores are fractional. An explicit `--bigbed-score-scale` overrides either default.
 
 ## WPS example
 
@@ -39,12 +42,20 @@ nucleosuite call-peaks \
   --out-prefix sample_wps_calls
 ```
 
-The WPS caller expects the WPS-family signal whose positive regions and above-median subruns should be evaluated. The standalone `wps` workflow calls from `sm_mWPS` by default.
+The WPS caller expects the WPS-family signal whose positive regions and above-median subruns should be evaluated. The default standalone `wps` workflow calls from `sm_mWPS`.
 
-## Outputs and coordinate handling
+## Outputs
 
-Depending on the selected interval format, the command writes nucleosome-region and/or breakpoint-peak BED/bigBed files plus summaries and metadata describing the calling parameters. BED8 output stores the representative call centre in column 7, which can be used directly by `distances --position-column 7`.
+Depending on the selected interval format, the command writes nucleosome-region and/or breakpoint-peak BED/bigBed files plus summaries/metadata describing the calling parameters.
 
-With multicontig processing, combined interval files contain calls from all selected contigs. `--blacklist-bed` excludes called intervals that overlap selected blacklist regions.
+NucleoSuite BED8 interval output stores the representative call centre in column 7. That position can be used directly by `distances --position-column 7`.
+
+## Chromosome-wise processing
+
+With multicontig processing, the combined interval files contain the calls from all selected contigs.
+
+## Blacklist handling
+
+`--blacklist-bed` excludes called intervals that overlap selected blacklist regions.
 
 [Back to the command reference](../COMMAND_REFERENCE.md)

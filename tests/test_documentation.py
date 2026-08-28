@@ -30,7 +30,7 @@ def test_every_command_page_explains_what_and_why() -> None:
     assert command_pages
     missing_what = [
         path.name for path in command_pages
-            if "## What this command does" not in path.read_text()
+        if "## What this command does" not in path.read_text()
     ]
     missing_why = [
         path.name for path in command_pages
@@ -85,7 +85,7 @@ def test_user_documentation_does_not_announce_plain_language_style() -> None:
 
 def test_workflow_diagrams_are_present() -> None:
     workflows = (ROOT / "docs" / "WORKFLOWS.md").read_text()
-    assert workflows.count("```mermaid") >= 2
+    assert workflows.count("```mermaid") >= 10
     for page in (
         ROOT / "docs" / "commands" / "cfdna-suite.md",
         ROOT / "docs" / "commands" / "mnase-suite.md",
@@ -97,6 +97,10 @@ def test_workflow_diagrams_are_present() -> None:
 def test_algorithm_figure_assets_exist_and_are_linked() -> None:
     algorithms = (ROOT / "docs" / "ALGORITHMS.md").read_text()
     figures = [
+        "pns_kernels_120_167_180_multipanel_single_legend.png",
+        "sns_kernels_120_167_180_mode167.png",
+        "bns_kernels_120_167_180_mode167.png",
+        "tns_kernels_120_167_180_mode167.png",
         "wps_kernels_120_167_180_multiplot.png",
         "dac_periodicity_example.png",
     ]
@@ -485,7 +489,9 @@ def test_documentation_has_no_embedded_control_characters() -> None:
     assert not failures, "Documentation contains embedded control characters: " + ", ".join(failures)
 
 
-def test_pns_documentation_uses_renderer_safe_latex() -> None:
+def test_tns_documentation_uses_renderer_safe_latex() -> None:
     text = (ROOT / "docs" / "ALGORITHMS.md").read_text()
-    assert "W(L,m)=m+|L-m|." in text
-    assert "positive mass = +100" in text
+    assert r"q_n(j)=\min\left(j,n-1-j\right)." in text
+    assert r"u^{TNS}_{m,L}(j)=\frac" in text
+    assert r"n(L,m)=\max(L,2m-L)." in text
+    assert "support length $n(L,m)$ [defined above](#combining-the-two-fragment-ends)" in text

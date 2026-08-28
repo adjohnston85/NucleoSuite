@@ -18,7 +18,7 @@ from nucleosuite.cli import (
     dyads,
     fragment_ends,
     tracks,
-    pns,
+    nuc_score,
     wps,
     ww_types,
 )
@@ -411,7 +411,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # BAM and track-generation commands.
-    pns.register(subparsers)
+    nuc_score.register(subparsers)
     wps.register(subparsers)
     coverage.register(subparsers)
     dyads.register(subparsers)
