@@ -118,7 +118,7 @@ These are descriptive summaries of the observed callsets and their genomic overl
 
 For each shared or condition-specific locus, the common anchor is the strongest coverage-scored member peak among all contributing Stage 1 clusters. Both conditions are aligned to the same ordered anchors, so heatmap rows refer to identical loci.
 
-Each treatment replicate SNS track is divided by the finite, non-zero mean of its `posSNS` track before averaging. This prevents a higher-depth replicate from determining the condition-average discovery track. The saved Stage 1 discovery method is reused for the positioning view, while raw broad coverage supplies the Stage 2 statistical measurement.
+Each treatment replicate PNS track is divided by the finite, non-zero mean of its `posPNS` track before averaging. This prevents a higher-depth replicate from determining the condition-average discovery track. The saved Stage 1 discovery method is reused for the positioning view, while raw broad coverage supplies the Stage 2 statistical measurement.
 
 The matched outputs include condition-specific heatmaps with one common symmetric colour range, replicate and replicate-combined mean profiles, cluster-bootstrap 95% bands, and directional NRLs. Defaults are ±1,000 bp around the anchor, 140 bp peak resolution, central peak order 0 included, and regression through peak orders 0–3 with no central exclusion. Each Stage 1 directory also contains an own-cluster aggregate; the Stage 2 matched aggregate is intended for direct visual comparison between conditions.
 

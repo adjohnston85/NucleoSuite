@@ -66,25 +66,15 @@ from nucleosuite.workflows.common import (
 
 PEAK_TOKENS = frozenset({"pns_peaks", "wps_peaks"})
 SEQUENCE_TOKENS = frozenset({"dinuc_profile", "ww_types", "type_dyads"})
-SNS_TOKENS = frozenset({"sns", "posSNS", "sns_smoothed"})
 PNS_TOKENS = frozenset({"pns", "posPNS", "pns_smoothed", "pns_peaks"})
-BNS_TOKENS = frozenset({"bns", "posBNS", "bns_smoothed"})
-TNS_TOKENS = frozenset({"tns", "posTNS", "tns_smoothed"})
-SCORING_TOKENS = SNS_TOKENS | PNS_TOKENS | BNS_TOKENS | TNS_TOKENS
+SCORING_TOKENS = PNS_TOKENS
 WPS_TOKENS = frozenset({"wps", "wps_smoothed", "mWPS", "sm_mWPS", "wps_peaks"})
 BASIC_TOKENS = frozenset(basic_tracks.BASIC_TRACKS)
 OUTPUT_TOKENS = BASIC_TOKENS | (SCORING_TOKENS - PEAK_TOKENS) | (WPS_TOKENS - PEAK_TOKENS)
 VALID_TOKENS = OUTPUT_TOKENS | PEAK_TOKENS | SEQUENCE_TOKENS
 ALIASES = {
-    "possns": "posSNS",
-    "positive-sns": "posSNS",
-    "sns-smoothed": "sns_smoothed",
     "pospns": "posPNS",
     "positive-pns": "posPNS",
-    "posbns": "posBNS",
-    "positive-bns": "posBNS",
-    "postns": "posTNS",
-    "positive-tns": "posTNS",
     "pns-smoothed": "pns_smoothed",
     "pns-peaks": "pns_peaks",
     "wps-smoothed": "wps_smoothed",
@@ -258,7 +248,7 @@ def load_specs(args) -> list[OutputSpec]:
                 f"{spec.output_prefix}: PNS and WPS peaks cannot share one output prefix"
             )
         smoothed_track, _score_track, _positive_track = pns_scoring.scoring_track_names(
-            getattr(args, "scoring_method", "sns")
+            "pns"
         )
         if smoothed_track in spec.tracks and args.score_smooth_window == 0:
             raise ValueError(
@@ -268,7 +258,7 @@ def load_specs(args) -> list[OutputSpec]:
 
 
 def _range_states(specs: list[OutputSpec], args) -> dict[FragmentRange, RangeState]:
-    scoring_method = getattr(args, "scoring_method", "sns")
+    scoring_method = "pns"
     states: dict[FragmentRange, RangeState] = {}
     for spec in specs:
         state = states.setdefault(spec.fragment_range, RangeState(spec.fragment_range))
@@ -323,7 +313,7 @@ def _remove_outputs(spec: OutputSpec) -> None:
 
 def _write_pns_peaks(spec, scores, region, args, mode):
     smoothed_track, score_track, _positive_track = pns_scoring.scoring_track_names(
-        getattr(args, "scoring_method", "sns")
+        "pns"
     )
     peak_track = smoothed_track if args.score_smooth_window > 0 else score_track
     values = scores[peak_track][0][2]
@@ -493,20 +483,7 @@ def _sequence_features_for_fragment(
 def run(args) -> int:
     set_random_seed(args.seed)
     specs = load_specs(args)
-    scoring_method = getattr(args, "scoring_method", "sns")
-    method_tokens = {
-        "sns": {"sns", "posSNS", "sns_smoothed"},
-        "pns": {"pns", "posPNS", "pns_smoothed"},
-        "bns": {"bns", "posBNS", "bns_smoothed"},
-        "tns": {"tns", "posTNS", "tns_smoothed"},
-    }
-    requested_scoring = set().union(*(set(spec.tracks) & (SCORING_TOKENS - {"pns_peaks"}) for spec in specs))
-    invalid_scoring = requested_scoring - method_tokens[scoring_method]
-    if invalid_scoring:
-        raise ValueError(
-            "Requested score tracks do not match --scoring-method "
-            f"{scoring_method}: {', '.join(sorted(invalid_scoring))}"
-        )
+    scoring_method = "pns"
     if any(set(spec.tracks) & SEQUENCE_TOKENS for spec in specs) and not args.fasta:
         raise ValueError("dinuc_profile, ww_types and type_dyads require --fasta")
     if any("wps_peaks" in spec.tracks for spec in specs) and args.wps_peak_track == "sm_mWPS":

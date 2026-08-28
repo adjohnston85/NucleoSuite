@@ -1,61 +1,45 @@
 # Quick start
 
-This page shows common NucleoSuite analyses as complete workflows. Replace filenames and contigs with those appropriate for your data.
+This page shows common NucleoSuite entry points. Replace filenames and contigs with those appropriate for your data.
 
 ## 1. Check the installation
 
 ```bash
 nucleosuite --version
 nucleosuite --help
-```
-
-Validate BAM/reference compatibility before a long run:
-
-```bash
 nucleosuite validate-inputs --bam sample.bam --fasta genome.fa
 ```
 
-## 2. Call nucleosome regions from a BAM
+## 2. Generate a nucleosome-oriented signal and calls
 
-Use `nuc-score` when you want a nucleosome-oriented signal and shared peak calls. The command uses SNS by default:
+Use `pns` for the length-adaptive probabilistic nucleosome score and its shared nucleosome/breakpoint peak caller:
 
 ```bash
-nucleosuite nuc-score \
+nucleosuite pns \
   --bam sample.bam \
   --fasta genome.fa \
   --contigs chr1-22,chrX \
   --cores 8 \
-  --out-prefix sample_pns
+  --out-prefix sample
 ```
 
-The most commonly reused outputs are the nucleosome-score BigWig and nucleosome-region BED/bigBed. The protected-DNA mode is estimated automatically from the unsmoothed accepted-fragment histogram and printed during execution; use `--mode 167` to fix it explicitly. SNS uses a discrete sinusoidal kernel with +50 positive and −50 negative mass per fragment. Select `--scoring-method pns`, `bns`, or `tns` for the alternative kernels; all four methods use the same PNS peak caller. See [`nuc-score`](commands/nuc-score.md), [SNS in Algorithms](ALGORITHMS.md#sinusoidal-nucleosome-scoring), [PNS in Algorithms](ALGORITHMS.md#probabilistic-nucleosome-scoring), [BNS in Algorithms](ALGORITHMS.md#boxcar-nucleosome-scoring), and [TNS in Algorithms](ALGORITHMS.md#triangular-nucleosome-scoring).
+The command estimates the protected-DNA mode from the accepted-fragment histogram unless an integer `--mode` is supplied. The default scoring bounds follow the resolved mode by `--frag-mode-padding` (30 bp). The PNS kernel has a positive mass of 100 and a negative mass of -100 per complete fragment; the positive distribution is therefore represented in percent. BigWig scores are written at their native values and are not rescaled. The `posPNS` track is a non-negative reference track for the same waveform.
 
-
-### Filter nucleosome peaks by coverage
-
-When a coverage threshold should be applied during an SNS, PNS, BNS or TNS run:
+For an existing PNS or WPS BigWig, use [`call-peaks`](commands/call-peaks.md). To require coverage at a PNS summit during generation:
 
 ```bash
-nucleosuite nuc-score \
+nucleosuite pns \
   --bam sample.bam \
   --fasta genome.fa \
   --peak-coverage-threshold 2 \
-  --out-prefix sample_pns
+  --out-prefix sample
 ```
 
-For an existing peak BED and coverage BigWig:
-
-```bash
-nucleosuite filter-peaks \
-  sample_nucleosome_regions.bed \
-  --coverage-bigwig sample_coverage.bw \
-  --min-coverage 2 \
-  --coverage-position-column 7
-```
+Use [`tracks`](commands/tracks.md) when PNS, WPS, coverage, dyads, ends, sequence profiles, or multiple fragment ranges should be produced together.
 
 ## 3. Assign empirical FDR from randomized peaks
 
-Run the observed and randomized sample with identical PNS settings, then compare their peak BEDs:
+Run the observed and randomized samples with matching fragment and peak settings, then compare their peak BEDs:
 
 ```bash
 nucleosuite empirical-peak-fdr \
@@ -63,11 +47,11 @@ nucleosuite empirical-peak-fdr \
   sample_randomized_control_nucleosome_regions.bed
 ```
 
-This always writes every observed peak with `empirical_fdr` appended. Add `--fdr 0.05` to also write a filtered BED. [`cfdna-suite`](commands/cfdna-suite.md) and [`mnase-suite`](commands/mnase-suite.md) can generate both full workflows and perform this annotation with `--with-randomized-control`.
+This writes every observed peak with empirical p-value and FDR columns. Add `--fdr 0.05` to also write a filtered BED. The cfDNA and MNase suites can generate randomized controls and perform this annotation with `--with-randomized-control`.
 
 ## 4. Run a matched CUT&RUN or CUT&Tag analysis
 
-The default `cutn-suite` run estimates treatment and control fragment modes independently before choosing an equal-weight pooled analysis mode. It then uses SNS over the resolved mode ±30 bp for peak discovery while broad 1–1,000 bp coverage is generated in the same `tracks` pass:
+`cutn-suite` uses PNS discovery with a mode-centred fragment range and broad coverage for replicate measurement:
 
 ```bash
 nucleosuite cutn-suite \
@@ -78,20 +62,14 @@ nucleosuite cutn-suite \
   --cores 8
 ```
 
-Use `--scoring-method pns`, `--scoring-method bns`, or `--scoring-method tns` to select an alternative discovery score. Use `--mode 167` to bypass automatic sampling and use exactly 167 bp for both target and control; with the default `--frag-mode-padding 30` this gives a 137–197 bp discovery range.
+Treatment and control modes are estimated independently and pooled for a compatible analysis geometry unless `--mode` is supplied. Replicate PNS BigWigs and the `posPNS` reference remain at native score values; coverage is normalized separately for Stage 1 measurements. Replicate-aware clustering, optional two-condition comparison, and downstream aggregates are recorded in the output manifests. See [`cutn-suite`](commands/cutn-suite.md).
 
-Each replicate SNS track is divided by the mean of its `posSNS` track before treatment tracks are averaged, placing replicate discovery scores on comparable scales. Broad-range coverage is independently scaled to a non-zero mean of 100 for Stage 1 treatment/control measurement, with mean coverage across each candidate interval used by default.
+## 5. Measure spacing and genomic context
 
-Clustering defaults adapt to biological replicate count. If either treatment or control has fewer than three replicates, both seed peaks (S) and gated members (G) use the all-controls rule. When both groups have at least three replicates, S requires raw one-sided Welch p < 0.05 plus mean treatment > mean control, while G uses the all-controls rule. The selected defaults are printed when the run starts. Seed and member gates can also be set explicitly.
-
-Treatment and control groups are independent and may contain different replicate counts. Use `--bam-mode merged` to pool a group. Supplying `--treatment2-bam` and `--control2-bam` adds a between-condition cluster comparison using mean raw coverage over the actual shared interval for overlapping clusters, with raw and moderated p-values and BH FDR reported. Two independently completed Stage 1 runs can instead be compared with [`cutn-compare`](commands/cutn-compare.md).
-
-## 5. Measure nucleosome spacing
-
-Use `--position-column 7` to measure from representative positions stored in BED column 7:
+Use column 7, the representative position in a peak BED, for distances:
 
 ```bash
-nucleosuite distances sample_methodpns_mode167_lower137_upper197_smooth0x2_nucleosome_regions.bed \
+nucleosuite distances sample_nucleosome_regions.bed \
   --position-column 7 \
   --min-distance 120 \
   --max-distance 250 \
@@ -99,168 +77,20 @@ nucleosuite distances sample_methodpns_mode167_lower137_upper197_smooth0x2_nucle
   --output-prefix sample_spacing
 ```
 
-The main histogram shows how often each peak-to-peak spacing occurs.
-
-## 6. Compare one main nucleosome callset with multiple callsets
-
-Use one main BED as the common reference and repeat `--compare-bed` for each additional callset:
-
-```bash
-nucleosuite compare-positions \
-  --main-bed PNS=sample_pns_nucleosomes.bed \
-  --compare-bed iNPS=sample_inps_nucleosomes.bed \
-  --compare-bed DANPOS=sample_danpos_nucleosomes.bed \
-  --stats \
-  --output-prefix sample_position_compare
-```
-
-Each comparison is matched once with one-to-one unique pairs. The smaller callset is used as the query, but percentile grouping always uses the matched **main BED score**. Quartiles are the default, and the grouped percentile boxplot places the comparison methods side-by-side within each quartile. See [`compare-positions`](commands/compare-positions.md).
-
-## 7. Measure spacing by chromatin state
-
-Pass the installed path of the bundled GM12878 state BED directly:
-
-```bash
-nucleosuite distances sample_methodpns_mode167_lower137_upper197_smooth0x2_nucleosome_regions.bed \
-  --position-column 7 \
-  --state-bed "$(nucleosuite resources path gm12878-hg19-states)" \
-  --min-distance 120 \
-  --max-distance 250 \
-  --scope combined_chromosomes \
-  --output-prefix sample_spacing_by_state
-```
-
-## 8. Compare flanking spacing across categorized reference sites
-
-If a BED contains reference-site categories in column 4, compare the spacing between the nearest upstream and downstream nucleosome calls for every category:
-
-```bash
-nucleosuite flank-spacing \
-  --nucleosome-bed sample_nucleosome_regions.bed \
-  --region-bed categorized_sites.bed \
-  --category-col 4 \
-  --output-prefix sample_flank_spacing
-```
-
-Density curves are used by default. Categories are ranked by the default 190/260 bp density ratio, with the lowest ratio ranked first. The displayed x-axis extends to 500 bp by default. See [`flank-spacing`](commands/flank-spacing.md).
-
-## 9. Aggregate signal around CTCF sites
+Aggregate a signal around reference sites:
 
 ```bash
 nucleosuite aggregate \
-  --bigwig sample_methodpns_mode167_lower137_upper197_smooth0x2_pns.bw \
+  --bigwig sample_pns.bw \
   --region-bed "$(nucleosuite resources path gm12878-hg19-ctcf)" \
   --strand-col 6 \
   --output-prefix sample_ctcf
 ```
 
-This writes the average signal pattern and an individual-region heatmap.
+For state-aware summaries, the bundled state BED can be inserted the same way: `--state-bed "$(nucleosuite resources path gm12878-hg19-states)"`. Use [`flank-spacing`](commands/flank-spacing.md) when the question is how nucleosome spacing changes on either side of a reference feature.
 
-## 10. Calculate DAC from a dyad signal
+Use [`dac`](commands/dac.md), [`dcc`](commands/dcc.md), and [`nrl`](commands/nrl.md) for signal periodicity and offsets; [`region-extract`](commands/region-extract.md), [`peak-states`](commands/peak-states.md), and [`tss-expression-quintiles`](commands/tss-expression-quintiles.md) for genomic context; and [`gene-expression`](commands/gene-expression.md) for gene-centred relationships.
 
-Use DAC when you want to detect distances at which the same signal repeats:
+## 6. Reuse existing output
 
-```bash
-nucleosuite dac \
-  --bigwig sample_dyad.bw \
-  --chrom-sizes sample.bam \
-  --scope combined_chromosomes \
-  --dmax 2000 \
-  --out-prefix sample_dac
-```
-
-Repeated nucleosome spacing appears as recurring DAC peaks. See [Distance autocorrelation](ALGORITHMS.md#distance-autocorrelation).
-
-
-## 11. Replot an existing result
-
-Once an analysis has finished, `plot` can recreate a figure directly from its TSV without rerunning the genomic calculation:
-
-```bash
-nucleosuite plot sample_dac.tsv \
-  --x-major-tick 100 \
-  --x-minor-tick 10 \
-  --nrl-inset on
-```
-
-For a heatmap, the displayed colour range can be saturated explicitly:
-
-```bash
-nucleosuite plot sample_heatmap_matrix.tsv.gz \
-  --vmin -10 \
-  --vmax 10 \
-  --x-minor-tick 10
-```
-
-See [`plot`](commands/plot.md) for automatic file detection, major/minor grid controls, and Matplotlib pass-through options.
-
-## 12. Run the coordinated suites
-
-For a standard cfDNA analysis:
-
-```bash
-nucleosuite cfdna-suite \
-  --bam sample.bam \
-  --fasta hg19.fa \
-  --resource-set hg19-gm12878 \
-  --contigs chr1-22,chrX \
-  --cores 8 \
-  --outdir sample_cfdna_suite
-```
-
-For MNase-seq:
-
-```bash
-nucleosuite mnase-suite \
-  --bam sample.bam \
-  --fasta hg19.fa \
-  --resource-set hg19-gm12878 \
-  --contigs chr1-22,chrX \
-  --cores 8 \
-  --outdir sample_mnase_suite
-```
-
-The suites coordinate fragment selection, tracks, calls, spacing, sequence profiles, and optional expression analyses in one output layout. Review the suite defaults before a large run.
-
-To run a complete observed workflow and a complete fragment-randomized workflow, then annotate the observed combined peak BEDs with empirical FDR:
-
-```bash
-nucleosuite mnase-suite \
-  --bam sample.bam \
-  --fasta hg19.fa \
-  --resource-set hg19-gm12878 \
-  --outdir sample_mnase_suite \
-  --with-randomized-control \
-  --fdr 0.05
-```
-
-## 13. Find and reuse bundled resources
-
-```bash
-nucleosuite resources list
-```
-
-Common named resources include:
-
-```bash
-nucleosuite resources path hg19-genes
-nucleosuite resources path gm12878-hg19-states
-nucleosuite resources path gm12878-hg19-ctcf
-nucleosuite resources path hg19-blacklist-v2
-nucleosuite resources path hpa-tissue-expression
-nucleosuite resources path default-gene-sets
-```
-
-Store a path in a shell variable when you will use it several times:
-
-```bash
-STATES="$(nucleosuite resources path gm12878-hg19-states)"
-GENES="$(nucleosuite resources path hg19-genes)"
-```
-
-## Where to go next
-
-- [Choosing a command](CHOOSING_A_COMMAND.md)
-- [Workflows](WORKFLOWS.md)
-- [Algorithms](ALGORITHMS.md)
-- [Command reference](COMMAND_REFERENCE.md)
+Use [`combine`](commands/combine.md) to rebuild combined chromosome outputs and [`plot`](commands/plot.md) to recreate or customize figures from saved NucleoSuite tables without rerunning the underlying analysis.

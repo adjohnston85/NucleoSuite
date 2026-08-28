@@ -1,501 +1,103 @@
-# NucleoSuite workflows
+# Workflows
 
-This page shows how NucleoSuite commands connect. Each diagram is followed by a command-line example. Command nodes in the workflow diagrams are clickable and open the corresponding command documentation.
+NucleoSuite commands can be used independently or joined into larger analyses. The common pattern is to prepare compatible fragments, create one or more signals, call or filter features, then interpret those features in genomic context.
 
-## cfDNA: from fragments to nucleosome organization
+## General analysis path
 
 ```mermaid
-flowchart TB
-    A[Paired-end cfDNA BAM or fragment BED] --> B[cfdna-suite]
-    B --> C[SNS mode 167]
-    B --> D[Dyads and fragment ends]
-    B --> E[Dinucleotide and WW/SS analyses]
-    C --> F[Peak calls]
-    D --> G[DAC]
-    G --> I[NRL]
-    F --> H[Peak spacing and NRL regression]
-    C --> S[Post-combine mean scaling]
-    S --> J[CTCF, TSS, chromatin-state, and expression analyses]
-
-    classDef commandLink color:#0969da,text-decoration:none;
-    class B,G,I commandLink;
-    click B href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/cfdna-suite.md" "Open cfdna-suite documentation"
-    click G href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/dac.md" "Open dac documentation"
-    click I href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/nrl.md" "Open nrl documentation"
+flowchart TD
+    A[Paired-end BAM or fragments] --> B[Prepare and validate]
+    B --> C[Signals and profiles]
+    C --> D[Peaks, spacing, or periodicity]
+    D --> E[Regional, state, or gene interpretation]
 ```
 
-[`cfdna-suite`](commands/cfdna-suite.md) applies cfDNA-oriented defaults and uses one filtered fragment set throughout the full analysis tree.
+Use `fragments` when an explicit fragment interval file is useful. Use `tracks` when several signal families, fragment ranges, or sequence outputs should share one fragment pass. Use `pns` or `wps` when a single positioning signal and its calls are sufficient.
+
+## PNS signal workflow
 
 ```bash
-nucleosuite cfdna-suite \
+nucleosuite pns \
   --bam sample.bam \
-  --fasta hg19.fa \
-  --resource-set hg19-gm12878 \
+  --fasta genome.fa \
   --contigs chr1-22,chrX \
   --cores 8 \
-  --outdir sample_cfdna_suite
+  --out-prefix sample
 ```
 
-Use standalone commands for individual analyses or different fragment-selection settings between outputs.
+PNS estimates a protected-DNA mode automatically unless an integer `--mode` is supplied. Its positive distribution represents probability in percent: every complete fragment contributes positive mass 100 and negative mass -100. Native PNS BigWig values and PNS peak scores are retained without score scaling. The `posPNS` track is a non-negative reference representation of the same waveform.
 
-### Observed plus randomized suite execution
+Use `call-peaks` to change calling thresholds on an existing PNS BigWig, `filter-peaks` to make a reusable subset, `distances` for peak spacing, and `aggregate` or `region-extract` for signal around reference sites.
 
-```mermaid
-flowchart TB
-    A[Observed fragments] --> B[Full observed suite]
-    A --> C[Coordinate randomization]
-    C --> D[Full randomized suite]
-    B --> E[Observed combined peaks]
-    D --> F[Randomized combined peaks]
-    E --> G[empirical-peak-fdr]
-    F --> G
-    G --> H[All peaks plus empirical p and FDR]
-```
+## WPS workflow
 
-Both coordinated suites accept `--with-randomized-control`. The randomized workflow uses the same filtering, track, scaling, and peak-calling settings. All observed combined peaks are retained with empirical p-value and FDR appended. Supplying `--fdr` also writes an additional filtered BED.
+Use `wps` when a fixed protection-window score is the relevant signal. WPS has its own fragment range, protection window, smoothing, baseline, and peak-calling options. It can be generated alongside PNS in a `tracks` pass when both representations are needed.
 
-### Nucleosome scoring followed by spacing analysis
+## `tracks` as a shared input pass
 
-```mermaid
-flowchart LR
-    A[Paired-end BAM or fragment BED] --> B[nuc-score command: SNS default]
-    B --> C[SNS BigWig]
-    B --> D[Nucleosome-region calls]
-    D --> E[distances]
-    E --> F[Nearest-neighbour spacing profile]
-
-    classDef commandLink color:#0969da,text-decoration:none;
-    class B,E commandLink;
-    click B href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/nuc-score.md" "Open nuc-score documentation"
-    click E href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/distances.md" "Open distances documentation"
-```
-
-The same workflow can use the original PNS with `--scoring-method pns`, BNS with `--scoring-method bns`, or TNS with `--scoring-method tns`; the nucleosome peak caller is unchanged.
-
-For example:
+Specify one or more fragment ranges and output tokens:
 
 ```bash
-nucleosuite nuc-score \
+nucleosuite tracks \
   --bam sample.bam \
-  --fasta hg19.fa \
-  --out-prefix sample_score
-
-nucleosuite distances sample_methodsns_mode167_lower137_upper197_smooth0x2_nucleosome_regions.bed \
-  --position-column 7 \
-  --min-distance 120 \
-  --max-distance 250 \
-  --output-prefix sample_spacing
+  --fasta genome.fa \
+  --output-dir sample_tracks \
+  --fragment-range "137-197=pns,posPNS,coverage,pns_peaks" \
+  --fragment-range "120-180=wps,sm_mWPS,wps_peaks" \
+  --fragment-range "145-147=dyad,fragment_left_ends,fragment_right_ends" \
+  --fragment-range "145-147=dinuc_profile,ww_types,type_dyads"
 ```
 
-## Matched CUT&RUN or CUT&Tag
+The same filtering and contig selection apply to all requested outputs. `pns_peaks` uses the PNS score for the specified range; `wps_peaks` uses the selected WPS calling signal. A specification file is preferable when a workflow has many ranges or output prefixes.
+
+## cfDNA and MNase-suite workflows
+
+The coordinated suites combine fragment processing, signal generation, sequence composition, peak calls, spacing, regional aggregation, and optional gene analyses. They can create randomized controls and empirical peak FDR products, and retain reports for resumption and plotting.
 
 ```mermaid
-flowchart TB
-    A[Condition 1 treatment/control BAMs] --> B[cutn-suite Stage 1]
-    B --> C[Scaled BigWigs, gated peaks and seeded clusters]
-    D[Condition 2 treatment/control BAMs] --> E[cutn-suite Stage 1]
-    E --> F[Scaled BigWigs, gated peaks and seeded clusters]
-    C --> G[cutn-compare Stage 2]
-    F --> G
-    G --> H[Differential cluster loci, overlap summaries and matched aggregates]
+flowchart TD
+    A[Filtered fragments] --> B[PNS, WPS, coverage, dyads, ends]
+    B --> C[Sequence and fragment-length profiles]
+    B --> D[Peak calls and spacing]
+    D --> E[State, regional, and gene analyses]
+    B --> F[Randomized control and empirical FDR]
 ```
 
-[`cutn-suite`](commands/cutn-suite.md) defaults to SNS discovery over the resolved mode ±30 bp (`--frag-mode-padding 30`) while broad coverage uses 1–1,000 bp fragments. Both ranges are generated together by `tracks` in one fragment pass. The narrow discovery range focuses the positioning score on nucleosome-sized fragments; the broad coverage range retains fragment abundance for measurement. Each replicate score is divided by the non-zero mean of its method-matched positive score (`posSNS`, `posPNS`, `posBNS`, or `posTNS`) before treatment replicates are averaged into the consensus discovery signal. The selected scoring method is reused throughout cluster-centred heatmaps, confidence bands and directional NRLs; SNS, BNS or TNS does not trigger an additional PNS pass. Raw coverage BigWigs are retained and independently scaled to a non-zero mean of 100 for treatment/control measurements. By default, a candidate passes only when every treatment replicate exceeds every control replicate; `--stage1-gate-mode mean` selects the less conservative mean treatment > mean control rule. Significant gate-passing peaks seed clusters at p < 0.05. `--cluster-member-mode seed-and-gated` includes both seed and other gate-passing peaks, whereas `significant-only` includes only significant seeds. The number of consecutive non-members allowed to bridge included members is controlled by `--cluster-max-non-member-gap` (default 1). Treatment and control groups are independent and may differ in size; `--bam-mode merged` pools each group. Stage 2 uses the saved coverage and method-matched normalized score tracks without revisiting BAMs. An explicit mode bypasses automatic mode estimation:
+Use `cfdna-suite` for plasma/cell-free DNA fragmentomics and `mnase-suite` for MNase-seq-oriented length, sequence, dyad, and positioning analyses. The exact options and defaults are listed on their command pages and in their bundled `--help` output.
+
+## CUT&RUN and CUT&Tag workflow
+
+`cutn-suite` is the coordinated matched target/control workflow:
 
 ```bash
 nucleosuite cutn-suite \
   --treatment1-bam target.bam \
   --control1-bam control.bam \
   --outdir target_cutn_suite \
-  --mode 167
+  --cores 8
 ```
 
-Provide all four treatment/control groups to run both stages together. Alternatively, run each Stage 1 independently and compare its manifest later:
+It estimates or accepts PNS mode, generates mode-centred PNS and broad coverage tracks, calls treatment candidates, measures coverage in each replicate, applies configurable seed/member gates, and forms clusters. PNS score BigWigs stay native. Coverage is normalized separately to mean 100 for Stage 1 measurement.
+
+Provide treatment and control inputs for a second condition to run the Stage 2 interaction comparison in the same command. Alternatively, use `cutn-compare` with two completed Stage 1 manifests. Stage 2 reuses saved tracks and cluster files rather than reopening the BAMs.
+
+## Randomized controls and FDR
+
+For an observed peak set and one or more identically processed randomized peak sets:
 
 ```bash
-nucleosuite cutn-compare \
-  --condition1-results wild_type_stage1 \
-  --condition2-results mutant_stage1 \
-  --outdir mutant_vs_wild_type
+nucleosuite empirical-peak-fdr \
+  sample_nucleosome_regions.bed \
+  sample_randomized_nucleosome_regions.bed \
+  --fdr 0.05
 ```
 
-## MNase-seq: from protected fragments to nucleosome organization
+The complete observed set receives empirical p-values and FDR. The optional threshold writes a separate filtered set. The cfDNA and MNase suites can orchestrate the randomized analysis with `--with-randomized-control`.
 
-```mermaid
-flowchart TB
-    A[MNase BAM or fragment BED] --> B[mnase-suite]
-    B --> C[SNS mode 147]
-    B --> D[Coverage, dyads, and fragment ends]
-    B --> E[Dinucleotide and WW/SS analyses]
-    C --> F[Peak calls]
-    D --> G[DAC]
-    G --> N[NRL]
-    F --> H[Peak spacing and NRL regression]
-    C --> S[Post-combine mean scaling]
-    S --> I[CTCF, TSS, chromatin-state, and expression analyses]
+## Spacing and periodicity
 
-    classDef commandLink color:#0969da,text-decoration:none;
-    class B,G,N commandLink;
-    click B href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/mnase-suite.md" "Open mnase-suite documentation"
-    click G href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/dac.md" "Open dac documentation"
-    click N href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/nrl.md" "Open nrl documentation"
-```
+Use `distances` on representative peak positions, [`flank-spacing`](commands/flank-spacing.md) for spacing on either side of reference sites, `dac` for recurrence within one signal, `dcc` for offsets between two signals, and `nrl` for a recurring-period estimate from a distance profile. Chromatin-state versions of distance analyses accept a bundled or user-supplied state BED.
 
-[`mnase-suite`](commands/mnase-suite.md) applies MNase-oriented defaults and uses one filtered fragment population across downstream outputs.
+## Rerun, combine, and plot
 
-```bash
-nucleosuite mnase-suite \
-  --bam sample.bam \
-  --fasta hg19.fa \
-  --resource-set hg19-gm12878 \
-  --contigs chr1-22,chrX \
-  --cores 8 \
-  --outdir sample_mnase_suite
-```
-
-## Generate several track classes in one pass
-
-```mermaid
-flowchart LR
-    A[Paired-end BAM or fragment BED] --> B[tracks]
-    B --> C[SNS and WPS]
-    B --> D[Coverage and dyads]
-    B --> E[Fragment ends]
-    B --> F[Sequence profiles]
-    C --> G[Peak calls]
-
-    classDef commandLink color:#0969da,text-decoration:none;
-    class B commandLink;
-    click B href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/tracks.md" "Open tracks documentation"
-```
-
-Use [`tracks`](commands/tracks.md) when several outputs should share the same fragment filtering but you do not need the full suite. A fragment is read once per chunk and can contribute to every requested fragment-length range that contains it.
-
-```bash
-nucleosuite tracks \
-  --bam sample.bam \
-  --fasta hg19.fa \
-  --output-dir sample_tracks \
-  --output-prefix sample \
-  --fragment-range "137-197=sns,posSNS,coverage,pns_peaks" \
-  --fragment-range "120-180=wps,wps_smoothed,mWPS,sm_mWPS,wps_peaks" \
-  --fragment-range "145-147=dyad,fragment_left_ends,fragment_right_ends"
-```
-
-## Generate a nucleosome signal and call peaks
-
-```mermaid
-flowchart LR
-    A[Paired-end BAM or fragment BED] --> B[Nucleosome score or WPS]
-    B --> C[BigWig signal]
-    C --> D[call-peaks]
-    D --> E[Nucleosome and breakpoint BED files]
-
-    classDef commandLink color:#0969da,text-decoration:none;
-    class D commandLink;
-    click D href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/call-peaks.md" "Open call-peaks documentation"
-```
-
-`nuc-score` and `wps` can call peaks during signal generation. [`call-peaks`](commands/call-peaks.md) applies the same callers to an existing compatible BigWig.
-
-```bash
-nucleosuite call-peaks \
-  --input-bigwig sample_sns.bw \
-  --method pns \
-  --scoring-method sns \
-  --signal both \
-  --out-prefix sample_peaks
-```
-
-## Compare nucleosome spacing between chromatin states
-
-```mermaid
-flowchart LR
-    A[Nucleosome peak BED] --> C[distances]
-    B[Chromatin-state BED] --> C
-    C --> D[State-specific spacing tables]
-    C --> E[State-specific spacing plots]
-
-    classDef commandLink color:#0969da,text-decoration:none;
-    class C commandLink;
-    click C href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/distances.md" "Open distances documentation"
-```
-
-The bundled GM12878 hg19 ChromHMM annotation can be passed directly into the command. `resources path` prints the installed path, and `$(...)` substitutes that path into `--state-bed`.
-
-```bash
-nucleosuite distances sample_nucleosome_regions.bed \
-  --position-column 7 \
-  --state-bed "$(nucleosuite resources path gm12878-hg19-states)" \
-  --min-distance 120 \
-  --max-distance 250 \
-  --output-prefix spacing_by_state
-```
-
-[`peak-states`](commands/peak-states.md) counts peaks within each state and measures how state representation changes with peak score.
-
-```bash
-nucleosuite peak-states sample_nucleosome_regions.bed \
-  --state-bed "$(nucleosuite resources path gm12878-hg19-states)" \
-  --output-prefix peak_state_counts
-```
-
-## Compare flanking nucleosome spacing across reference-site categories
-
-```mermaid
-flowchart LR
-    A[Nucleosome call BED] --> C[flank-spacing]
-    B[Categorized reference-site BED] --> C
-    C --> D[Per-site flanking spacings]
-    C --> E[Category distributions]
-    C --> F[Ranked category summary]
-
-    classDef commandLink color:#0969da,text-decoration:none;
-    class C commandLink;
-    click C href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/flank-spacing.md" "Open flank-spacing documentation"
-```
-
-Use [`flank-spacing`](commands/flank-spacing.md) when each reference site belongs to a category and the biological quantity of interest is the distance between the nearest nucleosome strictly upstream and the nearest nucleosome strictly downstream. Categories are read from BED column 4 by default.
-
-```bash
-nucleosuite flank-spacing \
-  --nucleosome-bed sample_nucleosome_regions.bed \
-  --region-bed categorized_sites.bed \
-  --category-col 4 \
-  --output-prefix categorized_flank_spacing
-```
-
-The default figure uses density curves, evaluates each curve at 190 and 260 bp, ranks categories by `y(190) / y(260)` from lowest to highest, highlights the top seven categories, and shows 0-500 bp on the x-axis. Raw count curves are available with `--distribution count`.
-
-## Detect repeating spacing with DAC and estimate NRL
-
-```mermaid
-flowchart LR
-    A[Dyad or other positional BigWig] --> B[DAC]
-    B --> C[Distance autocorrelation profile]
-    C --> D[NRL]
-    D --> E[Retained repeat peaks]
-    D --> F[Recurring-period estimate]
-
-    classDef commandLink color:#0969da,text-decoration:none;
-    class B,D commandLink;
-    click B href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/dac.md" "Open dac documentation"
-    click D href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/nrl.md" "Open nrl documentation"
-```
-
-[`dac`](commands/dac.md) measures recurrence of the same signal at each distance. A periodic signal produces DAC peaks at the repeat distance and its multiples. [`nrl`](commands/nrl.md) then fits those repeated maxima to estimate one recurring period.
-
-```bash
-nucleosuite dac \
-  --bigwig sample_dyad.bw \
-  --chrom-sizes sample.bam \
-  --scope combined_chromosomes \
-  --dmax 2000 \
-  --out-prefix sample_dac
-
-nucleosuite nrl sample_dac.tsv \
-  --peak-resolution 160 \
-  --output-prefix sample_nrl
-```
-
-See [Distance autocorrelation](ALGORITHMS.md#distance-autocorrelation) for a worked 185 bp example and figure.
-
-## Compare two positional signals with DCC
-
-```mermaid
-flowchart LR
-    A[Signal A] --> C[DCC]
-    B[Signal B] --> C
-    C --> D[Signed or absolute lag profile]
-    D --> E[Preferred A-to-B separation]
-
-    classDef commandLink color:#0969da,text-decoration:none;
-    class C commandLink;
-    click C href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/dcc.md" "Open dcc documentation"
-```
-
-[`dcc`](commands/dcc.md) measures where one signal occurs relative to another.
-
-```bash
-nucleosuite dcc bigwig \
-  --bigwig-a short_fragment_dyad.bw \
-  --bigwig-b long_fragment_dyad.bw \
-  --chrom-sizes sample.bam \
-  --signed-lags \
-  --dmax 500 \
-  --out-prefix short_vs_long
-```
-
-Positive signed lag places signal B downstream of signal A in the active coordinate orientation.
-
-## Examine signal around CTCF sites or other annotations
-
-```mermaid
-flowchart LR
-    A[BigWig signal] --> C[aggregate]
-    B[Reference-site BED] --> C
-    C --> D[Per-region matrix]
-    C --> E[Heatmap]
-    C --> F[Mean profile]
-
-    classDef commandLink color:#0969da,text-decoration:none;
-    class C commandLink;
-    click C href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/aggregate.md" "Open aggregate documentation"
-```
-
-Use [`aggregate`](commands/aggregate.md) when you want a heatmap plus the average signal around many sites. The bundled GM12878 CTCF sites can be inserted directly:
-
-```bash
-nucleosuite aggregate \
-  --bigwig sample_pns.bw \
-  --region-bed "$(nucleosuite resources path gm12878-hg19-ctcf)" \
-  --strand-col 6 \
-  --window-half 2500 \
-  --output-dir sample_ctcf_aggregate \
-  --output-prefix sample_ctcf
-```
-
-[`region-extract`](commands/region-extract.md) exports every region's signal vector and nearby peak records.
-
-## Compare one main peak callset with multiple callsets
-
-```mermaid
-flowchart LR
-    A[Main nucleosome BED] --> C[compare-positions]
-    B1[Comparison BED 1] --> C
-    B2[Comparison BED 2] --> C
-    B3[Comparison BED ...] --> C
-    C --> D[One-to-one matched pairs per comparison]
-    C --> E[Combined distance distributions]
-    C --> F[Main-score percentile groups]
-    F --> G[Grouped percentile boxplot]
-    F --> H[Optional within-percentile pairwise tests]
-    F --> I[1%-percentile median distance + IQR trend]
-
-    classDef commandLink color:#0969da,text-decoration:none;
-    class C commandLink;
-    click C href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/compare-positions.md" "Open compare-positions documentation"
-```
-
-[`compare-positions`](commands/compare-positions.md) compares one main nucleosome BED with one or more comparison BEDs using one-to-one matching. Matched pairs are grouped by the main BED score, with quartiles used by default. `--stats` performs pairwise tests separately within each percentile group. Main and comparison labels can be supplied as `LABEL=path.bed`.
-
-## Analyse fragment sequence periodicity
-
-```mermaid
-flowchart LR
-    A[Fragment BED or BAM] --> C[dinuc-profile]
-    B[Reference FASTA] --> C
-    A --> D[ww-types]
-    B --> D
-    C --> E[All 16 dinucleotide profiles]
-    D --> F[WW/SS classes and type-specific outputs]
-
-    classDef commandLink color:#0969da,text-decoration:none;
-    class C,D commandLink;
-    click C href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/dinuc-profile.md" "Open dinuc-profile documentation"
-    click D href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/ww-types.md" "Open ww-types documentation"
-```
-
-Use [`dinuc-profile`](commands/dinuc-profile.md) to measure where each dinucleotide occurs relative to the fragment centre. Use [`ww-types`](commands/ww-types.md) when you want to classify fragments by the WW/SS pattern in the centred 147-bp reference core and generate type-specific outputs.
-
-## Compare fragment-length profiles across chromatin states
-
-```mermaid
-flowchart LR
-    A[Fragments] --> C[fragment-lengths]
-    B[Chromatin-state BED] --> C
-    C --> D[Length counts by state]
-    D --> E[fragment-heatmap]
-    E --> F[State-by-length heatmap]
-
-    classDef commandLink color:#0969da,text-decoration:none;
-    class C,E commandLink;
-    click C href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/fragment-lengths.md" "Open fragment-lengths documentation"
-    click E href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/fragment-heatmap.md" "Open fragment-heatmap documentation"
-```
-
-Count fragment lengths within the bundled state annotation:
-
-```bash
-nucleosuite fragment-lengths \
-  --bam sample.bam \
-  --bed "$(nucleosuite resources path gm12878-hg19-states)" \
-  --bed-label-column 4 \
-  --output sample_state_lengths.tsv
-```
-
-Then use [`fragment-heatmap`](commands/fragment-heatmap.md) to compare the resulting state-specific profiles. Row-percentage normalization shows the fragment-length distribution within each state; fragment-length z-scores highlight states that are relatively enriched or depleted for each length.
-
-## Gene-centred analysis with bundled resources
-
-```mermaid
-flowchart LR
-    A[Signal or distance profile] --> C[Gene-centred analysis]
-    B[Bundled hg19 genes and expression] --> C
-    C --> D[TSS-expression quintiles]
-    C --> E[Gene-expression correlation or ranking]
-
-    classDef commandLink color:#0969da,text-decoration:none;
-    class D,E commandLink;
-    click D href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/tss-expression-quintiles.md" "Open tss-expression-quintiles documentation"
-    click E href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/gene-expression.md" "Open gene-expression documentation"
-```
-
-The bundled hg19 gene BED and HPA tissue-expression table can be passed directly into commands:
-
-```bash
-GENES="$(nucleosuite resources path hg19-genes)"
-EXPR="$(nucleosuite resources path hpa-tissue-expression)"
-```
-
-Use [`tss-expression-quintiles`](commands/tss-expression-quintiles.md) to group genes by expression and compare signal around their TSSs. Use [`gene-expression`](commands/gene-expression.md) to relate expression profiles to gene-level spacing or periodicity measures.
-
-## Chromosome-wise execution and combination
-
-```mermaid
-flowchart TB
-    A[Selected chromosomes or scaffolds] --> B[Per-contig worker jobs]
-    B --> C[Per-contig outputs and sufficient statistics]
-    C --> D[combine]
-    D --> E[Combined tables and intervals]
-    E --> F[Combined BigWigs and bigBeds]
-
-    classDef commandLink color:#0969da,text-decoration:none;
-    class D commandLink;
-    click D href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/combine.md" "Open combine documentation"
-```
-
-Many commands can split indexed inputs by contig. Per-contig calculations are completed first, then raw counts, products, opportunities, and interval records are combined before derived percentages or normalized values are recalculated.
-
-To defer the combine stage:
-
-```bash
-nucleosuite dyads ... --cores 4 --skip-combine
-nucleosuite combine --input-dir sample_dyads_multicontig
-```
-
-If the per-contig work is already complete, [`combine`](commands/combine.md) can reconstruct the combined outputs without rerunning the analysis itself.
-
-## Randomized controls
-
-```mermaid
-flowchart LR
-    A[Observed fragments] --> B[randomize-fragments]
-    B --> C[Materialized randomized fragment set]
-    C --> D[Same downstream tracks or suite]
-    D --> E[Randomized-control outputs]
-
-    classDef commandLink color:#0969da,text-decoration:none;
-    class B commandLink;
-    click B href "https://github.com/adjohnston85/NucleoSuite/blob/main/docs/commands/randomize-fragments.md" "Open randomize-fragments documentation"
-```
-
-[`randomize-fragments`](commands/randomize-fragments.md) changes fragment coordinates while preserving selected fragment properties and placement constraints. Process observed and randomized fragments with the same downstream settings for a positional null comparison.
-
-The `cfdna-suite` and `mnase-suite` commands provide randomized-only workflow execution with `--randomize` and paired full execution with `--with-randomized-control`.
-
-When observed and randomized peak calls already exist, [`empirical-peak-fdr`](commands/empirical-peak-fdr.md) reports pooled empirical p-values and monotonic empirical FDR values without positional matching:
-
-```bash
-nucleosuite empirical-peak-fdr observed_peaks.bed randomized_peaks.bed --fdr 0.05
-```
+Use `combine` after a chromosome-wise run when combined outputs were skipped or need to be regenerated. Use `plot` to recreate or customize figures from saved TSV outputs. `cutn-suite --rerun-from` reuses compatible per-replicate tracks to change downstream gates, clustering, Stage 2, or aggregate settings without rebuilding the initial PNS and coverage tracks.

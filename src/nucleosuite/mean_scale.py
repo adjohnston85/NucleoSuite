@@ -546,7 +546,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--reference-bigwig",
         help=(
             "BigWig whose finite non-zero mean defines the reference mean. Useful "
-            "for scaling a centred TNS/BNS/PNS track by its matching positive track."
+            "for scaling a centred PNS track by its matching positive track."
         ),
     )
     parser.add_argument(

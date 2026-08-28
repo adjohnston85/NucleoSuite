@@ -62,7 +62,7 @@ def test_fragments_command_combines_interval_inputs(tmp_path: Path):
 
 def test_pns_parser_accepts_fragment_bed_input():
     parser = build_parser()
-    args = parser.parse_args(["nuc-score", "--fragments", "sample.bed.gz"])
+    args = parser.parse_args(["pns", "--fragments", "sample.bed.gz"])
     assert args.fragment_files == ["sample.bed.gz"]
     assert args.bamfiles is None
 

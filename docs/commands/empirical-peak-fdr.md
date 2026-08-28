@@ -48,6 +48,6 @@ See [Empirical randomized-peak FDR](../ALGORITHMS.md#empirical-randomized-peak-f
 ## Related commands
 
 - [`randomize-fragments`](randomize-fragments.md) — generate coordinate-randomized fragment controls.
-- [`nuc-score`](nuc-score.md) — generate SNS/PNS/BNS/TNS score tracks and peaks.
+- [`pns`](pns.md) — generate native PNS score tracks and peaks.
 
 [Back to the command reference](../COMMAND_REFERENCE.md)

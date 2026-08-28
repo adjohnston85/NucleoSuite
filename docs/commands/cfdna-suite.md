@@ -2,11 +2,11 @@
 
 ## What this command does
 
-`cfdna-suite` runs the coordinated cfDNA NucleoSuite workflow. With multiple contigs, tracks are produced per contig, combined, and then the normalization and downstream analyses are run once on the combined data.
+`cfdna-suite` coordinates cfDNA fragment preparation, PNS and coordinate tracks, sequence profiles, peak calls, spacing, periodicity, regional aggregation, and optional gene analyses. With multiple contigs, it processes and combines chromosome-wise outputs before running combined downstream analyses.
 
 ## Why use it
 
-Use the suite when the cfDNA track, sequence, spacing, periodicity and regional analyses should share the same fragment filtering, resources, provenance, combination step and post-combine normalization. Use standalone commands when only one analysis is needed or when different filters are required between analyses.
+Use it for a reproducible cfDNA analysis that carries one set of filtering, fragment ranges, and output conventions through signal generation and downstream interpretation.
 
 ## Basic usage
 
@@ -20,76 +20,40 @@ nucleosuite cfdna-suite \
   --outdir sample_cfdna_suite
 ```
 
-## Workflow
-
-```mermaid
-flowchart TB
-    A[cfDNA BAM or fragments] --> B[cfdna-suite]
-    B --> C[SNS, dyads, ends, sequence]
-    C --> D[Combine chromosomes]
-    D --> E[Scale SNS, posSNS, coverage]
-    D --> F[DAC from ranged dyads]
-    F --> G[NRL]
-    E --> H[Aggregate and regional analyses]
-    D --> I[SNS peak distances]
-```
+Use standalone commands when only one signal or analysis is needed, or when separate analyses require different filtering.
 
 ## Main defaults
 
 | Setting | cfDNA default |
 |---|---|
-| SNS | 137–197 bp fragments; mode 167 bp |
+| PNS fragment range | 137–197 bp; mode 167 bp |
 | Exact dyads and fragment ends | 145, 161, 167 bp |
-| Ranged dyads/ends, DAC and WW/SS | 144–146, 160–162, 166–168 bp |
-| SNS nucleosome distances | order 1 to 500 bp; orders 1–7 to 1500 bp |
+| Ranged dyads/ends, DAC, and WW/SS | 144–146, 160–162, 166–168 bp |
+| PNS peak distances | order 1 to 500 bp; orders 1–7 to 1500 bp |
 | Long DAC-derived NRL | 1–1500 bp, resolution 160; first called peak excluded from regression |
 | Short periodicity | 1–144 bp, resolution 1 |
-| Intermediate periodicity | 147–220, 163–220, 169–220 bp respectively; resolution 8 |
 
+## Workflow
 
-## Post-combine normalization
+```mermaid
+flowchart TB
+    A[cfDNA BAM or fragments] --> B[Filter and combine]
+    B --> C[PNS, coverage, dyads, ends, sequence]
+    C --> D[Peaks, spacing, and periodicity]
+    D --> E[Regional and gene analyses]
+    C --> F[Optional randomized control and FDR]
+```
 
-After chromosome combination, the suite retains the raw combined outputs and creates normalized analysis inputs:
+The PNS track uses the fixed length-adaptive kernel described in [Algorithms](../ALGORITHMS.md). Its positive distribution is represented in percent, with positive mass 100 and negative mass -100 per complete fragment. Raw PNS and `posPNS` BigWigs and PNS peak scores are retained without score scaling. Coverage is the only signal normalized by the suite, and that normalization is a separate mean-100 product used where coverage comparisons require it.
 
-- coverage is mean-scaled to 100;
-- posSNS is mean-scaled to 100;
-- SNS is scaled to 100 using the mean column-5 score of the raw combined SNS nucleosome calls as its reference mean;
-- combined SNS nucleosome-region BED scores are mean-scaled to 100;
-- combined SNS breakpoint-peak BED scores are mean-scaled to 100.
+## Downstream analyses
 
-The mean-scaled nucleosome and breakpoint BEDs are the peak files used by downstream suite analyses. SNS aggregate analyses (including CTCF, TSS and tissue-expression-quintile aggregation) use the scaled SNS track. Regional extraction uses the mean-scaled peak BEDs together with scaled SNS and scaled coverage.
+The suite can produce PNS peak calls, breakpoint calls, ChromHMM-stratified spacing, CTCF/TSS aggregation, TSS expression quintiles, region extraction, fragment-length profiles and heatmaps, optional PNS gene-expression analysis, positive runs, peak-score distributions, dinucleotide profiles, WW/SS classifications, and type-specific dyads. Exact resources and feature toggles are listed by `nucleosuite cfdna-suite --help-all`.
 
-## DAC and NRL
-
-DAC is calculated from each ranged dyad track. Each DAC profile feeds three `nrl` analyses:
-
-1. 1–1500 bp, resolution 160, with `--skip-first-peaks 1`;
-2. 1–144 bp, resolution 1;
-3. an intermediate window at resolution 8, starting one base above the upper fragment bound: 147, 163, or 169 bp and ending at 220 bp.
-
-The skipped first long-range peak remains called and labelled in the NRL profile but is not used by the regression; regression numbering therefore begins with Peak 2.
-
-## Peak spacing
-
-The combined SNS nucleosome calls receive two distance analyses:
-
-- adjacent/order-1 spacing from 1–500 bp;
-- orders 1–7 from 1–1500 bp with combined regression to estimate NRL.
-
-## Other downstream analyses
-
-The suite performs SNS peak calls, ChromHMM-stratified SNS spacing, CTCF/TSS aggregation, TSS expression quintiles, region extraction, fragment-length profiles and heatmaps, optional SNS gene-expression analysis, SNS positive runs, SNS peak-score-frequency analyses, dinucleotide profiles, WW/SS classification and WW/SS type-specific dyads.
-
-`peak-score-frequency` uses the mean-scaled nucleosome and breakpoint BEDs directly with `--score-scale 1`; no additional display scaling is applied.
-
-## Randomization, resources and resume
-
-`--randomize` creates one validated randomized fragment set and runs randomized-only analysis through the same suite tree.
-
-`--with-randomized-control` runs the complete observed workflow followed by the complete randomized workflow with identical settings. Once both combined, mean-scaled nucleosome and breakpoint peak BEDs exist, the empirical randomized-peak comparison appends `empirical_p_value` and `empirical_fdr` columns to every observed combined peak. Add `--fdr 0.05` to also write FDR-filtered combined BEDs. The randomized files remain available for QC and reuse.
+`--randomize` runs a randomized-only analysis. `--with-randomized-control` runs observed and randomized workflows with identical settings and appends empirical p-value/FDR columns to observed combined peak BEDs. Add `--fdr 0.05` for separate filtered BEDs.
 
 `--resource-set hg19-gm12878` supplies compatible bundled annotations. `--resume`, `--force`, and `--dry-run` control recovery and planning.
 
-See [Output layout](../OUTPUT_LAYOUT.md), [Workflows](../WORKFLOWS.md), and the command-line help for the full accepted option set.
+See [Output layout](../OUTPUT_LAYOUT.md), [Workflows](../WORKFLOWS.md), and the command-line help for all options.
 
 [Back to the command reference](../COMMAND_REFERENCE.md)

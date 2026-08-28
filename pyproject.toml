@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nucleosuite"
-version = "0.11.2"
+version = "0.11.3"
 description = "Nucleosome, chromatin and fragmentomics analysis from genomic sequencing data"
 readme = "README.md"
 requires-python = ">=3.10"

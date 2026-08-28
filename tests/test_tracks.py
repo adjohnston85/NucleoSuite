@@ -198,7 +198,7 @@ def test_tracks_cli_defaults_leave_sparse_coordinate_values_unlimited():
     ])
     assert args.max_duplicates == 1
     assert args.max_per_coordinate == 0
-    assert args.scoring_method == "sns"
+    assert not hasattr(args, "scoring_method")
 
 
 def test_wps_peak_overlap_is_validated_after_specs_load(tmp_path):

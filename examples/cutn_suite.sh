@@ -10,7 +10,6 @@ nucleosuite cutn-suite \
   --treatment1-bam "$TARGET_BAM" \
   --control1-bam "$CONTROL_BAM" \
   --outdir "$OUTDIR" \
-  --scoring-method tns \
   --mode "$MODE" \
   --frag-lower 120 \
   --frag-upper 500

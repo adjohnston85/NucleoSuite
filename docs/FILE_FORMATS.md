@@ -151,7 +151,7 @@ The default category labels are `active_genes`, `weak_genes`, `repressed_genes`,
 
 ### Peak BED8
 
-`nuc-score`, `wps`, `call-peaks`, and filtered peak output from `distances` use BED8:
+`pns`, `wps`, `call-peaks`, and filtered peak output from `distances` use BED8:
 
 ```text
 chrom    chromStart    chromEnd    name    score    strand    thickStart    thickEnd
@@ -168,7 +168,7 @@ chrom    chromStart    chromEnd    name    score    strand    thickStart    thic
 | 7 | `thickStart` | Representative call centre |
 | 8 | `thickEnd` | Representative call centre plus one base |
 
-For SNS/PNS/BNS/TNS score-derived calls, column 7 is the retained positive- or negative-region midpoint; for WPS it is the selected above-median subrun midpoint. Score-derived BED files preserve six decimal places in column 5. During bigBed conversion, SNS uses `--bigbed-score-scale 1` by default, while PNS, BNS and TNS use 1000; the scaled value is rounded to the nearest integer and clamped to 0–1000. Commands that accept peak tracks, including `region-extract`, use column 7 by default.
+For PNS score-derived calls, column 7 is the retained positive- or negative-region midpoint; for WPS it is the selected above-median subrun midpoint. Score-derived BED files preserve six decimal places in column 5. During bigBed conversion, PNS uses `--bigbed-score-scale 1` by default; the value is rounded to the nearest integer and clamped to 0–1000. Commands that accept peak tracks, including `region-extract`, use column 7 by default.
 
 ### Empirical peak comparison BED
 
@@ -219,13 +219,13 @@ Combined BigWigs are created after tabular and interval outputs. The default met
 
 BigWig and bigBed are indexed binary genomic formats described by Kent et al. (2010). BigWig files use the `.bw` extension and are read or written with pyBigWig. Newly generated BigWigs use the BAM-derived canonical namespace. Analyses resolve exact names first and then conservative `chr`/non-`chr` and mitochondrial aliases when matching support files or existing tracks.
 
-`mean-scale --reference-bigwig` divides one BigWig by the finite, non-zero mean of another. `cutn-suite` uses this relationship to normalize SNS by `posSNS`, PNS by `posPNS`, BNS by `posBNS`, or TNS by `posTNS`. Mode-centred score/positive-score tracks and broad 1–1,000 bp coverage are generated together in one `tracks` pass per replicate. Coverage is then divided by its own finite non-zero mean and multiplied by 100. Maximum values from those broad-range scaled coverage tracks become the Stage 1 peak measurements, while the same method-matched normalized score tracks are reused for cluster-centred aggregate positioning.
+`mean-scale --reference-bigwig` divides one BigWig by the finite, non-zero mean of another. It remains available for explicit downstream normalization. `cutn-suite` does not apply it to PNS or `posPNS`: mode-centred native PNS tracks and broad 1–1,000 bp coverage are generated together in one `tracks` pass per replicate. Coverage is then divided by its own finite non-zero mean and multiplied by 100. Maximum or mean values from those normalized coverage tracks become the Stage 1 peak measurements, while native PNS tracks provide cluster-centred positioning.
 
-Score normalization is performed per replicate before averaging so a replicate with greater sequencing depth does not receive greater weight during candidate discovery. Coverage is normalized separately because it provides the peak-abundance measurements used for statistical comparison; the model-derived TNS/BNS/PNS height is used only to define candidate locations and boundaries.
+PNS score normalization is not performed before averaging; each complete fragment already uses the percent-based +100/-100 kernel convention and the native score is retained. Coverage is normalized separately because it provides the peak-abundance measurements used for statistical comparison; PNS height defines candidate locations and boundaries.
 
-Standalone `nuc-score` writes `*_fragment_mode_estimation.tsv`. The table records whether the mode was automatic or explicit, the resolved numeric mode, seed, bootstrap interval, sampled and in-range fragment counts, search bounds, histogram-smoothing setting, convergence result, checkpoint count, and the length:count histogram. Automatic mode estimation uses unsmoothed counts by default. `wps` uses its explicit protection-window and fragment-range settings and does not write a mode-estimation report.
+Standalone `pns` writes `*_fragment_mode_estimation.tsv`. The table records whether the mode was automatic or explicit, the resolved numeric mode, seed, bootstrap interval, sampled and in-range fragment counts, search bounds, histogram-smoothing setting, convergence result, checkpoint count, and the length:count histogram. Automatic mode estimation uses unsmoothed counts by default. `wps` uses its explicit protection-window and fragment-range settings and does not write a mode-estimation report.
 
-`cutn_stage1_manifest.json` records the score method, treatment/control modes, fragment limits, contigs, input mode, Stage 1 statistical method, peak and cluster paths, condition-mean tracks, separate treatment/control replicate records, replicate method-matched score/positive-score normalization, cluster anchors, and aggregate outputs. `cutn-compare` reads these saved paths directly and validates compatible scoring geometry before measurement.
+`cutn_stage1_manifest.json` records the PNS score method, treatment/control modes, fragment limits, contigs, input mode, Stage 1 statistical method, peak and cluster paths, condition-mean tracks, separate treatment/control replicate records, native PNS/`posPNS` paths, normalized coverage paths, cluster anchors, and aggregate outputs. `cutn-compare` reads these saved paths directly and validates compatible scoring geometry before measurement.
 
 `differential_clusters.tsv` contains cluster-locus coordinates, Stage 1 support flags, `region_origin`, source-cluster counts and IDs, the genomic intervals and base count used for measurement, replicate mean raw-coverage values from the four independent groups, raw and log2 group means, raw and log2 interaction differences, within-condition enrichment bounds, effect direction, replicate-consistency class, ordinary and empirical-Bayes moderated p-values, BH differential FDR, ordinary and moderated standard errors and 95% confidence intervals, residual and posterior variances, and status. For loci supported by both conditions, measurement is restricted to the actual overlapping genomic section by default; condition-specific loci use the full locus. `region_origin` is `overlap_union`, `condition1_only`, or `condition2_only`. Directional BEDs include the same differential statistics. P-values and FDR are blank unless every group contains at least two biological replicates.
 

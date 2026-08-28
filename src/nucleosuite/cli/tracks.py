@@ -10,8 +10,7 @@ from nucleosuite.cli.common import add_interval_output_arguments
 
 
 TRACK_HELP = (
-    "Track names may include sns, posSNS, sns_smoothed, pns, posPNS, pns_smoothed, "
-    "bns, posBNS, bns_smoothed, tns, posTNS, tns_smoothed, wps, wps_smoothed, mWPS, sm_mWPS, coverage, dyad, fragment_ends, "
+    "Track names may include pns, posPNS, pns_smoothed, wps, wps_smoothed, mWPS, sm_mWPS, coverage, dyad, fragment_ends, "
     "fragment_left_ends, fragment_right_ends, pns_peaks, wps_peaks, dinuc_profile, ww_types and type_dyads."
 )
 
@@ -58,7 +57,7 @@ def register(subparsers):
         metavar="RANGE=TRACKS",
         help=(
             "Repeated range specification, for example "
-            "137-197=sns,posSNS,wps,coverage,pns_peaks,wps_peaks or "
+            "137-197=pns,posPNS,wps,coverage,pns_peaks,wps_peaks or "
             "145=dyad,fragment_left_ends,fragment_right_ends. " + TRACK_HELP
         ),
     )
@@ -135,15 +134,6 @@ def register(subparsers):
     from nucleosuite.parallel import add_parallel_arguments
     add_parallel_arguments(parser, combine_resources=True, resumable=True)
 
-    parser.add_argument(
-        "--scoring-method", choices=("sns", "pns", "bns", "tns"), default="sns",
-        help=(
-            "Nucleosome score generated for scoring-enabled ranges. Request the "
-            "matching method-specific track names in --fragment-range. SNS is "
-            "available as sns,posSNS,sns_smoothed (default: sns)."
-        ),
-    )
-
     # Nucleosome-score settings shared by every score-enabled range.
     parser.add_argument("--score-mode-length", type=int, default=167, help="Modal protected-DNA length defining nucleosome-score geometry for every scoring range (default: 167 bp).")
     parser.add_argument("--score-smooth-window", type=int, default=0, help="Savitzky-Golay score smoothing window; 0 disables smoothing (default: 0).")
@@ -158,8 +148,8 @@ def register(subparsers):
         "--bigbed-score-scale", type=float, default=None,
         help=(
             "Multiplier applied to floating score-derived peak BED scores during bigBed "
-            "conversion before integer rounding/clamping. SNS defaults to 1 (no score "
-            "rescaling); PNS, BNS and TNS default to 1000. WPS peak conversion is unchanged."
+            "conversion before integer rounding/clamping. PNS defaults to 1 (no score "
+            "rescaling). WPS peak conversion is unchanged."
         ),
     )
 
@@ -243,7 +233,8 @@ def _validate(args) -> None:
 
 def run(args):
     if args.bigbed_score_scale is None:
-        args.bigbed_score_scale = 1.0 if args.scoring_method == "sns" else 1000.0
+        args.bigbed_score_scale = 1.0
+    args.scoring_method = "pns"
     _validate(args)
     from nucleosuite.workflows import tracks as workflow
     from nucleosuite.parallel import run_tracks_per_contig

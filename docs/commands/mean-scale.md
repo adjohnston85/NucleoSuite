@@ -50,11 +50,11 @@ nucleosuite mean-scale PNS.bw \
 
 `--normalization-mean` is an alias for `--reference-mean`. `--regions` and `--reference-mean` are mutually exclusive.
 
-A second BigWig can define the reference mean. This is used by `cutn-suite` to divide a centred score track by its matching positive-score mean:
+A second BigWig can define the reference mean. This is useful for explicit downstream comparisons; `cutn-suite` retains native PNS score BigWigs and does not apply this operation to them:
 
 ```bash
-nucleosuite mean-scale target_tns.bw \
-  --reference-bigwig target_posTNS.bw \
+nucleosuite mean-scale target_pns.bw \
+  --reference-bigwig target_posPNS.bw \
   --scale 1
 ```
 
@@ -143,6 +143,6 @@ A companion `*_mean_scale_summary.tsv` records the input, output format, referen
 
 ## Suite use
 
-The cfDNA and MNase suites perform their mean-scaling stage after chromosome combination. Combined coverage and posSNS are mean-scaled to 100. SNS uses the mean score of the raw combined nucleosome calls as its reference, and the combined nucleosome-region and breakpoint-peak BED scores are each mean-scaled to 100. Those mean-scaled peak BEDs are then used for downstream peak-based suite analyses.
+The cfDNA and MNase suites normalize coverage after chromosome combination when coverage-based comparisons require it. PNS and `posPNS` BigWigs, along with PNS nucleosome and breakpoint peak scores, remain native and are passed to downstream peak-based analyses without suite-level score normalization.
 
 [Back to the command reference](../COMMAND_REFERENCE.md)

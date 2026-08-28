@@ -13,7 +13,7 @@ Each command page describes the calculation, a typical invocation, analysis opti
 ## Build genomic signals
 
 - [`tracks`](commands/tracks.md) — make several fragment-derived tracks in one fragment pass.
-- [`nuc-score`](commands/nuc-score.md) — calculate SNS, PNS, BNS or TNS and call positive/negative regions; SNS is the standalone default.
+- [`pns`](commands/pns.md) — calculate the length-adaptive probabilistic nucleosome score and call positive/negative regions.
 - [`wps`](commands/wps.md) — calculate WPS-family tracks and WPS peak calls.
 - [`coverage`](commands/coverage.md) — count fragment coverage per base.
 - [`mean-scale`](commands/mean-scale.md) — mean-normalize BigWig signal or BED-family scores relative to a calculated or supplied reference mean.
@@ -24,7 +24,7 @@ Each command page describes the calculation, a typical invocation, analysis opti
 
 ## Analyse peaks and spacing
 
-- [`call-peaks`](commands/call-peaks.md) — call nucleosome-score or WPS features from an existing signal track.
+- [`call-peaks`](commands/call-peaks.md) — call PNS or WPS features from an existing signal track.
 - [`empirical-peak-fdr`](commands/empirical-peak-fdr.md) — compare observed peaks with fragment-randomized peak callsets and report empirical p-values and FDR.
 - [`filter-peaks`](commands/filter-peaks.md) — filter peak intervals by score, score percentile, region length, and/or BigWig coverage.
 - [`peak-score-frequency`](commands/peak-score-frequency.md) — compare peak-score distributions.
@@ -52,8 +52,8 @@ Each command page describes the calculation, a typical invocation, analysis opti
 
 - [`cfdna-suite`](commands/cfdna-suite.md) — coordinated cfDNA fragmentomics workflow.
 - [`mnase-suite`](commands/mnase-suite.md) — coordinated MNase-seq workflow.
-- [`cutn-suite`](commands/cutn-suite.md) — matched CUT&RUN/CUT&Tag target-control nucleosome-score workflow.
-- [`cutn-compare`](commands/cutn-compare.md) — compare Stage 1 cluster loci, overlap, occupied bases and matched PNS aggregates between conditions.
+- [`cutn-suite`](commands/cutn-suite.md) — matched CUT&RUN/CUT&Tag target-control PNS workflow.
+- [`cutn-compare`](commands/cutn-compare.md) — compare Stage 1 cluster loci, overlap, occupied bases, and matched PNS aggregates between conditions.
 
 ## Replot and customize figures
 

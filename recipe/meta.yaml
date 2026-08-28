@@ -1,5 +1,5 @@
 {% set name = "nucleosuite" %}
-{% set version = "0.11.2" %}
+{% set version = "0.11.3" %}
 
 package:
   name: {{ name|lower }}
@@ -53,7 +53,7 @@ test:
     - nucleosuite --version
     - nucleosuite --help
     - nucleosuite tracks --help
-    - nucleosuite nuc-score --help
+    - nucleosuite pns --help
     - nucleosuite dyads --help
     - nucleosuite aggregate --help
     - nucleosuite dac --help

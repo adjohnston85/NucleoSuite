@@ -189,7 +189,7 @@ def add_fragment_input_arguments(
         "--blacklist-bed",
         help=(
             "Optional BED of excluded regions. Complete fragments overlapping any "
-            "blacklisted base are removed before PNS, BNS, TNS, WPS, coverage, dyad, "
+            "blacklisted bases are removed before PNS, WPS, coverage, dyad, "
             "fragment-end and sequence-derived tracks are calculated."
         ),
     )

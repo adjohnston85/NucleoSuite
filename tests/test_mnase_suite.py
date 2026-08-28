@@ -63,7 +63,7 @@ def test_packaged_mnase_suite_accepts_multiple_contig_tokens(tmp_path):
 def test_packaged_mnase_suite_forwards_contigs_as_array():
     text = files("nucleosuite").joinpath("resources/mnase_full_suite.sh").read_text()
     assert 'CONTIGS=("autosomes")' in text
-    assert 'SNS_TRACK_LIST="sns,posSNS,coverage,dyad,fragment_ends,fragment_left_ends,fragment_right_ends,pns_peaks"' in text
+    assert 'PNS_TRACK_LIST="pns,posPNS,coverage,dyad,fragment_ends,fragment_left_ends,fragment_right_ends,pns_peaks"' in text
     assert 'FINE_FRAG_LOWER=146' in text and 'FINE_FRAG_UPPER=148' in text
     assert 'EXACT_SIZE=147' in text
     assert 'DINUC_EXACT_A=145' in text and 'DINUC_EXACT_B=147' in text
@@ -155,10 +155,10 @@ def test_packaged_mnase_suite_runs_three_nrl_profiles_per_dac():
 
 def test_packaged_mnase_suite_uses_pns_for_optional_expression_and_state_overlays():
     text = files("nucleosuite").joinpath("resources/mnase_full_suite.sh").read_text()
-    assert 'run_gene_expression SNS sns "$SNS_CALL_NUC" "$SNS_ANALYSIS_BW"' in text
+    assert 'run_gene_expression PNS pns "$PNS_CALL_NUC" "$PNS_ANALYSIS_BW"' in text
     assert 'run_gene_expression WPS' not in text
     assert '--state-overlay-plot' in text
-    assert '13_compare_positions_sns_vs_wps' not in text
+    assert '13_compare_positions_pns_vs_wps' not in text
     assert 'WPS_CALL_NUC' not in text
     assert 'DCC_DIR=' not in text
 
@@ -190,17 +190,17 @@ def test_both_suites_bind_tracks_to_their_combined_track_directory():
 
 def test_mnase_peak_output_guards_use_the_defined_fatal_function():
     text = files("nucleosuite").joinpath("resources/mnase_full_suite.sh").read_text()
-    assert '|| die "SNS nucleosome peak file' not in text
-    assert '|| die "SNS breakpoint peak file' not in text
-    assert '|| fatal "SNS nucleosome peak file' in text
-    assert '|| fatal "SNS breakpoint peak file' in text
+    assert '|| die "PNS nucleosome peak file' not in text
+    assert '|| die "PNS breakpoint peak file' not in text
+    assert '|| fatal "PNS nucleosome peak file' in text
+    assert '|| fatal "PNS breakpoint peak file' in text
 
 
-def test_packaged_mnase_suite_runs_positive_runs_for_sns_only():
+def test_packaged_mnase_suite_runs_positive_runs_for_pns_only():
     text = files("nucleosuite").joinpath("resources/mnase_full_suite.sh").read_text()
-    assert '12_positive_runs_sns' in text
+    assert '12_positive_runs_pns' in text
     assert '12_positive_runs_wps' not in text
-    assert '--bigwig "$SNS_ANALYSIS_BW"' in text
+    assert '--bigwig "$PNS_ANALYSIS_BW"' in text
 
 
 def test_mnase_suite_removes_dcc_and_uses_updated_ranges():
@@ -213,10 +213,10 @@ def test_mnase_suite_removes_dcc_and_uses_updated_ranges():
     assert 'FRAG_COUNT_MIN=100' in script and 'FRAG_COUNT_MAX=1000' in script
 
 
-def test_mnase_suite_plots_sns_peak_score_frequencies_only():
+def test_mnase_suite_plots_pns_peak_score_frequencies_only():
     script = Path("src/nucleosuite/resources/mnase_full_suite.sh").read_text()
-    assert '13_peak_scores_sns_nucleosome' in script
-    assert '13_peak_scores_sns_breakpoint' in script
+    assert '13_peak_scores_pns_nucleosome' in script
+    assert '13_peak_scores_pns_breakpoint' in script
     assert '13_peak_scores_wps' not in script
     assert '--peaks "${RUN_MODE}=$peaks"' in script
 
@@ -289,51 +289,53 @@ def test_suites_use_integer_peak_score_bins():
         assert "--peak-score-bins" not in text
 
 
-def test_suites_include_sns_tissue_expression_quintile_tss_analysis():
+def test_suites_include_pns_tissue_expression_quintile_tss_analysis():
     for script_name in ("mnase_full_suite.sh", "cfdna_full_suite.sh"):
         text = files("nucleosuite").joinpath("resources", script_name).read_text()
         assert 'TSS_EXPRESSION_TISSUE="bone_marrow"' in text
         assert 'tss-expression-quintiles' in text
-        assert 'run_tss_expression_quintiles SNS' in text
+        assert 'run_tss_expression_quintiles PNS' in text
         assert 'run_tss_expression_quintiles WPS' not in text
 
 
-def test_cfdna_tss_quintiles_use_scaled_sns_and_requested_ranges():
+def test_cfdna_tss_quintiles_use_native_pns_and_requested_ranges():
     text = files("nucleosuite").joinpath("resources/cfdna_full_suite.sh").read_text()
-    assert 'SNS_FRAG_LOWER=137' in text and 'SNS_FRAG_UPPER=197' in text and 'SNS_MODE_LENGTH=167' in text
+    assert 'PNS_FRAG_LOWER=137' in text and 'PNS_FRAG_UPPER=197' in text and 'PNS_MODE_LENGTH=167' in text
     assert 'EXACT_LENGTHS=(145 161 167)' in text
     assert 'RANGE_SPECS=("144:146" "160:162" "166:168")' in text
-    assert 'run_tss_expression_quintiles SNS "$SNS_ANALYSIS_BW"' in text
+    assert 'run_tss_expression_quintiles PNS "$PNS_ANALYSIS_BW"' in text
     assert 'WPS' not in text
 
 
-def test_suites_scale_sns_possns_coverage_and_peak_beds_post_combine():
+def test_suites_keep_pns_scores_native_and_scale_coverage_only():
     for script_name in ("mnase_full_suite.sh", "cfdna_full_suite.sh"):
         text = files("nucleosuite").joinpath("resources", script_name).read_text()
-        assert 'SNS_COVERAGE_BW="${SNS_PREFIX}_coverage.bw"' in text
-        assert 'SNS_POS_BW="${SNS_PREFIX}_posSNS.bw"' in text
-        assert '01_scale_nucleosome_peak_scores' in text
-        assert '01_scale_breakpoint_peak_scores' in text
-        assert '_nucleosome_regions_mean_scaled.${INTERVAL_EXT}' in text
-        assert '_breakpoint_peaks_mean_scaled.${INTERVAL_EXT}' in text
-        assert '--score-column 5 --scale 100' in text
-        assert 'SNS_ANALYSIS_BW="$SNS_SCALED_BW"' in text
+        assert 'PNS_COVERAGE_BW="${PNS_PREFIX}_coverage.bw"' in text
+        assert 'PNS_POS_BW="${PNS_PREFIX}_posPNS.bw"' in text
+        assert '01_scale_coverage' in text
+        assert 'PNS_ANALYSIS_BW="$PNS_BW"' in text
+        assert 'PNS_SCALED_BW' not in text
+        assert '01_scale_nucleosome_peak_scores' not in text
+        assert '01_scale_breakpoint_peak_scores' not in text
+        assert '_nucleosome_regions_mean_scaled.${INTERVAL_EXT}' not in text
+        assert '_breakpoint_peaks_mean_scaled.${INTERVAL_EXT}' not in text
+        assert '--score-column 5 --scale 100' not in text
         assert 'WPS' not in text
 
 
-def test_suites_use_mean_scaled_peak_beds_for_downstream_and_no_histogram_rescaling():
+def test_suites_use_native_peak_beds_for_downstream_and_no_histogram_rescaling():
     cfdna = files("nucleosuite").joinpath("resources/cfdna_full_suite.sh").read_text()
     mnase = files("nucleosuite").joinpath("resources/mnase_full_suite.sh").read_text()
 
-    assert 'SNS_NUC="$SNS_NUC_SCALED"' in cfdna
-    assert 'SNS_BRK="$SNS_BRK_SCALED"' in cfdna
-    assert '--regions "$SNS_NUC_RAW" --score-column 5 --scale 100' in cfdna
+    assert 'PNS_NUC="$PNS_NUC_RAW"' in cfdna
+    assert 'PNS_BRK="$PNS_BRK_RAW"' in cfdna
+    assert '--regions "$PNS_NUC_RAW" --score-column 5 --scale 100' not in cfdna
     assert '--score-column 5 --score-scale 1 --integer-bins' in cfdna
     assert '--score-scale 1000' not in cfdna
 
-    assert 'SNS_CALL_NUC="$SNS_CALL_NUC_SCALED"' in mnase
-    assert 'SNS_CALL_BRK="$SNS_CALL_BRK_SCALED"' in mnase
-    assert '--regions "$SNS_CALL_NUC_RAW" --score-column 5 --scale 100' in mnase
+    assert 'PNS_CALL_NUC="$PNS_CALL_NUC_RAW"' in mnase
+    assert 'PNS_CALL_BRK="$PNS_CALL_BRK_RAW"' in mnase
+    assert '--regions "$PNS_CALL_NUC_RAW" --score-column 5 --scale 100' not in mnase
     assert '--score-column 5 --score-scale 1 --integer-bins' in mnase
     assert '--score-scale 1000' not in mnase
 
