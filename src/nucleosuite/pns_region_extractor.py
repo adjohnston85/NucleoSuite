@@ -22,7 +22,7 @@ Extract the standard four PNS outputs::
     nucleosuite region-extract \
         --bed regions.bed \
         --coverage-bw sample_coverage.bw \
-        --score-bw sample_sns.bw \
+        --score-bw sample_pns.bw \
         --nucleosome-peaks sample_nucleosome_regions.bb \
         --breakpoint-peaks sample_breakpoint_peaks.bb \
         --peak-flank-bp 2000 \
@@ -32,7 +32,7 @@ Extract only PNS signal::
 
     nucleosuite region-extract \
         --bed regions.bed \
-        --score-bw sample_sns.bw
+        --score-bw sample_pns.bw
 
 Add arbitrary named tracks::
 

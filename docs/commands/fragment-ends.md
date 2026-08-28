@@ -12,7 +12,7 @@ Fragment-end tracks are useful for studying cleavage/breakpoint enrichment, comp
 
 For a fragment stored as BED interval `[start,end)`, the left end is the first covered base (`start`) and the right end is the last covered base (`end - 1`). Each accepted fragment contributes one count to the selected endpoint tracks.
 
-See [Coverage, dyads, and fragment ends](../ALGORITHMS.md#coverage-dyads-and-fragment-ends).
+See [Coverage, dyads, and fragment ends](../ALGORITHMS.md#fragment-ends).
 
 ## Basic usage
 

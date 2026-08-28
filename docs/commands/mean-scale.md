@@ -34,7 +34,7 @@ Zero-valued bases and missing/non-finite values do not contribute to this calcul
 A BED, BED.gz or bigBed can instead define the reference mean through its score column:
 
 ```bash
-nucleosuite mean-scale PNS.bw \
+nucleosuite mean-scale signal.bw \
   --regions nucleosome_regions.bed \
   --score-column 5 \
   --scale 100
@@ -43,18 +43,18 @@ nucleosuite mean-scale PNS.bw \
 Or supply a known reference directly:
 
 ```bash
-nucleosuite mean-scale PNS.bw \
+nucleosuite mean-scale signal.bw \
   --reference-mean 16.7644 \
   --scale 100
 ```
 
 `--normalization-mean` is an alias for `--reference-mean`. `--regions` and `--reference-mean` are mutually exclusive.
 
-A second BigWig can define the reference mean. This is used by `cutn-suite` to divide a centred score track by its matching positive-score mean:
+A second BigWig can define a reference mean when an explicit normalization is required:
 
 ```bash
-nucleosuite mean-scale target_tns.bw \
-  --reference-bigwig target_posTNS.bw \
+nucleosuite mean-scale sample_coverage.bw \
+  --reference-bigwig reference_coverage.bw \
   --scale 1
 ```
 
@@ -133,7 +133,7 @@ If `--output` is omitted, the primary input basename and analysis-defining setti
 
 ```text
 coverage_meanscale_bwnonzero_x100.bw
-PNS_meanscale_regions-nucleosome-regions-col5_x100.bw
+signal_meanscale_regions-nucleosome-regions-col5_x100.bw
 nucleosome_regions_meanscale_scores-col5_x100.bed
 ```
 
@@ -143,6 +143,6 @@ A companion `*_mean_scale_summary.tsv` records the input, output format, referen
 
 ## Suite use
 
-The cfDNA and MNase suites perform their mean-scaling stage after chromosome combination. Combined coverage and posSNS are mean-scaled to 100. SNS uses the mean score of the raw combined nucleosome calls as its reference, and the combined nucleosome-region and breakpoint-peak BED scores are each mean-scaled to 100. Those mean-scaled peak BEDs are then used for downstream peak-based suite analyses.
+The cfDNA and MNase suites normalize coverage after chromosome combination. CUT&RUN/CUT&Tag normalizes coverage per replicate for Stage 1 measurements. All three workflows retain native PNS/`posPNS` BigWigs. PNS nucleosome-region and breakpoint-peak scores also retain their native values for downstream analyses.
 
 [Back to the command reference](../COMMAND_REFERENCE.md)

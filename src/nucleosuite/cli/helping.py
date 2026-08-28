@@ -16,9 +16,9 @@ from collections.abc import Iterable, Mapping, Sequence
 # actions are always shown even when they are not listed here. Aliases are
 # canonicalised below so one profile covers the synonymous command names.
 CORE_DESTINATIONS: dict[str, set[str]] = {
-    "nuc-score": {
+    "pns": {
         "bamfiles", "fragment_files", "chrom_sizes", "blacklist_bed", "out_prefix",
-        "contigs", "frag_lower", "frag_upper", "scoring_method", "mode_length",
+        "contigs", "frag_lower", "frag_upper", "mode_length",
         "score_tracks", "interval_format", "cores",
     },
     "wps": {
@@ -160,7 +160,7 @@ CORE_DESTINATIONS: dict[str, set[str]] = {
         "treatment1_bam", "control1_bam", "treatment2_bam", "control2_bam",
         "outdir", "sample_name", "condition1_name", "condition2_name",
         "inspect_run", "rerun_from", "exclude_sample", "bam_mode",
-        "scoring_method", "mode", "mode_strategy", "frag_mode_padding",
+        "mode", "mode_strategy", "frag_mode_padding",
         "score_frag_lower", "score_frag_upper", "coverage_frag_lower",
         "coverage_frag_upper", "blacklist_bed", "contigs", "cores",
         "peak_min_region_length", "peak_max_neg_run", "stage1_coverage_statistic",
@@ -369,9 +369,9 @@ core options:
   --outdir DIR                  Output directory.
   --cores N                     Maximum concurrent contig workers (default: 1).
   --analysis-scope VALUE        combined-only (default) or per-contig-and-combined.
-  --score-frag-lower N            SNS scoring lower fragment length (default: 137).
-  --score-frag-upper N            SNS scoring upper fragment length (default: 197).
-  --score-mode-length N           SNS scoring modal fragment length (default: 167).
+  --score-frag-lower N            PNS scoring lower fragment length (default: 137).
+  --score-frag-upper N            PNS scoring upper fragment length (default: 197).
+  --score-mode-length N           PNS scoring modal fragment length (default: 167).
   --with-randomized-control     Run complete observed and randomized workflows, then annotate combined peak BEDs with empirical FDR.
   --fdr N                       In paired mode, also write combined peak BEDs filtered at FDR N.
   --max-duplicates N            Identical-fragment copy limit (default: 1).
@@ -396,9 +396,9 @@ core options:
   --outdir DIR                  Output directory.
   --cores N                     Maximum concurrent contig workers (default: 1).
   --analysis-scope VALUE        combined-only (default) or per-contig-and-combined.
-  --score-frag-lower N            SNS scoring lower fragment length (default: 120).
-  --score-frag-upper N            SNS scoring upper fragment length (default: 180).
-  --score-mode-length N           SNS scoring modal fragment length (default: 147).
+  --score-frag-lower N            PNS scoring lower fragment length (default: 120).
+  --score-frag-upper N            PNS scoring upper fragment length (default: 180).
+  --score-mode-length N           PNS scoring modal fragment length (default: 147).
   --fine-frag-lower/upper N     Ranged dyad/WW class (default: 146-148).
   --exact-size N                Exact dyad/fragment-end length (default: 147).
   --with-randomized-control     Run complete observed and randomized workflows, then annotate combined peak BEDs with empirical FDR.

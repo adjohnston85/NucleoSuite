@@ -10,11 +10,7 @@ An indexed binary format for continuous genomic signal. BigWig files support eff
 
 ## Breakpoint
 
-A genomic feature associated with frequent fragment termination or exposed DNA. SNS, PNS, BNS and TNS breakpoint calls are retained negative-score regions, while WPS breakpoint calls are obtained by applying WPS segmentation to the sign-inverted calling signal.
-
-## BNS
-
-**Boxcar nucleosome score.** BNS uses the same fragment-length-dependent scoring support as PNS but places a symmetric unit-mass central boxcar within that support. Mean centring produces a positive central contribution and negative flanks with zero total contribution for every fragment. Half-weight or zero transition positions preserve symmetry when the discrete support cannot be divided into four equal integer blocks.
+A genomic feature associated with frequent fragment termination or exposed DNA. PNS breakpoint calls are retained negative-score regions, while WPS breakpoint calls are obtained by applying WPS segmentation to the sign-inverted calling signal.
 
 ## Chromosome and contig
 
@@ -66,11 +62,11 @@ The signed positional difference `position_B - position_A` used by DCC. A positi
 
 ## Mean centring
 
-Subtraction of a vector's arithmetic mean from every value. PNS, BNS and TNS use mean centring to make each complete fragment contribution sum to zero. SNS is already constructed as a zero-sum signed kernel and therefore does not require mean subtraction.
+Subtracting a vector's arithmetic mean from every value. PNS achieves zero total per-fragment mass by separately normalizing its positive and negative sinusoidal samples.
 
 ## Mode estimation
 
-Estimation of the dominant accepted fragment length used to set SNS, PNS, BNS and TNS scoring geometry. `nuc-score` and `cutn-suite` sample accepted fragments from seeded randomly ordered genomic blocks and bootstrap the raw integer length histogram until the mode stabilizes. Histogram smoothing is disabled by default and is available explicitly with `--mode-histogram-smoothing binomial`. `cutn-suite` uses an equal-weight pooled treatment/control mode by default. An integer `--mode` bypasses estimation.
+Estimation of the dominant accepted fragment length used to set PNS scoring geometry. `pns` and `cutn-suite` sample accepted fragments from seeded randomly ordered genomic blocks and bootstrap the raw integer length histogram until the mode stabilizes. Histogram smoothing is disabled by default and is available explicitly with `--mode-histogram-smoothing binomial`. `cutn-suite` uses an equal-weight pooled treatment/control mode by default. An integer `--mode` bypasses estimation.
 
 ## NRL
 
@@ -88,41 +84,15 @@ Adjustment for the number of position pairs that can contribute at each separati
 
 ## PNS
 
-**Probabilistic nucleosome score.** PNS constructs one dyad-support triangle from each fragment end. Each triangle has discrete probability mass 0.5, giving their combined distribution mass 1 for every fragment length. Odd mode lengths produce one maximum in each triangle; even mode lengths produce two equal maxima. Subtracting the combined distribution's mean makes the values contributed by each complete fragment sum to zero.
-
-The fragment contributions are summed at each genomic position. Positive regions support nucleosome dyads, and negative regions are compatible with fragment boundaries or cleavage. A called nucleosome region receives its maximum PNS value as its score.
+**Probabilistic nucleosome score.** A length-adaptive sinusoidal contribution centred on each accepted fragment. Support width is $m+|L-m|$, so departure from the protected-DNA mode broadens the wave. Its positive distribution has 100-percent mass and its negative contribution has mass −100. Each complete kernel sums to zero; summed genomic scores retain their native scale.
 
 ## `posPNS`
 
-The non-negative PNS distribution before mean subtraction. `posPNS` adds the two endpoint-derived triangles from every accepted fragment. Each fragment contributes total mass 1. The name refers to this distribution, not to values clipped from the PNS track.
-
-## `posBNS`
-
-The non-negative BNS unit-mass boxcar before mean subtraction. Each accepted fragment contributes total mass 1.
-
-## SNS
-
-**Sinusoidal nucleosome scoring.** SNS is the default scoring kernel of the standalone `nuc-score` command. For fragment length $L$ and protected-DNA mode $m$, the support width is $m+|L-m|$, so the wave is narrowest at the mode and broadens for both shorter and longer fragments. One inverted cosine cycle is sampled at integer genomic positions, then its positive and negative samples are normalized separately to exactly +50 and −50 mass. The complete signed fragment contribution therefore sums to zero and has total absolute mass 100.
-
-## `posSNS`
-
-The non-negative SNS reference track. For each fragment, the complete signed SNS waveform is shifted upward by its minimum so that the lowest value becomes zero. No part of the sinusoid is clipped and the shifted waveform is not renormalized. `posSNS` is used for method-matched mean scaling; peak calling uses the signed `sns` track.
-
-## TNS
-
-**Triangular nucleosome score.** TNS places one symmetric unit-mass triangle across the fragment scoring support. The triangle is zero at both support boundaries, has one central maximum for odd support lengths and a two-base central plateau for even support lengths, and is mean-centred before genome-wide accumulation.
-
-## `posTNS`
-
-The non-negative TNS unit-mass triangle before mean subtraction. Each accepted fragment contributes total mass 1.
+The auxiliary non-negative PNS reference. Each complete signed fragment kernel is translated upward by its minimum before accumulation. The translated kernel preserves the waveform and is not renormalized. It differs from the positive lobe of the signed wave and is not the signal used for peak calling.
 
 ## Positional offset
 
 The separation between two genomic positions, measured in base pairs. A signed offset retains direction: negative values indicate upstream displacement and positive values indicate downstream displacement. An absolute offset reports only the separation.
-
-## Positive-score mean scaling
-
-Division of an SNS, TNS, BNS, or PNS score track by the finite, non-zero mean of its matching non-negative positive-reference track. This places matched target and control tracks on a comparable per-positive-score scale without subtracting the control signal.
 
 ## Summit
 

@@ -1074,25 +1074,15 @@ def _compare_regions(
 def _manifest_score_tracks(
     manifest: dict[str, object],
 ) -> tuple[Path, list[Path], str, str] | None:
-    """Return method-matched normalized treatment score tracks for aggregates.
+    """Return native treatment PNS tracks used for cluster aggregates."""
 
-    Generic score paths are preferred. A narrow PNS-only fallback is retained
-    for older Stage 1 manifests that predate generic score-path fields.
-    """
-
-    method = str(manifest.get("scoring_method") or "sns").lower()
-    positive_track = str(manifest.get("positive_track") or ({
-        "sns": "posSNS", "pns": "posPNS", "bns": "posBNS", "tns": "posTNS"
-    }.get(method, "posSNS")))
+    method = str(manifest.get("scoring_method") or "pns").lower()
+    if method != "pns":
+        return None
+    positive_track = "posPNS"
     mean_value = manifest.get("condition_mean_treatment_cluster_aggregate_score")
     records = manifest.get("treatment_replicates")
-    replicate_field = "scaled_score"
-
-    if not isinstance(mean_value, str) or not mean_value:
-        if method != "pns":
-            return None
-        mean_value = manifest.get("condition_mean_treatment_pns_divided_by_mean_posPNS")
-        replicate_field = "scaled_pns"
+    replicate_field = "analysis_score"
 
     if not isinstance(mean_value, str) or not mean_value or not isinstance(records, list):
         return None
@@ -1119,7 +1109,7 @@ def _run_shared_cluster_aggregates(
         return {
             "status": "unavailable",
             "reason": (
-                "Stage 1 manifest lacks method-matched normalized replicate score tracks; "
+                "Stage 1 manifest lacks native replicate PNS tracks; "
                 "rerun Stage 1 with NucleoSuite 0.10.11 or later."
             ),
         }
@@ -1144,8 +1134,8 @@ def _run_shared_cluster_aggregates(
     first_name = str(first.get("condition_name") or "condition1")
     second_name = str(second.get("condition_name") or "condition2")
     first_outputs = run_cluster_aggregate(
-        mean_scaled_score=first_tracks[0],
-        replicate_scaled_scores=first_tracks[1],
+        mean_score=first_tracks[0],
+        replicate_scores=first_tracks[1],
         output_dir=aggregate_dir / "condition1",
         label=first_name,
         scoring_method=first_tracks[2],
@@ -1154,8 +1144,8 @@ def _run_shared_cluster_aggregates(
         **common,
     )
     second_outputs = run_cluster_aggregate(
-        mean_scaled_score=second_tracks[0],
-        replicate_scaled_scores=second_tracks[1],
+        mean_score=second_tracks[0],
+        replicate_scores=second_tracks[1],
         output_dir=aggregate_dir / "condition2",
         label=second_name,
         scoring_method=second_tracks[2],

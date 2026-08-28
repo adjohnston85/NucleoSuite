@@ -39,9 +39,9 @@ CONTIGS=("autosomes")
 INTERVAL_FORMAT="both"
 ANALYSIS_CHROM_SIZES_SOURCE=""
 
-SNS_FRAG_LOWER=120
-SNS_FRAG_UPPER=180
-SNS_MODE_LENGTH=147
+PNS_FRAG_LOWER=120
+PNS_FRAG_UPPER=180
+PNS_MODE_LENGTH=147
 BIGBED_SCORE_SCALE=1
 FINE_FRAG_LOWER=146
 FINE_FRAG_UPPER=148
@@ -53,9 +53,9 @@ MAX_PER_COORDINATE=0
 DEDUP_SCOPE="all_bams"
 EVEN_DYAD="split"
 
-SNS_SMOOTH_WINDOW=0
-SNS_SMOOTH_ORDER=2
-SNS_MAX_NEG_RUN=0
+PNS_SMOOTH_WINDOW=0
+PNS_SMOOTH_ORDER=2
+PNS_MAX_NEG_RUN=0
 PEAK_SMOOTH_WINDOW=0
 PEAK_SMOOTH_ORDER=2
 
@@ -251,10 +251,10 @@ Regional and bundled resources:
                                 enabled automatically for hg19/GRCh37 inputs.
 
 Fragment selection:
-  --score-frag-lower N            SNS lower fragment length. Default: 120.
-  --score-frag-upper N            SNS upper fragment length. Default: 180.
-  --score-mode-length N           SNS modal fragment length. Default: 147.
-  --bigbed-score-scale N        SNS peak multiplier used for integer bigBed scores. Default: 1.
+  --score-frag-lower N            PNS lower fragment length. Default: 120.
+  --score-frag-upper N            PNS upper fragment length. Default: 180.
+  --score-mode-length N           PNS modal fragment length. Default: 147.
+  --bigbed-score-scale N        PNS peak multiplier used for integer bigBed scores. Default: 1.
   --fine-frag-lower N           Ranged dyad/WW lower length. Default: 146.
   --fine-frag-upper N           Ranged dyad/WW upper length. Default: 148.
   --exact-size N                Exact dyad and fragment-end length. Default: 147.
@@ -263,11 +263,11 @@ Fragment selection:
   --dedup-scope VALUE           all_bams or per_bam. Default: all_bams.
   --even-dyad VALUE             split, left or right. Default: split.
 
-SNS and peak settings:
+PNS and peak settings:
   --score-smooth-window N         Optional Savitzky-Golay window; 0 disables. Default: 0.
   --score-smooth-order N          Optional smoothing polynomial order. Default: 2.
-  --score-max-neg-run N           Zero-or-negative bases bridged within SNS peaks. Default: 0.
-  --peak-smooth-window N        Standalone SNS peak-caller window; 0 disables. Default: 0.
+  --score-max-neg-run N           Zero-or-negative bases bridged within PNS peaks. Default: 0.
+  --peak-smooth-window N        Standalone PNS peak-caller window; 0 disables. Default: 0.
   --peak-smooth-order N         Standalone peak-caller order. Default: 2.
 
 DAC, NRL and distance settings:
@@ -285,8 +285,8 @@ DAC, NRL and distance settings:
   --intermediate-periodicity-min N  Nucleosome-scale lower bound. Default: 150.
   --intermediate-periodicity-max N  Nucleosome-scale upper bound. Default: 220.
   --intermediate-periodicity-resolution N Peak resolution. Default: 8.
-  --distance-adjacent-max N     Adjacent SNS peak-distance maximum. Default: 500.
-  --distance-long-max N         1-7-order SNS distance maximum. Default: 1500.
+  --distance-adjacent-max N     Adjacent PNS peak-distance maximum. Default: 500.
+  --distance-long-max N         1-7-order PNS distance maximum. Default: 1500.
   --distance-long-max-order N   Long-range neighbour orders. Default: 7.
   --state-distance-max N        ChromHMM overlay maximum adjacent distance. Default: 500.
   --state-distance-smooth-window N  State overlay Savitzky-Golay window. Default: 21.
@@ -471,11 +471,11 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --interval-format) require_value "$@"; INTERVAL_FORMAT="$2"; shift 2 ;;
-        --score-frag-lower) require_value "$@"; SNS_FRAG_LOWER="$2"; shift 2 ;;
-        --score-frag-upper) require_value "$@"; SNS_FRAG_UPPER="$2"; shift 2 ;;
-        --broad-frag-lower) require_value "$@"; SNS_FRAG_LOWER="$2"; shift 2 ;;
-        --broad-frag-upper) require_value "$@"; SNS_FRAG_UPPER="$2"; shift 2 ;;
-        --score-mode-length) require_value "$@"; SNS_MODE_LENGTH="$2"; shift 2 ;;
+        --score-frag-lower) require_value "$@"; PNS_FRAG_LOWER="$2"; shift 2 ;;
+        --score-frag-upper) require_value "$@"; PNS_FRAG_UPPER="$2"; shift 2 ;;
+        --broad-frag-lower) require_value "$@"; PNS_FRAG_LOWER="$2"; shift 2 ;;
+        --broad-frag-upper) require_value "$@"; PNS_FRAG_UPPER="$2"; shift 2 ;;
+        --score-mode-length) require_value "$@"; PNS_MODE_LENGTH="$2"; shift 2 ;;
     --bigbed-score-scale) require_value "$@"; BIGBED_SCORE_SCALE="$2"; shift 2 ;;
         --fine-frag-lower) require_value "$@"; FINE_FRAG_LOWER="$2"; shift 2 ;;
         --fine-frag-upper) require_value "$@"; FINE_FRAG_UPPER="$2"; shift 2 ;;
@@ -484,9 +484,9 @@ while [[ $# -gt 0 ]]; do
         --max-per-coordinate) require_value "$@"; MAX_PER_COORDINATE="$2"; shift 2 ;;
         --dedup-scope) require_value "$@"; DEDUP_SCOPE="$2"; shift 2 ;;
         --even-dyad) require_value "$@"; EVEN_DYAD="$2"; shift 2 ;;
-        --score-smooth-window) require_value "$@"; SNS_SMOOTH_WINDOW="$2"; shift 2 ;;
-        --score-smooth-order) require_value "$@"; SNS_SMOOTH_ORDER="$2"; shift 2 ;;
-        --score-max-neg-run) require_value "$@"; SNS_MAX_NEG_RUN="$2"; shift 2 ;;
+        --score-smooth-window) require_value "$@"; PNS_SMOOTH_WINDOW="$2"; shift 2 ;;
+        --score-smooth-order) require_value "$@"; PNS_SMOOTH_ORDER="$2"; shift 2 ;;
+        --score-max-neg-run) require_value "$@"; PNS_MAX_NEG_RUN="$2"; shift 2 ;;
         --peak-smooth-window) require_value "$@"; PEAK_SMOOTH_WINDOW="$2"; shift 2 ;;
         --peak-smooth-order) require_value "$@"; PEAK_SMOOTH_ORDER="$2"; shift 2 ;;
         --ctcf-flank) require_value "$@"; CTCF_FLANK="$2"; shift 2 ;;
@@ -668,8 +668,8 @@ derive_sample_name() {
 derive_sample_name
 
 for pair in \
-    "--score-frag-lower:$SNS_FRAG_LOWER" "--score-frag-upper:$SNS_FRAG_UPPER" \
-    "--score-mode-length:$SNS_MODE_LENGTH" "--fine-frag-lower:$FINE_FRAG_LOWER" \
+    "--score-frag-lower:$PNS_FRAG_LOWER" "--score-frag-upper:$PNS_FRAG_UPPER" \
+    "--score-mode-length:$PNS_MODE_LENGTH" "--fine-frag-lower:$FINE_FRAG_LOWER" \
     "--fine-frag-upper:$FINE_FRAG_UPPER" "--exact-size:$EXACT_SIZE" \
     "--dac-dmax:$DAC_DMAX" \
     "--nrl-min-distance:$NRL_MIN_DISTANCE" "--nrl-max-distance:$NRL_MAX_DISTANCE" \
@@ -689,20 +689,20 @@ for pair in \
     check_uint "${pair%%:*}" "${pair#*:}"
 done
 for pair in \
-    "--score-smooth-window:$SNS_SMOOTH_WINDOW" "--score-smooth-order:$SNS_SMOOTH_ORDER" \
-    "--score-max-neg-run:$SNS_MAX_NEG_RUN" "--peak-smooth-window:$PEAK_SMOOTH_WINDOW" \
+    "--score-smooth-window:$PNS_SMOOTH_WINDOW" "--score-smooth-order:$PNS_SMOOTH_ORDER" \
+    "--score-max-neg-run:$PNS_MAX_NEG_RUN" "--peak-smooth-window:$PEAK_SMOOTH_WINDOW" \
     "--peak-smooth-order:$PEAK_SMOOTH_ORDER"; do
     check_uint "${pair%%:*}" "${pair#*:}"
 done
-if [[ "$SNS_SMOOTH_WINDOW" -gt 0 ]]; then
-    (( SNS_SMOOTH_WINDOW >= 3 && SNS_SMOOTH_WINDOW % 2 == 1 )) || fatal "--score-smooth-window must be 0 or an odd integer of at least 3"
-    (( SNS_SMOOTH_ORDER < SNS_SMOOTH_WINDOW )) || fatal "--score-smooth-order must be smaller than --score-smooth-window"
+if [[ "$PNS_SMOOTH_WINDOW" -gt 0 ]]; then
+    (( PNS_SMOOTH_WINDOW >= 3 && PNS_SMOOTH_WINDOW % 2 == 1 )) || fatal "--score-smooth-window must be 0 or an odd integer of at least 3"
+    (( PNS_SMOOTH_ORDER < PNS_SMOOTH_WINDOW )) || fatal "--score-smooth-order must be smaller than --score-smooth-window"
 fi
 if [[ "$PEAK_SMOOTH_WINDOW" -gt 0 ]]; then
     (( PEAK_SMOOTH_WINDOW >= 3 && PEAK_SMOOTH_WINDOW % 2 == 1 )) || fatal "--peak-smooth-window must be 0 or an odd integer of at least 3"
     (( PEAK_SMOOTH_ORDER < PEAK_SMOOTH_WINDOW )) || fatal "--peak-smooth-order must be smaller than --peak-smooth-window"
 fi
-(( SNS_FRAG_LOWER <= SNS_FRAG_UPPER )) || fatal "SNS fragment lower exceeds upper"
+(( PNS_FRAG_LOWER <= PNS_FRAG_UPPER )) || fatal "PNS fragment lower exceeds upper"
 (( FINE_FRAG_LOWER <= FINE_FRAG_UPPER )) || fatal "fine fragment lower exceeds upper"
 (( FRAG_COUNT_MIN <= FRAG_COUNT_MAX )) || fatal "fragment count minimum exceeds maximum"
 (( FRAG_PLOT_MIN <= FRAG_PLOT_MAX )) || fatal "fragment plot minimum exceeds maximum"
@@ -805,7 +805,7 @@ fi
 SETUP_DIR="$OUTDIR/00_setup"
 GENE_SET_DIR="$OUTDIR/00_gene_sets"
 COMBINED_TRACK_DIR="$OUTDIR/01_combined_tracks"
-SNS_DIR="$COMBINED_TRACK_DIR/sns"
+PNS_DIR="$COMBINED_TRACK_DIR/pns"
 DYAD_EXACT_DIR="$COMBINED_TRACK_DIR/dyads/exact"
 DYAD_RANGE_DIR="$COMBINED_TRACK_DIR/dyads/ranges"
 ENDS_EXACT_DIR="$COMBINED_TRACK_DIR/fragment_ends/exact"
@@ -827,7 +827,7 @@ PEAK_SCORE_DIR="$PEAK_ANALYSIS_DIR/score_frequencies"
 SCALED_DIR="$COMBINED_TRACK_DIR/scaled"
 LOG_DIR="$OUTDIR/logs"
 DONE_DIR="$OUTDIR/.done"
-mkdir -p "$SETUP_DIR" "$GENE_SET_DIR" "$COMBINED_TRACK_DIR" "$SNS_DIR" "$SCALED_DIR" \
+mkdir -p "$SETUP_DIR" "$GENE_SET_DIR" "$COMBINED_TRACK_DIR" "$PNS_DIR" "$SCALED_DIR" \
     "$DYAD_EXACT_DIR" "$DYAD_RANGE_DIR" "$ENDS_EXACT_DIR" "$ENDS_RANGE_DIR" "$SEQUENCE_DIR" \
     "$DAC_DIR" "$NRL_DIR" "$CTCF_AGG_DIR" "$TSS_AGG_DIR" "$DIST_DIR" "$REGION_DIR" \
     "$FRAG_DIR" "$HEATMAP_DIR" "$GENE_EXPRESSION_DIR" "$POSITIVE_RUNS_DIR" "$PEAK_ANALYSIS_DIR" \
@@ -853,9 +853,9 @@ PARAMETERS="$SETUP_DIR/${SUPPORT_PREFIX}run_parameters.tsv"
 {
     echo -e "parameter\tvalue"
     for name in SAMPLE_NAME RUN_MODE FASTA BLACKLIST_BED NO_BLACKLIST CTCF_BED STATES_BED GENES_BED GENE_SET_CONFIG EXPRESSION EXPRESSION_VALUE_COLUMN EXPRESSION_GENE_COLUMN EXPRESSION_NAME_COLUMN EXPRESSION_PROFILE_COLUMN TSS_EXPRESSION_RESOURCE TSS_EXPRESSION_TISSUE TSS_EXPRESSION_WINDOW RESOURCE_SET VENN_SETS OUTDIR INTERVAL_FORMAT \
-        SNS_FRAG_LOWER SNS_FRAG_UPPER SNS_MODE_LENGTH FINE_FRAG_LOWER FINE_FRAG_UPPER \
-        EXACT_SIZE DINUC_EXACT_A DINUC_EXACT_B MAX_DUPLICATES MAX_PER_COORDINATE DEDUP_SCOPE EVEN_DYAD SNS_SMOOTH_WINDOW \
-        SNS_SMOOTH_ORDER SNS_MAX_NEG_RUN \
+        PNS_FRAG_LOWER PNS_FRAG_UPPER PNS_MODE_LENGTH FINE_FRAG_LOWER FINE_FRAG_UPPER \
+        EXACT_SIZE DINUC_EXACT_A DINUC_EXACT_B MAX_DUPLICATES MAX_PER_COORDINATE DEDUP_SCOPE EVEN_DYAD PNS_SMOOTH_WINDOW \
+        PNS_SMOOTH_ORDER PNS_MAX_NEG_RUN \
         PEAK_SMOOTH_WINDOW PEAK_SMOOTH_ORDER CTCF_FLANK AGGREGATE_WINDOW_HALF \
         REGION_PEAK_FLANK STATES_LABEL_COLUMN DAC_DMAX DAC_WINDOW_SIZE \
         DAC_ALGORITHM NRL_MIN_DISTANCE NRL_MAX_DISTANCE NRL_PEAK_RESOLUTION \
@@ -1119,7 +1119,7 @@ queue_memory_step() {
 
 run_step "00_cli_registry" "$SETUP_DIR/${SUPPORT_PREFIX}nucleosuite_version.txt" bash -c '
 set -euo pipefail; bin="$1"; out="$2"; "$bin" --version | tee "$out"
-for cmd in tracks nuc-score coverage dyads fragment-ends dinuc-profile ww-types call-peaks empirical-peak-fdr fragments randomize-fragments merge-bams fragment-lengths fragment-heatmap gene-sets gene-expression tss-expression-quintiles aggregate dac nrl plot positive-runs peak-score-frequency distances region-extract resources validate-inputs mnase-suite cutn-suite cutn-compare; do "$bin" "$cmd" --help >/dev/null; done
+for cmd in tracks pns coverage dyads fragment-ends dinuc-profile ww-types call-peaks empirical-peak-fdr fragments randomize-fragments merge-bams fragment-lengths fragment-heatmap gene-sets gene-expression tss-expression-quintiles aggregate dac nrl plot positive-runs peak-score-frequency distances region-extract resources validate-inputs mnase-suite cutn-suite cutn-compare; do "$bin" "$cmd" --help >/dev/null; done
 ' _ "$NUCLEOSUITE_BIN" "$SETUP_DIR/${SUPPORT_PREFIX}nucleosuite_version.txt"
 
 run_step "00_python_dependencies" "$SETUP_DIR/${SUPPORT_PREFIX}python_dependencies.txt" "$PYTHON_BIN" - "$SETUP_DIR/${SUPPORT_PREFIX}python_dependencies.txt" <<'PY'
@@ -1154,20 +1154,18 @@ PY
 
 # Define every observed output before setup so the manifest can be written once.
 # The combined command is invoked only after 00_setup and 00_gene_sets finish.
-SNS_BASE="$SNS_DIR/${SAMPLE}_SNS"
-SNS_PREFIX="${SNS_BASE}_methodsns_mode${SNS_MODE_LENGTH}_lower${SNS_FRAG_LOWER}_upper${SNS_FRAG_UPPER}_smooth${SNS_SMOOTH_WINDOW}x${SNS_SMOOTH_ORDER}"
-SNS_BW="${SNS_PREFIX}_sns.bw"
-SNS_TRACK_LIST="sns,posSNS,coverage,dyad,fragment_ends,fragment_left_ends,fragment_right_ends,pns_peaks"
-if [[ "$SNS_SMOOTH_WINDOW" -gt 0 ]]; then
-    SNS_BW="${SNS_PREFIX}_sns_smoothed.bw"
-    SNS_TRACK_LIST="sns_smoothed,${SNS_TRACK_LIST}"
+PNS_BASE="$PNS_DIR/${SAMPLE}_PNS"
+PNS_PREFIX="${PNS_BASE}_methodpns_mode${PNS_MODE_LENGTH}_lower${PNS_FRAG_LOWER}_upper${PNS_FRAG_UPPER}_smooth${PNS_SMOOTH_WINDOW}x${PNS_SMOOTH_ORDER}"
+PNS_BW="${PNS_PREFIX}_pns.bw"
+PNS_TRACK_LIST="pns,posPNS,coverage,dyad,fragment_ends,fragment_left_ends,fragment_right_ends,pns_peaks"
+if [[ "$PNS_SMOOTH_WINDOW" -gt 0 ]]; then
+    PNS_BW="${PNS_PREFIX}_pns_smoothed.bw"
+    PNS_TRACK_LIST="pns_smoothed,${PNS_TRACK_LIST}"
 fi
-SNS_COVERAGE_BW="${SNS_PREFIX}_coverage.bw"
-SNS_POS_BW="${SNS_PREFIX}_posSNS.bw"
-SNS_SCALED_BW="$SCALED_DIR/${SAMPLE}_SNS_scaled_to_mean_nucleosome_peak_score.bw"
-SNS_POS_SCALED_BW="$SCALED_DIR/${SAMPLE}_posSNS_mean_scaled.bw"
-SNS_COVERAGE_SCALED_BW="$SCALED_DIR/${SAMPLE}_coverage_mean_scaled.bw"
-SNS_ANALYSIS_BW="$SNS_BW"
+PNS_COVERAGE_BW="${PNS_PREFIX}_coverage.bw"
+PNS_POS_BW="${PNS_PREFIX}_posPNS.bw"
+PNS_COVERAGE_SCALED_BW="$SCALED_DIR/${SAMPLE}_coverage_mean_scaled.bw"
+PNS_ANALYSIS_BW="$PNS_BW"
 
 FINE_RANGE_LABEL="${FINE_FRAG_LOWER}-${FINE_FRAG_UPPER}"
 DYAD_RANGE_FOLDER="$DYAD_RANGE_DIR/$FINE_RANGE_LABEL"
@@ -1190,7 +1188,7 @@ ENDS_EXACT_RIGHT_BW="${ENDS_EXACT_PREFIX}_fragment_right_ends.bw"
 
 OBS_TRACK_SPEC="$COMBINED_TRACK_DIR/${SUPPORT_PREFIX}manifest.tsv"
 printf 'fragment_range\toutput_prefix\ttracks\tbasic_scope\n' > "$OBS_TRACK_SPEC"
-printf '%s-%s\t%s\t%s\trange\n' "$SNS_FRAG_LOWER" "$SNS_FRAG_UPPER" "$SNS_PREFIX" "$SNS_TRACK_LIST" >> "$OBS_TRACK_SPEC"
+printf '%s-%s\t%s\t%s\trange\n' "$PNS_FRAG_LOWER" "$PNS_FRAG_UPPER" "$PNS_PREFIX" "$PNS_TRACK_LIST" >> "$OBS_TRACK_SPEC"
 printf '%s-%s\t%s\tdyad\trange\n' "$FINE_FRAG_LOWER" "$FINE_FRAG_UPPER" "$DYAD_RANGE_PREFIX" >> "$OBS_TRACK_SPEC"
 printf '%s\t%s\tdyad\trange\n' "$EXACT_SIZE" "$DYAD_EXACT_PREFIX" >> "$OBS_TRACK_SPEC"
 printf '%s-%s\t%s\tfragment_ends,fragment_left_ends,fragment_right_ends\trange\n' \
@@ -1319,8 +1317,8 @@ if [[ "$RUN_MODE" == "randomized" ]]; then
         [[ "$INPUT_MODE" == "fragments" && "${#FRAGMENTS[@]}" -eq 1 ]] || fatal "internal randomized-control input requires exactly one fragment BED"
         RANDOM_BED="${FRAGMENTS[0]}"
     else
-        RANDOM_LOWER="$SNS_FRAG_LOWER"
-        RANDOM_UPPER="$SNS_FRAG_UPPER"
+        RANDOM_LOWER="$PNS_FRAG_LOWER"
+        RANDOM_UPPER="$PNS_FRAG_UPPER"
         (( FINE_FRAG_LOWER < RANDOM_LOWER )) && RANDOM_LOWER="$FINE_FRAG_LOWER"
         (( FINE_FRAG_UPPER > RANDOM_UPPER )) && RANDOM_UPPER="$FINE_FRAG_UPPER"
         (( EXACT_SIZE < RANDOM_LOWER )) && RANDOM_LOWER="$EXACT_SIZE"
@@ -1471,9 +1469,9 @@ run_step "01_combined_tracks" "$OBS_TRACK_REPORT" "$NUCLEOSUITE_BIN" tracks \
     "${ANALYSIS_INPUT_ARGS[@]}" "${BLACKLIST_ARGS[@]}" --fasta "$FASTA" --chrom-sizes "$CHROM_SIZES" -c "${CONTIGS[@]}" \
     --output-dir "$COMBINED_TRACK_DIR" --spec-file "$OBS_TRACK_SPEC" --max-duplicates "$ACTIVE_MAX_DUPLICATES" \
     --max-per-coordinate "$MAX_PER_COORDINATE" --dedup-scope "$DEDUP_SCOPE" \
-    --even-dyad "$EVEN_DYAD" --scoring-method sns --score-mode-length "$SNS_MODE_LENGTH" --bigbed-score-scale "$BIGBED_SCORE_SCALE" \
-    --score-smooth-window "$SNS_SMOOTH_WINDOW" --score-smooth-order "$SNS_SMOOTH_ORDER" \
-    --score-max-neg-run "$SNS_MAX_NEG_RUN" --interval-format "$INTERVAL_FORMAT" --output-format bigwig \
+    --even-dyad "$EVEN_DYAD" --score-mode-length "$PNS_MODE_LENGTH" --bigbed-score-scale "$BIGBED_SCORE_SCALE" \
+    --score-smooth-window "$PNS_SMOOTH_WINDOW" --score-smooth-order "$PNS_SMOOTH_ORDER" \
+    --score-max-neg-run "$PNS_MAX_NEG_RUN" --interval-format "$INTERVAL_FORMAT" --output-format bigwig \
     --report "$OBS_TRACK_REPORT"
 
 
@@ -1481,33 +1479,20 @@ run_step "01_combined_tracks" "$OBS_TRACK_REPORT" "$NUCLEOSUITE_BIN" tracks \
 # 01_combined_tracks. Downstream analyses use those paths directly.
 
 # Peak calls are outputs of 01_combined_tracks and are not recalled separately.
-SNS_CALL_PREFIX="$SNS_PREFIX"
-SNS_CALL_NUC_RAW="${SNS_PREFIX}_nucleosome_regions.${INTERVAL_EXT}"
-SNS_CALL_BRK_RAW="${SNS_PREFIX}_breakpoint_peaks.${INTERVAL_EXT}"
-SNS_CALL_NUC_SCALED="$SCALED_DIR/$(basename "${SNS_PREFIX}")_nucleosome_regions_mean_scaled.${INTERVAL_EXT}"
-SNS_CALL_BRK_SCALED="$SCALED_DIR/$(basename "${SNS_PREFIX}")_breakpoint_peaks_mean_scaled.${INTERVAL_EXT}"
-SNS_CALL_NUC="$SNS_CALL_NUC_RAW"
-SNS_CALL_BRK="$SNS_CALL_BRK_RAW"
-[[ -s "$SNS_CALL_NUC_RAW" ]] || fatal "SNS nucleosome peak file was not created: $SNS_CALL_NUC_RAW"
-[[ -s "$SNS_CALL_BRK_RAW" ]] || fatal "SNS breakpoint peak file was not created: $SNS_CALL_BRK_RAW"
+PNS_CALL_PREFIX="$PNS_PREFIX"
+PNS_CALL_NUC_RAW="${PNS_PREFIX}_nucleosome_regions.${INTERVAL_EXT}"
+PNS_CALL_BRK_RAW="${PNS_PREFIX}_breakpoint_peaks.${INTERVAL_EXT}"
+PNS_CALL_NUC="$PNS_CALL_NUC_RAW"
+PNS_CALL_BRK="$PNS_CALL_BRK_RAW"
+[[ -s "$PNS_CALL_NUC_RAW" ]] || fatal "PNS nucleosome peak file was not created: $PNS_CALL_NUC_RAW"
+[[ -s "$PNS_CALL_BRK_RAW" ]] || fatal "PNS breakpoint peak file was not created: $PNS_CALL_BRK_RAW"
 
 if [[ "$COMBINE_PREREQUISITES_ONLY" -eq 0 ]]; then
 
-# Scaling is deliberately post-combine so all selected chromosomes share one reference.
+# Coverage normalization is applied after chromosome combination. PNS values stay native.
 mkdir -p "$SCALED_DIR"
-run_step "01_scale_nucleosome_peak_scores" "$SNS_CALL_NUC_SCALED" "$NUCLEOSUITE_BIN" mean-scale \
-    "$SNS_CALL_NUC_RAW" --score-column 5 --scale 100 --output "$SNS_CALL_NUC_SCALED"
-run_step "01_scale_breakpoint_peak_scores" "$SNS_CALL_BRK_SCALED" "$NUCLEOSUITE_BIN" mean-scale \
-    "$SNS_CALL_BRK_RAW" --score-column 5 --scale 100 --output "$SNS_CALL_BRK_SCALED"
-run_step "01_scale_coverage" "$SNS_COVERAGE_SCALED_BW" "$NUCLEOSUITE_BIN" mean-scale \
-    "$SNS_COVERAGE_BW" --scale 100 --output "$SNS_COVERAGE_SCALED_BW"
-run_step "01_scale_possns" "$SNS_POS_SCALED_BW" "$NUCLEOSUITE_BIN" mean-scale \
-    "$SNS_POS_BW" --scale 100 --output "$SNS_POS_SCALED_BW"
-run_step "01_scale_sns_peak_mean" "$SNS_SCALED_BW" "$NUCLEOSUITE_BIN" mean-scale \
-    "$SNS_BW" --regions "$SNS_CALL_NUC_RAW" --score-column 5 --scale 100 --output "$SNS_SCALED_BW"
-SNS_CALL_NUC="$SNS_CALL_NUC_SCALED"
-SNS_CALL_BRK="$SNS_CALL_BRK_SCALED"
-SNS_ANALYSIS_BW="$SNS_SCALED_BW"
+run_step "01_scale_coverage" "$PNS_COVERAGE_SCALED_BW" "$NUCLEOSUITE_BIN" mean-scale \
+    "$PNS_COVERAGE_BW" --scale 100 --output "$PNS_COVERAGE_SCALED_BW"
 
 DISTANCE_COMPARE_TICK_ARGS=(
     --score-z-limit "$SCORE_Z_LIMIT"
@@ -1609,7 +1594,7 @@ aggregate_track() {
         --max-score 1000000000000 --nan-to-zero --sort-mode mean_absolute \
         --colorbar-label "$colour" --mean-ylabel "$ylabel"
 }
-aggregate_track "05_ctcf_sns" "$SNS_ANALYSIS_BW" "$CTCF_AGG_DIR/sns" "${SAMPLE}_CTCF_SNS" SNS "Mean SNS"
+aggregate_track "05_ctcf_pns" "$PNS_ANALYSIS_BW" "$CTCF_AGG_DIR/pns" "${SAMPLE}_CTCF_PNS" PNS "Mean PNS"
 aggregate_track "05_ctcf_dyad_range" "$DYAD_RANGE_BW" "$CTCF_AGG_DIR/dyads/ranges/$FINE_RANGE_LABEL" \
     "${SAMPLE}_CTCF_dyad_${FINE_FRAG_LOWER}_${FINE_FRAG_UPPER}" Dyad "Mean dyad signal"
 aggregate_track "05_ctcf_dyad_exact" "$DYAD_EXACT_BW" "$CTCF_AGG_DIR/dyads/exact/$EXACT_SIZE" \
@@ -1670,7 +1655,7 @@ plot_profile_overlay([tuple(s.split('=',1)) for s in specs],output_tsv,output_pn
 PYTSSPLOT
     fi
 }
-tss_aggregate_track sns "$SNS_ANALYSIS_BW" "$TSS_AGG_DIR/sns" "Mean SNS"
+tss_aggregate_track pns "$PNS_ANALYSIS_BW" "$TSS_AGG_DIR/pns" "Mean PNS"
 tss_aggregate_track "dyad_range_${FINE_RANGE_LABEL}" "$DYAD_RANGE_BW" "$TSS_AGG_DIR/dyads/ranges/$FINE_RANGE_LABEL" "Mean dyad signal"
 tss_aggregate_track "dyad_exact_${EXACT_SIZE}" "$DYAD_EXACT_BW" "$TSS_AGG_DIR/dyads/exact/$EXACT_SIZE" "Mean ${EXACT_SIZE} bp dyad signal"
 for idx in 1 2 3 4; do
@@ -1693,45 +1678,45 @@ if [[ "$SKIP_TSS_EXPRESSION_QUINTILES" -eq 0 ]]; then
             "${BLACKLIST_ARGS[@]}" --signal-label "$label" --expression "$TSS_EXPRESSION_RESOURCE" --tissue "$TSS_EXPRESSION_TISSUE" \
             --genes-bed "$GENES_BED" --window "$TSS_EXPRESSION_WINDOW" --output-prefix "$prefix"
     }
-    run_tss_expression_quintiles SNS "$SNS_ANALYSIS_BW" "$TSS_EXPRESSION_DIR/$TSS_TISSUE_KEY/sns"
+    run_tss_expression_quintiles PNS "$PNS_ANALYSIS_BW" "$TSS_EXPRESSION_DIR/$TSS_TISSUE_KEY/pns"
 fi
 
 wait_queued_steps
 
-# 07_distances: adjacent spacing plus 1-7 order NRL regression from SNS nucleosome calls.
+# 07_distances: adjacent spacing plus 1-7 order NRL regression from PNS nucleosome calls.
 source_dir="$DIST_DIR/pns_peaks"
 mkdir -p "$source_dir/combined_chromosomes"
-adjacent_prefix="$source_dir/combined_chromosomes/${SAMPLE}_SNS_peak_distances_adjacent"
-queue_memory_step "07_distances_sns_adjacent" "${adjacent_prefix}*.tsv" "$NUCLEOSUITE_BIN" distances "$SNS_CALL_NUC" \
+adjacent_prefix="$source_dir/combined_chromosomes/${SAMPLE}_PNS_peak_distances_adjacent"
+queue_memory_step "07_distances_pns_adjacent" "${adjacent_prefix}*.tsv" "$NUCLEOSUITE_BIN" distances "$PNS_CALL_NUC" \
     "${BLACKLIST_ARGS[@]}" --position-column 7 --score-column 5 --score-percentile 0 --min-distance 1 --max-distance "$DISTANCE_ADJACENT_MAX" \
     --max-order 1 --scope combined_chromosomes --write-filtered-bed --interval-format "$INTERVAL_FORMAT" \
     --interval-chrom-sizes "$CHROM_SIZES" --output-prefix "$adjacent_prefix"
-long_prefix="$source_dir/combined_chromosomes/${SAMPLE}_SNS_peak_distances_orders1-${DISTANCE_LONG_MAX_ORDER}"
-queue_memory_step "07_distances_sns_nrl" "${long_prefix}*.tsv" "$NUCLEOSUITE_BIN" distances "$SNS_CALL_NUC" \
+long_prefix="$source_dir/combined_chromosomes/${SAMPLE}_PNS_peak_distances_orders1-${DISTANCE_LONG_MAX_ORDER}"
+queue_memory_step "07_distances_pns_nrl" "${long_prefix}*.tsv" "$NUCLEOSUITE_BIN" distances "$PNS_CALL_NUC" \
     "${BLACKLIST_ARGS[@]}" --position-column 7 --score-column 5 --score-percentile 0 --min-distance 1 --max-distance "$DISTANCE_LONG_MAX" \
     --max-order "$DISTANCE_LONG_MAX_ORDER" --scope combined_chromosomes --regression-scope combined \
     --write-filtered-bed --interval-format "$INTERVAL_FORMAT" --interval-chrom-sizes "$CHROM_SIZES" --output-prefix "$long_prefix"
 if [[ -n "$STATES_BED" ]]; then
     mkdir -p "$source_dir/chromhmm_states"
-    state_prefix="$source_dir/chromhmm_states/${SAMPLE}_SNS_ChromHMM_peak_distances"
-    queue_memory_step "07_state_distances_sns" "${state_prefix}_scorepct0_state_relative_percent.${PLOT_EXT}" \
-        "$NUCLEOSUITE_BIN" distances "$SNS_CALL_NUC" --position-column 7 --score-column 5 --score-percentile 0 \
+    state_prefix="$source_dir/chromhmm_states/${SAMPLE}_PNS_ChromHMM_peak_distances"
+    queue_memory_step "07_state_distances_pns" "${state_prefix}_scorepct0_state_relative_percent.${PLOT_EXT}" \
+        "$NUCLEOSUITE_BIN" distances "$PNS_CALL_NUC" --position-column 7 --score-column 5 --score-percentile 0 \
         "${BLACKLIST_ARGS[@]}" --min-distance 1 --max-distance "$STATE_DISTANCE_MAX" --max-order 1 --scope combined_chromosomes \
         --state-bed "$STATES_FILTERED" --state-label-column "$STATES_LABEL_COLUMN" --state-color-column 9 \
         --state-overlay-plot --state-overlay-smooth-window "$STATE_DISTANCE_SMOOTH_WINDOW" \
         --state-overlay-smooth-polyorder "$STATE_DISTANCE_SMOOTH_ORDER" "${DISTANCE_STATE_TICK_ARGS[@]}" \
-        --state-overlay-title "${SAMPLE} SNS: adjacent peak distances by ChromHMM state" --output-prefix "$state_prefix"
+        --state-overlay-title "${SAMPLE} PNS: adjacent peak distances by ChromHMM state" --output-prefix "$state_prefix"
 fi
 wait_queued_steps
 
 # 08_region_extract: CTCF extractions are grouped by signal track.
 if [[ "$SKIP_REGION_EXTRACT" -eq 0 ]]; then
-    SNS_REGION_DIR="$REGION_DIR/ctcf/sns"; mkdir -p "$SNS_REGION_DIR"
-    SNS_REGION_PREFIX="$SNS_REGION_DIR/${SAMPLE}_CTCF_SNS"
-    queue_step "08_region_extract_sns" "${SNS_REGION_PREFIX}_sns_signal.tsv" "$NUCLEOSUITE_BIN" region-extract \
-        "${BLACKLIST_ARGS[@]}" --bed "$CTCF_EXPANDED" --coverage-bw "$SNS_COVERAGE_SCALED_BW" --score-bw "$SNS_ANALYSIS_BW" \
-        --nucleosome-peaks "$SNS_CALL_NUC" --breakpoint-peaks "$SNS_CALL_BRK" --peak-flank-bp "$REGION_PEAK_FLANK" \
-        --peak-center-column 7 --peak-score-column 5 --out-prefix "$SNS_REGION_PREFIX" --chrom-mode auto \
+    PNS_REGION_DIR="$REGION_DIR/ctcf/pns"; mkdir -p "$PNS_REGION_DIR"
+    PNS_REGION_PREFIX="$PNS_REGION_DIR/${SAMPLE}_CTCF_PNS"
+    queue_step "08_region_extract_pns" "${PNS_REGION_PREFIX}_pns_signal.tsv" "$NUCLEOSUITE_BIN" region-extract \
+        "${BLACKLIST_ARGS[@]}" --bed "$CTCF_EXPANDED" --coverage-bw "$PNS_COVERAGE_SCALED_BW" --score-bw "$PNS_ANALYSIS_BW" \
+        --nucleosome-peaks "$PNS_CALL_NUC" --breakpoint-peaks "$PNS_CALL_BRK" --peak-flank-bp "$REGION_PEAK_FLANK" \
+        --peak-center-column 7 --peak-score-column 5 --out-prefix "$PNS_REGION_PREFIX" --chrom-mode auto \
         --missing-chrom error --progress-every 100 --overwrite
 fi
 wait_queued_steps
@@ -1778,7 +1763,7 @@ if [[ "$SKIP_FRAGMENT_HEATMAP" -eq 0 ]]; then
     fi
 fi
 
-# 11_gene_expression: SNS-only gene-expression analysis.
+# 11_gene_expression: PNS-only gene-expression analysis.
 if [[ -n "$EXPRESSION" && "$SKIP_GENE_EXPRESSION" -eq 0 ]]; then
     FOCUS_PROFILE_ARGS=(); for profile in "${EXPRESSION_FOCUS_PROFILES[@]}"; do FOCUS_PROFILE_ARGS+=(--focus-profile "$profile"); done
     run_gene_expression() {
@@ -1793,25 +1778,25 @@ if [[ -n "$EXPRESSION" && "$SKIP_GENE_EXPRESSION" -eq 0 ]]; then
             --fft-window "$GENE_FFT_WINDOW" --fft-period-min "$GENE_FFT_PERIOD_MIN" --fft-period-max "$GENE_FFT_PERIOD_MAX" \
             --fft-ranking-periods "$GENE_FFT_RANKING_PERIODS" "${FOCUS_PROFILE_ARGS[@]}"
     }
-    run_gene_expression SNS sns "$SNS_CALL_NUC" "$SNS_ANALYSIS_BW" "$GENE_EXPRESSION_DIR/sns"
+    run_gene_expression PNS pns "$PNS_CALL_NUC" "$PNS_ANALYSIS_BW" "$GENE_EXPRESSION_DIR/pns"
 fi
 wait_queued_steps
 
 # 12_positive_runs: the active suite input (observed or randomized-only).
 if [[ "$COMBINE_PREREQUISITES_ONLY" -eq 0 && "$SKIP_POSITIVE_RUNS" -eq 0 ]]; then
-    SNS_POSITIVE_DIR="$POSITIVE_RUNS_DIR/sns"
-    mkdir -p "$SNS_POSITIVE_DIR"
-    SNS_POSITIVE_PREFIX="$SNS_POSITIVE_DIR/${SAMPLE}_SNS_positive_runs"
-    queue_step "12_positive_runs_sns" "${SNS_POSITIVE_PREFIX}_threshold*_summary.tsv" "$NUCLEOSUITE_BIN" positive-runs \
-        "${BLACKLIST_ARGS[@]}" --bigwig "$SNS_ANALYSIS_BW" --output-prefix "$SNS_POSITIVE_PREFIX" --contigs "${CONTIGS[@]}" \
+    PNS_POSITIVE_DIR="$POSITIVE_RUNS_DIR/pns"
+    mkdir -p "$PNS_POSITIVE_DIR"
+    PNS_POSITIVE_PREFIX="$PNS_POSITIVE_DIR/${SAMPLE}_PNS_positive_runs"
+    queue_step "12_positive_runs_pns" "${PNS_POSITIVE_PREFIX}_threshold*_summary.tsv" "$NUCLEOSUITE_BIN" positive-runs \
+        "${BLACKLIST_ARGS[@]}" --bigwig "$PNS_ANALYSIS_BW" --output-prefix "$PNS_POSITIVE_PREFIX" --contigs "${CONTIGS[@]}" \
         --threshold "$POSITIVE_RUNS_THRESHOLD" --chunk-size "$POSITIVE_RUNS_CHUNK_SIZE" \
         --min-run-length "$POSITIVE_RUNS_MIN_LENGTH" --max-run-length "$POSITIVE_RUNS_MAX_LENGTH" \
         --plot-x-max "$POSITIVE_RUNS_PLOT_X_MAX" --normalization "$POSITIVE_RUNS_NORMALIZATION" \
-        --title "${SAMPLE}: SNS positive run lengths"
+        --title "${SAMPLE}: PNS positive run lengths"
 fi
 wait_queued_steps
 
-# 13_peak_analysis: SNS peak-score distributions.
+# 13_peak_analysis: PNS peak-score distributions.
 run_peak_score_frequency() {
     local step="$1" output_dir="$2" label="$3" peaks="$4" title="$5"
     mkdir -p "$output_dir"
@@ -1824,8 +1809,8 @@ run_peak_score_frequency() {
         --normalization "$PEAK_SCORE_NORMALIZATION" --title "$title"
 }
 if [[ "$COMBINE_PREREQUISITES_ONLY" -eq 0 && "$SKIP_PEAK_SCORE_FREQUENCY" -eq 0 ]]; then
-    run_peak_score_frequency "13_peak_scores_sns_nucleosome" "$PEAK_SCORE_DIR/sns" SNS_nucleosome "$SNS_CALL_NUC" "${SAMPLE}: SNS nucleosome-region scores"
-    run_peak_score_frequency "13_peak_scores_sns_breakpoint" "$PEAK_SCORE_DIR/sns" SNS_breakpoint "$SNS_CALL_BRK" "${SAMPLE}: SNS breakpoint-peak scores"
+    run_peak_score_frequency "13_peak_scores_pns_nucleosome" "$PEAK_SCORE_DIR/pns" PNS_nucleosome "$PNS_CALL_NUC" "${SAMPLE}: PNS nucleosome-region scores"
+    run_peak_score_frequency "13_peak_scores_pns_breakpoint" "$PEAK_SCORE_DIR/pns" PNS_breakpoint "$PNS_CALL_BRK" "${SAMPLE}: PNS breakpoint-peak scores"
 fi
 wait_queued_steps
 
@@ -1854,7 +1839,7 @@ REPORT="$OUTDIR/${SUPPORT_PREFIX}NUCLEOSUITE_MNASE_SUITE_REPORT.tsv"
     [[ "$INPUT_MODE" == "bam" ]] || INPUT_COUNT=${#FRAGMENTS[@]}
     echo -e "metric\tvalue"; echo -e "sample\t$SAMPLE"; echo -e "input_mode\t$INPUT_MODE"; echo -e "input_count\t$INPUT_COUNT"; echo -e "run_mode\t$RUN_MODE"; echo -e "parameter_hash\t$PARAM_HASH"
     echo -e "blacklist_bed\t$BLACKLIST_BED"
-    echo -e "expression_table\t${EXPRESSION:-}"; echo -e "gene_expression_signals\tsns"
+    echo -e "expression_table\t${EXPRESSION:-}"; echo -e "gene_expression_signals\tpns"
     if [[ "$COMBINE_PREREQUISITES_ONLY" -eq 1 ]]; then echo -e "execution_scope\tcombine_prerequisites_only"; else echo -e "execution_scope\tcombined_chromosomes_analysis"; fi
     echo -e "passed_steps\t$PASS_COUNT"
     echo -e "failed_steps\t$FAIL_COUNT"; echo -e "skipped_completed_steps\t$SKIP_COUNT"

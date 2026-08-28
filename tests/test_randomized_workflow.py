@@ -47,11 +47,11 @@ def test_randomized_full_tree_includes_downstream_scientific_stages():
 def test_scientific_defaults_and_suite_ranges_without_wps_or_dcc():
     mnase = _suite("mnase_full_suite.sh")
     cfdna = _suite("cfdna_full_suite.sh")
-    assert 'SNS_FRAG_LOWER=120' in mnase
-    assert 'SNS_FRAG_UPPER=180' in mnase
-    assert 'SNS_MODE_LENGTH=147' in mnase
-    assert 'SNS_FRAG_LOWER=137' in cfdna
-    assert 'SNS_FRAG_UPPER=197' in cfdna
+    assert 'PNS_FRAG_LOWER=120' in mnase
+    assert 'PNS_FRAG_UPPER=180' in mnase
+    assert 'PNS_MODE_LENGTH=147' in mnase
+    assert 'PNS_FRAG_LOWER=137' in cfdna
+    assert 'PNS_FRAG_UPPER=197' in cfdna
     for script in (mnase, cfdna):
         assert 'WPS_FRAG_LOWER' not in script
         assert 'DCC_DIR=' not in script
@@ -60,7 +60,7 @@ def test_scientific_defaults_and_suite_ranges_without_wps_or_dcc():
         assert '(( FRAG_COUNT_MAX > RANDOM_UPPER ))' in script
         assert '(( HEATMAP_MIN_FRAG < RANDOM_LOWER ))' in script
         assert '(( HEATMAP_MAX_FRAG > RANDOM_UPPER ))' in script
-    assert 'SNS_MODE_LENGTH=167' in cfdna
+    assert 'PNS_MODE_LENGTH=167' in cfdna
     assert 'RANGE_SPECS=("144:146" "160:162" "166:168")' in cfdna
     assert 'FINE_FRAG_LOWER=146' in mnase and 'FINE_FRAG_UPPER=148' in mnase
     assert 'EXACT_SIZE=147' in mnase

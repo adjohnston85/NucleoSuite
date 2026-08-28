@@ -15,17 +15,18 @@ from nucleosuite.cli.common import (
     validate_bam_arguments,
 )
 from nucleosuite.scoring.basic_tracks import BASIC_TRACKS
-from nucleosuite.scoring.pns import BNS_TRACKS, PNS_TRACKS, SNS_TRACKS, TNS_TRACKS, SCORING_METHODS
+from nucleosuite.scoring.pns import PNS_TRACKS
 
 
 def register(subparsers):
     parser = subparsers.add_parser(
-        "nuc-score",
+        "pns",
         help="Build nucleosome-position score tracks from paired-end fragment geometry.",
         description=(
-            "Build sinusoidal nucleosome score (SNS), probabilistic nucleosome score "
-            "(PNS), boxcar nucleosome score (BNS), or triangular nucleosome score "
-            "(TNS) kernels, optional auxiliary tracks, and shared peak calls."
+            "Build probabilistic nucleosome score (PNS) tracks using length-adaptive "
+            "sinusoidal kernels with positive probability mass represented as 100 percent. "
+            "Write native signed scores, non-negative reference tracks, optional "
+            "auxiliary tracks, and nucleosome/breakpoint calls."
         ),
     )
     add_bam_fragment_arguments(
@@ -34,15 +35,7 @@ def register(subparsers):
     )
     add_randomization_arguments(parser)
     add_interval_output_arguments(parser)
-    parser.add_argument(
-        "--scoring-method", choices=SCORING_METHODS, default="sns",
-        help=(
-            "Nucleosome scoring kernel: sns uses the length-adaptive sinusoidal "
-            "kernel; pns uses endpoint-derived probability triangles; bns uses a "
-            "centred balanced boxcar; tns uses a centred unit-mass triangle "
-            "(default: sns)."
-        ),
-    )
+    parser.set_defaults(scoring_method="pns")
     parser.add_argument(
         "--mode", "--mode-length", dest="mode_length",
         type=auto_or_integer_mode, default="auto",
@@ -102,13 +95,10 @@ def register(subparsers):
     )
     parser.add_argument(
         "--score-tracks", dest="score_tracks", nargs="*",
-        default=["sns", "posSNS"],
+        default=["pns", "posPNS"],
         help=(
-            "Signal tracks for the selected scoring method. SNS uses sns, posSNS, "
-            "and optional sns_smoothed; PNS uses pns, posPNS, and optional "
-            "pns_smoothed; BNS uses bns, posBNS, and optional bns_smoothed; TNS "
-            "uses tns, posTNS, and optional tns_smoothed. The default writes the "
-            "raw score and matching non-negative reference tracks."
+            "PNS signal tracks: pns, posPNS, and optional pns_smoothed. "
+            "The default writes the native signed score and non-negative reference."
         ),
     )
     parser.add_argument(
@@ -130,8 +120,8 @@ def register(subparsers):
         help=(
             "Multiplier applied to floating BED peak scores when converting "
             "the bigBed score field to an integer in the 0-1000 range. "
-            "By default SNS is not rescaled (1); PNS, BNS and TNS retain the "
-            "1000-fold conversion used for their fractional score ranges."
+            "The default multiplier is 1. This affects integer bigBed peak scores "
+            "only; BigWig signal values retain their native scale."
         ),
     )
     parser.add_argument(
@@ -186,11 +176,11 @@ def _resolve_mode_and_fragment_range(args):
         estimate_args.frag_lower = int(args.mode_search_lower)
         estimate_args.frag_upper = int(args.mode_search_upper)
         mode, estimate, mode_source, mode_seed = resolve_fragment_mode(
-            estimate_args, args.mode_length, command="nuc-score"
+            estimate_args, args.mode_length, command="pns"
         )
     else:
         mode, estimate, mode_source, mode_seed = resolve_fragment_mode(
-            args, args.mode_length, command="nuc-score"
+            args, args.mode_length, command="pns"
         )
 
     args.mode_length = int(mode)
@@ -215,7 +205,7 @@ def run(args):
     if args.min_region_length < 1 or args.max_neg_run < 0:
         raise ValueError("Peak-region lengths must be valid positive values")
     if args.bigbed_score_scale is None:
-        args.bigbed_score_scale = 1.0 if args.scoring_method == "sns" else 1000.0
+        args.bigbed_score_scale = 1.0
     if args.bigbed_score_scale < 0:
         raise ValueError("--bigbed-score-scale must be 0 or greater")
     if args.peak_coverage_threshold is not None:
@@ -228,43 +218,9 @@ def run(args):
             raise ValueError("--peak-coverage-threshold requires --score-mode on")
         if not args.peak_calling:
             raise ValueError("--peak-coverage-threshold requires peak calling")
-    all_score_tracks = set(PNS_TRACKS) | set(SNS_TRACKS) | set(BNS_TRACKS) | set(TNS_TRACKS)
     args.score_tracks = normalise_track_list(
-        args.score_tracks, all_score_tracks, "--score-tracks"
+        args.score_tracks, set(PNS_TRACKS), "--score-tracks"
     )
-    track_sets = {
-        "sns": SNS_TRACKS,
-        "pns": PNS_TRACKS,
-        "bns": BNS_TRACKS,
-        "tns": TNS_TRACKS,
-    }
-    default_track_map = {
-        "pns": {
-            "sns": "pns",
-            "posSNS": "posPNS",
-            "sns_smoothed": "pns_smoothed",
-        },
-        "bns": {
-            "sns": "bns",
-            "posSNS": "posBNS",
-            "sns_smoothed": "bns_smoothed",
-        },
-        "tns": {
-            "sns": "tns",
-            "posSNS": "posTNS",
-            "sns_smoothed": "tns_smoothed",
-        },
-    }
-    if args.scoring_method != "sns":
-        mapping = default_track_map[args.scoring_method]
-        args.score_tracks = [mapping.get(track, track) for track in args.score_tracks]
-    allowed_tracks = track_sets[args.scoring_method]
-    invalid = [track for track in args.score_tracks if track not in allowed_tracks]
-    if invalid:
-        method = args.scoring_method.upper()
-        raise ValueError(
-            f"{method} scoring accepts {', '.join(allowed_tracks)} score tracks"
-        )
     args.other_tracks = normalise_track_list(
         args.other_tracks, set(BASIC_TRACKS), "--other-tracks"
     )
@@ -298,7 +254,7 @@ def run(args):
             mode_source=mode_source,
             seed=mode_seed,
         )
-        print(f"[nuc-score] Fragment mode report: {report}", flush=True)
+        print(f"[pns] Fragment mode report: {report}", flush=True)
     from nucleosuite.workflows import pns as workflow
     from nucleosuite.parallel import run_native_per_contig
-    return run_native_per_contig("nuc-score", args, workflow.run)
+    return run_native_per_contig("pns", args, workflow.run)

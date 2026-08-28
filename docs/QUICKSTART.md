@@ -17,10 +17,10 @@ nucleosuite validate-inputs --bam sample.bam --fasta genome.fa
 
 ## 2. Call nucleosome regions from a BAM
 
-Use `nuc-score` when you want a nucleosome-oriented signal and shared peak calls. The command uses SNS by default:
+Use `pns` when you want a nucleosome-oriented signal and shared peak calls. The command uses PNS by default:
 
 ```bash
-nucleosuite nuc-score \
+nucleosuite pns \
   --bam sample.bam \
   --fasta genome.fa \
   --contigs chr1-22,chrX \
@@ -28,15 +28,15 @@ nucleosuite nuc-score \
   --out-prefix sample_pns
 ```
 
-The most commonly reused outputs are the nucleosome-score BigWig and nucleosome-region BED/bigBed. The protected-DNA mode is estimated automatically from the unsmoothed accepted-fragment histogram and printed during execution; use `--mode 167` to fix it explicitly. SNS uses a discrete sinusoidal kernel with +50 positive and −50 negative mass per fragment. Select `--scoring-method pns`, `bns`, or `tns` for the alternative kernels; all four methods use the same PNS peak caller. See [`nuc-score`](commands/nuc-score.md), [SNS in Algorithms](ALGORITHMS.md#sinusoidal-nucleosome-scoring), [PNS in Algorithms](ALGORITHMS.md#probabilistic-nucleosome-scoring), [BNS in Algorithms](ALGORITHMS.md#boxcar-nucleosome-scoring), and [TNS in Algorithms](ALGORITHMS.md#triangular-nucleosome-scoring).
+The most commonly reused outputs are the PNS BigWig and nucleosome-region BED/bigBed. The protected-DNA mode is estimated automatically from the unsmoothed accepted-fragment histogram and printed during execution; use `--mode 167` to fix it explicitly. PNS uses a discrete sinusoidal kernel with +100 positive and −100 negative mass per complete fragment, with probability represented in percent. BigWigs retain the native sum of these contributions. See [`pns`](commands/pns.md) and [PNS in Algorithms](ALGORITHMS.md#probabilistic-nucleosome-scoring).
 
 
 ### Filter nucleosome peaks by coverage
 
-When a coverage threshold should be applied during an SNS, PNS, BNS or TNS run:
+When a coverage threshold should be applied during an PNS run:
 
 ```bash
-nucleosuite nuc-score \
+nucleosuite pns \
   --bam sample.bam \
   --fasta genome.fa \
   --peak-coverage-threshold 2 \
@@ -67,7 +67,7 @@ This always writes every observed peak with `empirical_fdr` appended. Add `--fdr
 
 ## 4. Run a matched CUT&RUN or CUT&Tag analysis
 
-The default `cutn-suite` run estimates treatment and control fragment modes independently before choosing an equal-weight pooled analysis mode. It then uses SNS over the resolved mode ±30 bp for peak discovery while broad 1–1,000 bp coverage is generated in the same `tracks` pass:
+The default `cutn-suite` run estimates treatment and control fragment modes independently before choosing an equal-weight pooled analysis mode. It then uses PNS over the resolved mode ±30 bp for peak discovery while broad 1–1,000 bp coverage is generated in the same `tracks` pass:
 
 ```bash
 nucleosuite cutn-suite \
@@ -78,9 +78,9 @@ nucleosuite cutn-suite \
   --cores 8
 ```
 
-Use `--scoring-method pns`, `--scoring-method bns`, or `--scoring-method tns` to select an alternative discovery score. Use `--mode 167` to bypass automatic sampling and use exactly 167 bp for both target and control; with the default `--frag-mode-padding 30` this gives a 137–197 bp discovery range.
+Use `--mode 167` to bypass automatic sampling and use 167 bp for both treatment and control; the default `--frag-mode-padding 30` gives a 137–197 bp discovery range.
 
-Each replicate SNS track is divided by the mean of its `posSNS` track before treatment tracks are averaged, placing replicate discovery scores on comparable scales. Broad-range coverage is independently scaled to a non-zero mean of 100 for Stage 1 treatment/control measurement, with mean coverage across each candidate interval used by default.
+Native PNS replicate tracks are averaged directly for discovery and cluster-centred positioning. PNS and `posPNS` retain their native scale; sequencing depth can therefore affect their amplitudes. Broad-range coverage is independently scaled to a non-zero mean of 100 for Stage 1 treatment/control measurements, with mean coverage across each candidate interval used by default.
 
 Clustering defaults adapt to biological replicate count. If either treatment or control has fewer than three replicates, both seed peaks (S) and gated members (G) use the all-controls rule. When both groups have at least three replicates, S requires raw one-sided Welch p < 0.05 plus mean treatment > mean control, while G uses the all-controls rule. The selected defaults are printed when the run starts. Seed and member gates can also be set explicitly.
 

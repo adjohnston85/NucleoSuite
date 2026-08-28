@@ -124,7 +124,7 @@ def _write_bootstrap_confidence(
     table_path = output_dir / f"{prefix}_bootstrap95_profile.tsv"
     with table_path.open("wt", encoding="utf-8") as handle:
         handle.write(
-            "relative_position\tmean_scaled_score\tbootstrap_95_ci_lower\t"
+            "relative_position\tmean_score\tbootstrap_95_ci_lower\t"
             "bootstrap_95_ci_upper\theatmap_rows_used\tbootstrap_replicates\n"
         )
         for position, observed, low, high in zip(positions, mean, lower, upper):
@@ -144,7 +144,7 @@ def _write_bootstrap_confidence(
     axis.plot(positions, mean, color="black", linewidth=1.4)
     axis.axvline(0, color="0.5", linewidth=0.8)
     axis.set_xlabel("Distance from strongest cluster peak (bp)")
-    axis.set_ylabel("Mean normalized nucleosome score")
+    axis.set_ylabel("Mean PNS score")
     figure.tight_layout()
     figure.savefig(plot_path, dpi=300)
     plt.close(figure)
@@ -176,7 +176,7 @@ def _write_replicate_overlay(
         )
     axis.axvline(0, color="0.5", linewidth=0.8)
     axis.set_xlabel("Distance from strongest cluster peak (bp)")
-    axis.set_ylabel("Mean normalized nucleosome score")
+    axis.set_ylabel("Mean PNS score")
     axis.legend(frameon=False)
     figure.tight_layout()
     figure.savefig(output_path, dpi=300)
@@ -186,13 +186,13 @@ def _write_replicate_overlay(
 
 def run_cluster_aggregate(
     *,
-    mean_scaled_score: str | Path,
-    replicate_scaled_scores: Sequence[str | Path],
+    mean_score: str | Path,
+    replicate_scores: Sequence[str | Path],
     anchor_bed: str | Path,
     output_dir: str | Path,
     label: str,
-    scoring_method: str = "sns",
-    positive_track: str = "posSNS",
+    scoring_method: str = "pns",
+    positive_track: str = "posPNS",
     window_half: int = 1000,
     maximum_heatmap_rows: int = 5000,
     bootstrap_replicates: int = 200,
@@ -203,7 +203,7 @@ def run_cluster_aggregate(
     reporter: ProgressReporter | None = None,
     vlim: float | None = None,
 ) -> dict[str, object]:
-    """Align the selected normalized nucleosome score to cluster anchors and write profiles, heatmaps and NRLs."""
+    """Align the native PNS score to cluster anchors and write profiles, heatmaps and NRLs."""
 
     anchors = Path(anchor_bed).resolve()
     directory = Path(output_dir).resolve()
@@ -216,9 +216,9 @@ def run_cluster_aggregate(
         return {"status": "no_selected_clusters", "status_table": str(status)}
 
     if reporter is not None:
-        reporter.stage(f"Aggregating {label} mean-scaled score at strongest cluster peaks")
+        reporter.stage(f"Aggregating {label} native PNS score at strongest cluster peaks")
     score_label = scoring_method.upper()
-    normalized_label = f"{score_label} divided by mean {positive_track}"
+    signal_label = f"{score_label} (native score)"
     common = dict(
         region_bed=anchors,
         output_dir=directory,
@@ -234,14 +234,14 @@ def run_cluster_aggregate(
         seed=seed,
         sort_mode="unsorted",
         axis_label="Distance from strongest cluster peak",
-        colorbar_label=normalized_label,
-        mean_ylabel="Mean normalized nucleosome score",
+        colorbar_label=signal_label,
+        mean_ylabel="Mean PNS score",
         vmin=None if vlim is None else -abs(vlim),
         vmax=None if vlim is None else abs(vlim),
     )
     combined_config = AlignmentConfig(
-        bigwig=Path(mean_scaled_score).resolve(),
-        output_prefix=f"{label}_replicate_combined_scaled_{scoring_method}_cluster_aligned",
+        bigwig=Path(mean_score).resolve(),
+        output_prefix=f"{label}_replicate_combined_{scoring_method}_cluster_aligned",
         write_detail_tables=True,
         nrl=True,
         nrl_peak_resolution=nrl_peak_resolution,
@@ -258,12 +258,12 @@ def run_cluster_aggregate(
         ("replicate_combined", combined_outputs["aggregate"])
     ]
     replicate_outputs: list[dict[str, str]] = []
-    for index, path in enumerate(replicate_scaled_scores, 1):
+    for index, path in enumerate(replicate_scores, 1):
         if reporter is not None:
             reporter.stage(f"Aggregating {label} score replicate {index}")
         config = AlignmentConfig(
             bigwig=Path(path).resolve(),
-            output_prefix=f"{label}_replicate_{index}_scaled_{scoring_method}_cluster_aligned",
+            output_prefix=f"{label}_replicate_{index}_{scoring_method}_cluster_aligned",
             write_detail_tables=False,
             nrl=False,
             **common,
@@ -278,7 +278,7 @@ def run_cluster_aggregate(
     bootstrap = _write_bootstrap_confidence(
         combined_outputs["heatmap_matrix"],
         directory,
-        prefix=f"{label}_replicate_combined_scaled_{scoring_method}_cluster_aligned",
+        prefix=f"{label}_replicate_combined_{scoring_method}_cluster_aligned",
         replicates=bootstrap_replicates,
         seed=seed + 1,
     )

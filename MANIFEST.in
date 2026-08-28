@@ -1,6 +1,6 @@
 include README.md LICENSE environment.yml
 recursive-include docs *.md *.png *.svg
 recursive-include recipe *.yaml
-recursive-include examples *.sh
+recursive-include examples *.sh *.py
 
 recursive-include src/nucleosuite/resources *.sh *.tsv *.tsv.gz *.bed *.bed.gz *.md *.json

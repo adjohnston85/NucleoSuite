@@ -78,7 +78,7 @@ With multiple inputs:
 
 Depending on `--output-format`, the command writes BED, BED.gz, and/or bigBed fragment intervals plus summaries describing the retained fragment population.
 
-Use the resulting fragment file directly with commands such as `nuc-score`, `wps`, `tracks`, `dyads`, `fragment-ends`, and `fragment-lengths`.
+Use the resulting fragment file directly with commands such as `pns`, `wps`, `tracks`, `dyads`, `fragment-ends`, and `fragment-lengths`.
 
 ## Automatic output naming
 

@@ -65,7 +65,7 @@ Use `--score-tracks` to choose signal outputs, `--peak-track` to choose the call
 
 ## Related commands
 
-- [`nuc-score`](nuc-score.md) — SNS nucleosome scoring by default, with PNS/BNS/TNS alternatives.
+- [`pns`](pns.md) — probabilistic nucleosome scoring and peak calls.
 - [`call-peaks`](call-peaks.md) — call peaks from an existing score track.
 - [`tracks`](tracks.md) — generate several fragment-derived tracks in one pass.
 

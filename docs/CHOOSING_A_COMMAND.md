@@ -8,7 +8,7 @@ Use [`fragments`](commands/fragments.md) if you first want an explicit fragment 
 
 For nucleosome-oriented signal:
 
-- [`nuc-score`](commands/nuc-score.md) — score positions with the default length-adaptive sinusoidal kernel (SNS), endpoint probability triangles (PNS), a balanced central boxcar (BNS), or a centred unit-mass triangle (TNS).
+- [`pns`](commands/pns.md) — score positions with length-adaptive sinusoidal PNS kernels and call nucleosome/breakpoint intervals.
 - [`wps`](commands/wps.md) — calculate L-WPS with a 120 bp protection window and 120–180 bp fragments by default.
 - [`dyads`](commands/dyads.md) — place signal at fragment centres.
 - [`coverage`](commands/coverage.md) — count how many fragments cover each base.
@@ -16,7 +16,7 @@ For nucleosome-oriented signal:
 
 For a coordinated analysis with standard defaults, use [`cfdna-suite`](commands/cfdna-suite.md) or [`mnase-suite`](commands/mnase-suite.md).
 
-For a CUT&RUN or CUT&Tag treatment plus control, use [`cutn-suite`](commands/cutn-suite.md). It uses SNS for nucleosome-aware peak discovery by default, measures target/control support from coverage, and can compare two completed conditions. PNS, BNS and TNS remain selectable alternatives.
+For a CUT&RUN or CUT&Tag treatment plus control, use [`cutn-suite`](commands/cutn-suite.md). It uses PNS for nucleosome-aware peak discovery by default, measures target/control support from coverage, and can compare two completed conditions. 
 
 
 Use [`cutn-compare`](commands/cutn-compare.md) when two conditions already have completed Stage 1 manifests. It compares overlap-connected cluster loci using the saved raw coverage tracks, produces matched cluster-centred aggregates using the saved Stage 1 scoring method, and does not read the BAMs again.

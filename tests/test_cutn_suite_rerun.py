@@ -36,7 +36,7 @@ def _source_manifest(root: Path, *, condition_name: str = "condition1") -> Path:
                     "score": str(score),
                     "positive_score": str(score),
                     "coverage": str(raw_coverage),
-                    "scaled_score": str(score),
+                    "analysis_score": str(score),
                     "scaled_coverage": str(coverage),
                     "fragment_length_counts": str(counts),
                     "fragment_summary": str(summary),
@@ -208,6 +208,6 @@ def test_rerun_rejects_bigwig_generating_parameter_changes(tmp_path: Path):
         cutn_suite.main(
             [
                 "--rerun-from", str(root),
-                "--scoring-method", "bns",
+                "--mode", "170",
             ]
         )

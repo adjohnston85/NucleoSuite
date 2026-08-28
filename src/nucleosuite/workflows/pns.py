@@ -1,4 +1,4 @@
-"""Nucleosome-scoring workflow used by ``nucleosuite nuc-score``."""
+"""Nucleosome-scoring workflow used by ``nucleosuite pns``."""
 
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ from nucleosuite.workflows.common import (
 
 
 def _remove_stale_outputs(output_prefix: str) -> None:
-    all_tracks = set(pns_scoring.PNS_TRACKS) | set(pns_scoring.SNS_TRACKS) | set(pns_scoring.BNS_TRACKS) | set(pns_scoring.TNS_TRACKS) | set(basic_tracks.BASIC_TRACKS)
+    all_tracks = set(pns_scoring.PNS_TRACKS) | set(basic_tracks.BASIC_TRACKS)
     for group in ALL_OUTPUT_GROUPS:
         prefix = group_output_prefix(output_prefix, group)
         remove_stale_track_outputs(prefix, all_tracks)
@@ -253,7 +253,7 @@ def run(args) -> int:
                 scores = basic_tracks.to_scores(
                     basic_by_group[group], region.contig, region.adjusted_start
                 )
-                if args.score_mode == "on" and args.peak_calling:
+                if args.score_mode == "on":
                     scores.update(
                         pns_scoring.to_scores(
                             pns_by_group[group],
@@ -326,7 +326,7 @@ def run(args) -> int:
                 prefix = group_output_prefix(args.out_prefix, group)
                 scores = scores_by_group[group]
 
-                if args.score_mode == "on":
+                if args.score_mode == "on" and args.peak_calling:
                     smoothed_track, score_track, _ = pns_scoring.scoring_track_names(
                         args.scoring_method
                     )

@@ -158,7 +158,7 @@ By default, ordinary missing BigWig positions become zero, which supports sparse
 
 `--zero-thresh` can reject windows containing long zero runs. Set it to `0` when long zero stretches are expected and should not be treated as low-quality windows.
 
-Recognized NucleoSuite BigWig suffixes set track-specific labels automatically. Unknown tracks use `Score` and `Mean score`. Dyad inputs ending in `_dyad.bw` also default to `--zero-thresh 0` and `--max-score inf`; explicit options always win. If every region is rejected, the error reports rejection counts and suggests these disabling values only when the corresponding filters rejected data.
+Recognized NucleoSuite BigWig suffixes set track-specific labels automatically. Unknown tracks use `Score` and `Mean score`. Dyad inputs ending in `_dyad.bw` also default to `--zero-thresh 0` and `--max-score inf`; native PNS/`posPNS` inputs default to `--max-score inf` because their amplitudes depend on fragment abundance. Explicit options always win. If every region is rejected, the error reports rejection counts and suggests these disabling values only when the corresponding filters rejected data.
 
 ## Outputs
 

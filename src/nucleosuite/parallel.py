@@ -310,7 +310,7 @@ def _fragment_inputs_support_parallel(args: argparse.Namespace) -> tuple[bool, s
     return True, "indexed fragment interval input"
 
 _NATIVE_MODULES = {
-    "nuc-score": "nucleosuite.cli.nuc_score",
+    "pns": "nucleosuite.cli.pns",
     "wps": "nucleosuite.cli.wps",
     "coverage": "nucleosuite.cli.coverage",
     "dyads": "nucleosuite.cli.dyads",
@@ -420,9 +420,9 @@ def _stable_seed(seed: int | None, contig: str) -> int | None:
 def _resolved_output_prefix(command: str, base: str, args: Mapping[str, object]) -> str:
     lower = int(args.get("frag_lower", 0))
     upper = int(args.get("frag_upper", 0))
-    if command == "nuc-score":
+    if command == "pns":
         return (
-            f"{base}_method{args.get('scoring_method', 'sns')}"
+            f"{base}_method{args.get('scoring_method', 'pns')}"
             f"_mode{int(args['mode_length'])}_lower{lower}_upper{upper}"
             f"_smooth{int(args.get('smooth_window', 0))}x{int(args.get('smooth_order', 2))}"
         )

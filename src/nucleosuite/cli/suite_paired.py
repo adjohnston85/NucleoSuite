@@ -51,8 +51,8 @@ def _single(paths: list[Path], label: str) -> Path:
     return paths[0]
 
 
-def _paired_peak_paths(scaled_dir: Path, call_type: str) -> tuple[Path, Path]:
-    matches = sorted(scaled_dir.glob(f"*_{call_type}_mean_scaled.bed"))
+def _paired_peak_paths(score_dir: Path, call_type: str) -> tuple[Path, Path]:
+    matches = sorted(score_dir.glob(f"*_{call_type}.bed"))
     observed = [path for path in matches if "_randomized_control_" not in path.name]
     randomized = [path for path in matches if "_randomized_control_" in path.name]
     return (
@@ -70,10 +70,10 @@ def annotate_suite_combined_peaks(
     """Annotate observed combined suite peaks using matched randomized outputs."""
     root = Path(outdir).resolve()
     combined = root / "combined" if (root / "combined" / "01_combined_tracks").is_dir() else root
-    scaled = combined / "01_combined_tracks" / "scaled"
-    if not scaled.is_dir():
-        raise RuntimeError(f"Combined scaled peak directory was not created: {scaled}")
-    output_dir = combined / "13_peak_analysis" / "sns" / "empirical_fdr"
+    score_dir = combined / "01_combined_tracks" / "pns"
+    if not score_dir.is_dir():
+        raise RuntimeError(f"Combined PNS peak directory was not created: {score_dir}")
+    output_dir = combined / "13_peak_analysis" / "pns" / "empirical_fdr"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     outputs: dict[str, PeakFdrResult] = {}
@@ -81,7 +81,7 @@ def annotate_suite_combined_peaks(
         ("nucleosome", "nucleosome_regions"),
         ("breakpoint", "breakpoint_peaks"),
     ):
-        observed, randomized = _paired_peak_paths(scaled, suffix)
+        observed, randomized = _paired_peak_paths(score_dir, suffix)
         prefix = output_dir / f"{observed.stem}_{suite_name}"
         outputs[label] = annotate_peak_fdr(
             observed,

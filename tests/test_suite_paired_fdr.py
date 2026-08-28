@@ -35,13 +35,13 @@ def test_suite_fdr_requires_paired_execution():
 
 
 def test_paired_suite_annotates_combined_nucleosome_and_breakpoint_beds(tmp_path: Path):
-    scaled = tmp_path / "combined" / "01_combined_tracks" / "scaled"
+    native = tmp_path / "combined" / "01_combined_tracks" / "pns"
     for suffix in ("nucleosome_regions", "breakpoint_peaks"):
         _write_peaks(
-            scaled / f"sample_PNS_{suffix}_mean_scaled.bed", [30, 20, 10]
+            native / f"sample_PNS_{suffix}.bed", [30, 20, 10]
         )
         _write_peaks(
-            scaled / f"sample_randomized_control_PNS_{suffix}_mean_scaled.bed", [15, 5]
+            native / f"sample_randomized_control_PNS_{suffix}.bed", [15, 5]
         )
 
     outputs = annotate_suite_combined_peaks(

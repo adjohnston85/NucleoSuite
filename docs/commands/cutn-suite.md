@@ -6,11 +6,11 @@
 
 If condition labels are not supplied, they are named `condition1` and `condition2`. The output prefix remains independently controlled by `--sample-name` and is not used as a biological condition label.
 
-SNS is the default discovery score. Its fragment range is resolved separately for treatment and control as the selected mode ±30 bp. Use `--scoring-method pns`, `--scoring-method bns`, or `--scoring-method tns` when another kernel is required. The mode-centred score/positive-score pair and broad 1–1,000 bp coverage are generated together by `tracks` in one fragment pass per replicate.
+PNS supplies the discovery score. Its fragment range is resolved separately for treatment and control as the selected mode ±30 bp. Mode-centred PNS/`posPNS` and broad 1–1,000 bp coverage are generated together by `tracks` in one fragment pass per replicate.
 
 ## Why use it
 
-Use this workflow to distinguish antibody-target enrichment from a condition-matched control and, optionally, test whether that enrichment changes between conditions. SNS locates peaks by default. Every coverage BigWig is separately divided by its own finite non-zero mean and multiplied by 100 before peak strength is measured. The control is not globally subtracted from the treatment track.
+Use this workflow to distinguish antibody-target enrichment from a condition-matched control and, optionally, test whether that enrichment changes between conditions. PNS locates peaks by default. Every coverage BigWig is separately divided by its own finite non-zero mean and multiplied by 100 before peak strength is measured. The control is not globally subtracted from the treatment track.
 
 ## Stage 1: one condition
 
@@ -24,32 +24,32 @@ nucleosuite cutn-suite \
 ```
 
 
-Stage 1 separates **peak discovery** from **peak measurement**. SNS, PNS, BNS, or TNS defines where candidate peaks occur. Scaled fragment coverage then provides the replicate values used for treatment-versus-control filtering and statistics. Keeping these roles separate avoids treating the height of a model-derived positioning score as if it were direct fragment abundance.
+Stage 1 separates **peak discovery** from **peak measurement**. PNS defines where candidate peaks occur. Scaled fragment coverage then provides the replicate values used for treatment-versus-control filtering and statistics. Keeping these roles separate avoids treating the height of a model-derived positioning score as if it were direct fragment abundance.
 
 ### 1. Generate one score and coverage set per replicate
 
 For each treatment and control replicate, `cutn-suite` makes two deliberately different fragment selections:
 
-- an SNS, PNS, BNS, or TNS discovery track and its matching non-negative `posSNS`, `posPNS`, `posBNS`, or `posTNS` track, using fragments from the resolved mode ±30 bp by default; and
+- a PNS discovery track and its non-negative `posPNS` reference, using fragments from the resolved mode ±30 bp by default; and
 - raw fragment coverage using all accepted fragments from 1–1,000 bp by default.
 
 The narrow, mode-centred range focuses the discovery score on fragments most consistent with one protected nucleosome and prevents very short or long assay fragments from changing the positioning signal. Change the automatic ±30 bp distance with `--frag-mode-padding`. `--score-frag-lower` and `--score-frag-upper` can override the lower and upper bounds independently. The broader coverage range retains the fragment abundance associated with the enriched locus, including subnucleosomal and longer fragments that can be informative in CUT&RUN or CUT&Tag. Change it with `--coverage-frag-lower` and `--coverage-frag-upper`.
 
-The centred score locates protected-DNA structure. The positive track measures the overall amount of method-specific score support and is used only as the normalization reference. Raw broad-range coverage is retained so the original sequencing-depth scale remains available.
+The signed PNS track locates protected-DNA structure. The non-negative `posPNS` reference records translated per-fragment support. Both score tracks retain native values. Raw broad-range coverage is retained alongside its normalized measurement track.
 
-The selected scoring method is used throughout the workflow. SNS uses `sns`/`posSNS`, PNS uses `pns`/`posPNS`, BNS uses `bns`/`posBNS`, and TNS uses `tns`/`posTNS`. The same method-specific normalized treatment tracks used for discovery are reused for cluster-centred profiles, heatmaps and directional NRLs; selecting SNS, BNS or TNS does not trigger an additional PNS pass. Score tracks from the mode-centred range and broad 1–1,000 bp coverage are generated together by `tracks` in one fragment pass. `cutn-suite` then calls treatment nucleosome candidates once from the consensus discovery track and does not produce per-replicate nucleosome or breakpoint callsets.
+PNS is used throughout discovery and cluster-centred profiles, heatmaps and directional NRLs. The score and coverage tracks are generated together by `tracks` in one fragment pass. Treatment nucleosome candidates are called once from the consensus discovery track; all replicate measurements then use those same candidate intervals.
 
-### 2. Normalize and average treatment score tracks for discovery
+### 2. Average native treatment PNS tracks for discovery
 
-Each replicate score track is divided by the finite, non-zero mean of its own positive-score track:
+For $R$ treatment replicates, the consensus score is
 
 ```math
-Z_{i,scaled}(x)=\frac{Z_i(x)}{\mathrm{mean}(Z_i^+(x)\mid Z_i^+(x)>0)}.
+\overline{PNS}(x)=\frac{1}{R}\sum_{r=1}^{R}PNS_r(x).
 ```
 
-This normalization is performed **before averaging** because raw score magnitude depends on usable fragment depth. Without it, a deeper replicate would contribute more strongly to the average and could dominate which peaks are discovered. The normalization places the replicate score tracks on comparable scales while preserving their spatial peak structure.
+PNS and `posPNS` values retain their native scale, including the per-fragment +100/−100 mass. No division by the positive-reference mean is applied. A deeper replicate can contribute larger score amplitudes to the average. With one treatment replicate, its native PNS track is used directly.
 
-When several treatment replicates are supplied, their normalized score tracks are averaged. Averaging reinforces signal shared across replicates and reduces the influence of replicate-specific fluctuations. Peaks are then called once on this consensus treatment track, giving every downstream replicate exactly the same candidate intervals. With one treatment replicate, its normalized score track is used directly. Control score tracks are retained, but control peaks are not called.
+Peaks are called once from the consensus track. Control PNS tracks are retained for inspection; treatment/control statistical measurements use coverage.
 
 ### 3. Normalize coverage for measurement
 
@@ -111,9 +111,9 @@ One consecutive non-member can bridge included members by default (`--cluster-ma
 
 Cluster coordinates extend from the first included member to the last. The aggregate anchor is the discovery summit of the included member with the strongest condition-mean Stage 1 coverage measurement.
 
-### 7. Aggregate SNS around cluster anchors
+### 7. Aggregate PNS around cluster anchors
 
-Each replicate SNS track is normalized by the mean of its `posSNS` track before averaging. This places replicate score tracks on comparable scales so that differences in sequencing depth do not cause higher-depth libraries to contribute disproportionately to the condition-average discovery track.
+Native PNS replicate tracks are averaged directly for discovery and cluster-centred positioning. PNS and `posPNS` retain their native scale; sequencing depth can therefore affect their amplitudes. Broad-range coverage is independently scaled to a non-zero mean of 100 for Stage 1 treatment/control measurements, with mean coverage across each candidate interval used by default.
 
 Cluster-centred heatmaps and aggregate profiles use the selected discovery scorer. The default directional NRL peak resolution is **130 bp** and the default fitted orders are 0–3 on both sides.
 
@@ -128,7 +128,7 @@ nucleosuite cutn-suite \
   --outdir wt_stage1
 ```
 
-Each replicate SNS track is normalized by the mean of its `posSNS` track before the discovery tracks are averaged. This places replicate discovery tracks on comparable scales so that higher-depth libraries do not contribute disproportionately to the condition mean. Replicate-specific scaled coverage supplies the Stage 1 treatment/control measurements, and condition-mean treatment coverage supplies the reported BED score. All raw and normalized tracks are retained in `cutn_stage1_manifest.json` so downstream comparison can reuse them without returning to the BAM files.
+Native PNS replicate tracks are averaged directly for discovery and cluster-centred positioning. PNS and `posPNS` retain their native scale; sequencing depth can therefore affect their amplitudes. Broad-range coverage is independently scaled to a non-zero mean of 100 for Stage 1 treatment/control measurements, with mean coverage across each candidate interval used by default. Raw PNS and coverage paths, coverage normalization and condition-mean tracks are recorded in `cutn_stage1_manifest.json` for downstream reuse.
 
 Use `--bam-mode merged` to pass every treatment BAM as one logical treatment sample and every control BAM as one logical control sample. This matches the usual NucleoSuite multi-BAM pooling behaviour. Merged mode provides Stage 2 effect sizes and gain/loss direction from the pooled treatment/control groups.
 
@@ -161,12 +161,12 @@ Completed `cutn-suite` directories can be inspected without opening the manifest
 nucleosuite cutn-suite --inspect-run cutn_results_h3K4me3
 ```
 
-The report lists each biological condition, its treatment and control BAMs, the retained replicate tracks, scoring method, resolved treatment/control modes, discovery and coverage fragment ranges, Stage 1 gate and cluster settings. For each retained replicate, `cutn-suite` also reports lightweight sample statistics from the saved track outputs, including the fragment-length mode within the nucleosome mode-search range, the number of fragments used in the broad coverage range, the positive-score normalization mean, and the pre-scaling non-zero coverage mean when those values are available. The original treatment/control/pooled bootstrap mode estimate and confidence interval are also shown when the mode report is present.
+The report lists each biological condition, its treatment and control BAMs, the retained replicate tracks, scoring method, resolved treatment/control modes, discovery and coverage fragment ranges, Stage 1 gate and cluster settings. For each retained replicate, `cutn-suite` also reports lightweight sample statistics from the saved track outputs, including the fragment-length mode within the nucleosome mode-search range, the number of fragments used in the broad coverage range, the pre-scaling non-zero coverage mean when those values are available. The original treatment/control/pooled bootstrap mode estimate and confidence interval are also shown when the mode report is present.
 
 
 ## Fast reruns from retained BigWigs
 
-`--rerun-from` reuses the per-replicate normalized score and broad-coverage BigWigs from a completed run. It does **not** repeat mode estimation or the BAM-to-BigWig `tracks` stage. This is useful for leave-one-replicate-out checks and for changing downstream peak, statistics, clustering, Stage 2, or aggregate parameters.
+`--rerun-from` reuses the per-replicate native PNS and broad-coverage BigWigs from a completed run. It does **not** repeat mode estimation or the BAM-to-BigWig `tracks` stage. This is useful for leave-one-replicate-out checks and for changing downstream peak, statistics, clustering, Stage 2, or aggregate parameters.
 
 Exclude one replicate by BAM path, filename, or an unambiguous filename stem:
 
@@ -246,11 +246,11 @@ A one-condition run writes:
 
 - `00_setup/`: mode and normalization reports;
 - `01_score_tracks/`: method-specific mode-centred score/positive-score BigWigs plus unscaled 1–1,000 bp coverage BigWigs generated in the same `tracks` pass;
-- `02_mean_scaled_tracks/`: method-specific positive-score-normalized score tracks and replicate/condition-mean coverage scaled to 100;
+- `02_analysis_tracks/`: native condition-mean PNS and replicate/condition-mean coverage scaled to 100;
 - `03_peak_calls/`: treatment-defined nucleosome candidate peaks;
 - `04_peak_statistics/`: replicate statistics, annotated treatment peaks, seed/member classifications, and seeded clusters;
-- `05_cluster_aggregate/`: strongest-member anchors, replicate and combined normalized-score profiles, heatmap, bootstrap confidence band, and directional NRL outputs;
-- `cutn_stage1_manifest.json`: reusable Stage 1 metadata and scaled-track paths.
+- `05_cluster_aggregate/`: strongest-member anchors, replicate and combined native PNS profiles, heatmap, bootstrap confidence band, and directional NRL outputs;
+- `cutn_stage1_manifest.json`: reusable Stage 1 metadata and native PNS and normalized-coverage paths.
 - `cutn_suite_run_manifest.json`: run-level condition, BAM, parameter, and reuse metadata used by `--inspect-run` and `--rerun-from`.
 
 A two-condition run writes the two Stage 1 trees under `01_condition1_stage1/` and `02_condition2_stage1/`. `03_condition_comparison/` contains cluster-only differential tables and BEDs, overlap-component mapping, Venn and occupied-base summaries, and matched union-locus aggregate heatmaps. The root `cutn_suite_run_manifest.json` points to both condition manifests and the comparison manifest.

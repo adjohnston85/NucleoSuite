@@ -57,9 +57,9 @@ def test_pooled_mode_equal_weights_target_and_control_histograms():
     assert pooled.mode != 166 or pooled.mode_search_fragments <= target.mode_search_fragments
 
 
-def test_nuc_score_auto_mode_can_use_fragment_interval_input(tmp_path):
+def test_pns_auto_mode_can_use_fragment_interval_input(tmp_path):
     from nucleosuite.cli.main import build_parser
-    from nucleosuite.cli.nuc_score import _resolve_mode_and_fragment_range
+    from nucleosuite.cli.pns import _resolve_mode_and_fragment_range
 
     fragments = tmp_path / "fragments.bed"
     fragments.write_text(
@@ -71,7 +71,7 @@ def test_nuc_score_auto_mode_can_use_fragment_interval_input(tmp_path):
     )
     args = build_parser().parse_args(
         [
-            "nuc-score",
+            "pns",
             "--fragments",
             str(fragments),
             "--mode-min-fragments",

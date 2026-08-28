@@ -6,12 +6,12 @@
 
 ## Why use it
 
-Use `tracks` when several outputs must share the same fragment filters. It avoids rereading the input for each track. Available output groups cover SNS/PNS/BNS/TNS and WPS scoring, shared peak calls, coverage/dyad/end tracks, and sequence-based profiles.
+Use `tracks` when several outputs must share the same fragment filters. It avoids rereading the input for each track. Available output groups cover PNS and WPS scoring, shared peak calls, coverage/dyad/end tracks, and sequence-based profiles.
 
 ```mermaid
 flowchart LR
     A[BAM or fragment intervals] --> B[Shared fragment pass]
-    B --> C[SNS/PNS/BNS/TNS and WPS]
+    B --> C[PNS and WPS]
     B --> D[Coverage, dyads, and ends]
     B --> E[Dinucleotide and WW/SS analyses]
     C --> F[Peak calls]
@@ -32,7 +32,7 @@ An exact length:
 An inclusive range:
 
 ```text
-137-197=sns,posSNS,coverage,pns_peaks
+137-197=pns,posPNS,coverage,pns_peaks
 ```
 
 A fragment can contribute to every requested range that contains its length.
@@ -45,7 +45,7 @@ nucleosuite tracks \
   --fasta genome.fa \
   --output-dir tracks \
   --output-prefix sample \
-  --fragment-range "137-197=sns,posSNS,coverage,pns_peaks" \
+  --fragment-range "137-197=pns,posPNS,coverage,pns_peaks" \
   --fragment-range "120-180=wps,wps_smoothed,mWPS,sm_mWPS,wps_peaks" \
   --fragment-range "145-147=dyad,fragment_left_ends,fragment_right_ends" \
   --fragment-range "145=dyad,dinuc_profile" \
@@ -54,20 +54,19 @@ nucleosuite tracks \
 
 A 145 bp fragment contributes to every compatible range above.
 
-### SNS range example
+### PNS range example
 
-Select SNS globally for the nucleosome-score ranges and request its method-specific track names:
+Request PNS track names for each scoring range. The protected-DNA mode is shared across the requested ranges:
 
 ```bash
 nucleosuite tracks \
   --bam sample.bam \
-  --scoring-method sns \
   --score-mode-length 167 \
-  --fragment-range "137-197=sns,posSNS,pns_peaks" \
+  --fragment-range "137-197=pns,posPNS,pns_peaks" \
   --output-dir sample_tracks
 ```
 
-`pns_peaks` is the name of the shared peak-calling token; with `--scoring-method sns`, it evaluates `sns` (or `sns_smoothed` when score smoothing is enabled).
+`pns_peaks` calls peaks from `pns`, or `pns_smoothed` when score smoothing is enabled. The token can be requested with or without writing the corresponding score BigWig.
 
 ## Use a specification file for larger workflows
 
@@ -75,7 +74,7 @@ A tab-separated spec file is easier to maintain when many ranges or exact output
 
 ```text
 fragment_range  output_prefix                                  tracks                                      basic_scope
-137-197         results/sample_SNS_methodsns_mode167_lower137_upper197_smooth0x2   sns,posSNS,coverage,pns_peaks              range
+137-197         results/sample_PNS_methodpns_mode167_lower137_upper197_smooth0x2   pns,posPNS,coverage,pns_peaks              range
 120-180         results/sample_WPS_prot120_lower120_upper180_baseline1000_sg21x2_callerwps   coverage,wps,wps_smoothed,mWPS,sm_mWPS    range
 145             results/sample_145_dyads_lower145_upper145     dyad                                        range
 ```
@@ -84,9 +83,9 @@ fragment_range  output_prefix                                  tracks           
 
 ## Nucleosome-score peak calls
 
-`pns_peaks` invokes the shared PNS-style positive-region caller on the **currently selected** `--scoring-method`. It therefore works with SNS, PNS, BNS, or TNS without generating an extra PNS track. Text BED scores remain six-decimal floating-point values after `--score-peak-score-scale`.
+`pns_peaks` invokes the PNS positive-region caller. Text BED scores remain six-decimal floating-point values after `--score-peak-score-scale` (default 1).
 
-`--bigbed-score-scale` controls conversion to the integer bigBed score field. SNS defaults to **1** (native score values are rounded/clamped without prior rescaling); PNS, BNS and TNS default to **1000**. An explicit value overrides the method-aware default.
+`--bigbed-score-scale` defaults to 1 and controls integer rounding/clamping for the bigBed score field. BigWigs retain native PNS and `posPNS` values.
 
 ## Duplicate limits versus sparse-coordinate limits
 
@@ -128,7 +127,7 @@ nucleosuite tracks \
   --contigs chr1-22,chrX \
   --cores 8 \
   --output-dir sample_tracks \
-  --fragment-range "137-197=sns,posSNS,coverage,pns_peaks" \
+  --fragment-range "137-197=pns,posPNS,coverage,pns_peaks" \
   --fragment-range "120-180=wps,sm_mWPS,wps_peaks"
 ```
 

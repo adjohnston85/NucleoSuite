@@ -200,7 +200,7 @@ def filter_records_by_coverage(
 ) -> tuple[list[dict], int]:
     """Retain nucleosome records with coverage >= threshold at BED column 7.
 
-    PNS/BNS/TNS BED8 output writes ``region_centre`` to column 7.  The direct
+    PNS BED8 output writes ``region_centre`` to column 7.  The direct
     peak-coverage filter evaluates the internally calculated fragment coverage
     at that same genomic position.
     """

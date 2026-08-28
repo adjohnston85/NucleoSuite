@@ -20,7 +20,7 @@ The default:
 
 places 0.5 on each central base. `left` or `right` places the full count 1 on the selected central base.
 
-See [Coverage, dyads, and fragment ends](../ALGORITHMS.md#coverage-dyads-and-fragment-ends) for the coordinate definition.
+See [Coverage, dyads, and fragment ends](../ALGORITHMS.md#dyads) for the coordinate definition.
 
 ## Basic usage
 

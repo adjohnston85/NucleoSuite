@@ -13,7 +13,7 @@ Each command page describes the calculation, a typical invocation, analysis opti
 ## Build genomic signals
 
 - [`tracks`](commands/tracks.md) — make several fragment-derived tracks in one fragment pass.
-- [`nuc-score`](commands/nuc-score.md) — calculate SNS, PNS, BNS or TNS and call positive/negative regions; SNS is the standalone default.
+- [`pns`](commands/pns.md) — calculate PNS and call positive/negative regions; PNS is the standalone default.
 - [`wps`](commands/wps.md) — calculate WPS-family tracks and WPS peak calls.
 - [`coverage`](commands/coverage.md) — count fragment coverage per base.
 - [`mean-scale`](commands/mean-scale.md) — mean-normalize BigWig signal or BED-family scores relative to a calculated or supplied reference mean.

@@ -272,18 +272,9 @@ def infer_aggregate_track_options(path: str | Path) -> dict[str, object]:
     suffixes: tuple[tuple[str, str, str], ...] = (
         ("_sm_mwps", "Smoothed median-adjusted WPS", "Mean smoothed median-adjusted WPS"),
         ("_mwps", "Median-adjusted WPS", "Mean median-adjusted WPS"),
-        ("_possns", "Positive sinusoidal nucleosome score (posSNS)", "Mean positive sinusoidal nucleosome score (posSNS)"),
-        ("_sns_smoothed", "Sinusoidal nucleosome score (SNS)", "Mean sinusoidal nucleosome score (SNS)"),
-        ("_sns", "Sinusoidal nucleosome score (SNS)", "Mean sinusoidal nucleosome score (SNS)"),
         ("_pospns", "Positive probabilistic nucleosome score (posPNS)", "Mean positive probabilistic nucleosome score (posPNS)"),
         ("_pns_smoothed", "Probabilistic nucleosome score (PNS)", "Mean probabilistic nucleosome score (PNS)"),
         ("_pns", "Probabilistic nucleosome score (PNS)", "Mean probabilistic nucleosome score (PNS)"),
-        ("_posbns", "Positive boxcar nucleosome score (posBNS)", "Mean positive boxcar nucleosome score (posBNS)"),
-        ("_bns_smoothed", "Boxcar nucleosome score (BNS)", "Mean boxcar nucleosome score (BNS)"),
-        ("_bns", "Boxcar nucleosome score (BNS)", "Mean boxcar nucleosome score (BNS)"),
-        ("_postns", "Positive triangular nucleosome score (posTNS)", "Mean positive triangular nucleosome score (posTNS)"),
-        ("_tns_smoothed", "Triangular nucleosome score (TNS)", "Mean triangular nucleosome score (TNS)"),
-        ("_tns", "Triangular nucleosome score (TNS)", "Mean triangular nucleosome score (TNS)"),
         ("_wps", "Windowed protection score (WPS)", "Mean windowed protection score (WPS)"),
         ("_fragment_left_ends", "Left fragment-end count", "Mean left fragment-end count"),
         ("_fragment_right_ends", "Right fragment-end count", "Mean right fragment-end count"),
@@ -313,6 +304,10 @@ def infer_aggregate_track_options(path: str | Path) -> dict[str, object]:
             )
             if suffix == "_dyad":
                 inferred.update(zero_thresh=0, max_score=float("inf"))
+            elif suffix in {"_pns", "_pns_smoothed", "_pospns"}:
+                # Native PNS amplitudes depend on fragment abundance; a fixed
+                # ceiling intended for normalized signals can discard valid loci.
+                inferred.update(max_score=float("inf"))
             break
     return inferred
 

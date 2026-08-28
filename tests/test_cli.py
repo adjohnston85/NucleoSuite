@@ -22,13 +22,13 @@ def subparser_choices(parser: argparse.ArgumentParser) -> set[str]:
 
 
 def test_version_is_current_release():
-    assert __version__ == "0.11.2"
+    assert __version__ == "0.11.4"
 
 
 def test_all_primary_commands_are_registered():
     choices = subparser_choices(build_parser())
     assert {
-        "tracks", "nuc-score", "wps", "coverage", "dyads", "dyad", "fragment-ends", "mean-scale",
+        "tracks", "pns", "wps", "coverage", "dyads", "dyad", "fragment-ends", "mean-scale",
         "dinuc-profile", "ww-types", "call-peaks", "peak-call",
         "aggregate", "compare-positions", "dac", "dcc", "distances", "fragment-lengths",
         "fragment-heatmap", "filter-peaks", "gene-sets", "gene-expression", "tss-expression-quintiles", "mnase-suite", "cfdna-suite", "cutn-suite", "cutn-compare", "chrom-sizes", "nrl", "plot", "positive-runs", "peak-score-frequency", "empirical-peak-fdr", "peak-states", "resources", "region-extract", "validate-inputs",
@@ -87,7 +87,7 @@ def test_core_help_hides_curated_advanced_options(capsys):
 
     examples = (
         ("distances", "--pct-bin-seed"),
-        ("nuc-score", "--chunk-bp"),
+        ("pns", "--chunk-bp"),
         ("compare-positions", "--stats-test"),
         ("plot", "--mpl-rc"),
     )
@@ -175,7 +175,7 @@ def test_peak_commands_expose_only_bed_output():
         item for item in parser._actions
         if isinstance(item, argparse._SubParsersAction)
     )
-    for command in ("nuc-score", "wps"):
+    for command in ("pns", "wps"):
         help_text = action.choices[command].format_help()
         assert "--peak-format" not in help_text
         assert "rich" not in help_text.lower()
@@ -334,7 +334,7 @@ def test_registered_subcommand_help_does_not_include_logo():
         if isinstance(item, argparse._SubParsersAction)
     )
     logo_first_line = render_logo().splitlines()[0]
-    assert logo_first_line not in action.choices["nuc-score"].format_help()
+    assert logo_first_line not in action.choices["pns"].format_help()
     assert logo_first_line not in action.choices["wps"].format_help()
 
 

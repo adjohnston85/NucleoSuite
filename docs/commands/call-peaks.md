@@ -2,7 +2,7 @@
 
 ## What this command does
 
-`call-peaks` applies the PNS-style positive-region caller or the WPS caller to an existing compatible BigWig signal. The PNS-style caller is shared by SNS, centred PNS, BNS, and TNS tracks.
+`call-peaks` applies the PNS positive-region caller or the WPS caller to an existing compatible BigWig signal.
 
 ## Why use it
 
@@ -15,7 +15,7 @@ Use it to change calling parameters, call a previously combined signal, or run t
 --peak-caller wps
 ```
 
-The selected caller determines how the input signal is segmented and scored. Match `pns` to an SNS, PNS, BNS, or TNS signal and `wps` to the WPS-family signal being evaluated.
+The selected caller determines how the input signal is segmented and scored. Match `pns` to an PNS signal and `wps` to the WPS-family signal being evaluated.
 
 See [PNS peak calling](../ALGORITHMS.md#pns-peak-calling) and [WPS peak calling](../ALGORITHMS.md#wps-peak-calling) for the exact definitions.
 
@@ -23,15 +23,14 @@ See [PNS peak calling](../ALGORITHMS.md#pns-peak-calling) and [WPS peak calling]
 
 ```bash
 nucleosuite call-peaks \
-  --input-bigwig sample_sns.bw \
+  --input-bigwig sample_pns.bw \
   --peak-caller pns \
-  --scoring-method sns \
-  --out-prefix sample_sns_calls
+  --out-prefix sample_pns_calls
 ```
 
-The shared nucleosome-score caller segments positive score regions directly. Breakpoint calls apply the same region logic to the sign-inverted signal. `--scoring-method` records which score kernel produced the input and sets the method-aware bigBed conversion default.
+The shared nucleosome-score caller segments positive score regions directly. Breakpoint calls apply the same region logic to the sign-inverted signal.
 
-Text BED scores remain six-decimal floats. SNS bigBed scores are **not rescaled by default** (`--bigbed-score-scale 1`). PNS, BNS and TNS inputs default to a 1000-fold conversion because their native peak scores are fractional. An explicit `--bigbed-score-scale` overrides either default.
+Text BED scores remain six-decimal floats. `--bigbed-score-scale` defaults to 1; the bigBed score is rounded and clamped to its integer range of 0–1000. An explicit multiplier affects bigBed scores only.
 
 ## WPS example
 

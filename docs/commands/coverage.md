@@ -10,7 +10,7 @@ Use coverage to inspect fragment depth in a genome browser, extract regional dep
 
 ## How it works
 
-Every accepted fragment contributes 1 to each base it covers. Overlapping fragments add together, so the final value at a base is the number of retained fragments spanning that position. See [Coverage, dyads, and fragment ends](../ALGORITHMS.md#coverage-dyads-and-fragment-ends).
+Every accepted fragment contributes 1 to each base it covers. Overlapping fragments add together, so the final value at a base is the number of retained fragments spanning that position. See [Coverage, dyads, and fragment ends](../ALGORITHMS.md#coverage).
 
 ## Basic usage
 

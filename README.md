@@ -2,12 +2,6 @@
 
 NucleoSuite is a command-line toolkit that converts paired-end alignments or fragment intervals into nucleosome-positioning signals, cfDNA and MNase-seq fragmentomic analyses, matched CUT&RUN/CUT&Tag analyses, peak calls, chromatin-state profiles, sequence profiles, spacing measurements, and coordinated workflows.
 
-<p align="center">
-  <img src="docs/images/PNS_example_tracks_BH01.png" alt="Example NucleoSuite genomic track outputs displayed in IGV" width="100%">
-</p>
-
-*Example NucleoSuite track outputs generated from the BH01 plasma cfDNA sample from Snyder et al. (2016) and displayed in Integrative Genomics Viewer (IGV) v2.19.8, including coverage, positive PNS, PNS, nucleosome and breakpoint calls, fragment dyads, and fragment-end tracks.*
-
 ```bash
 nucleosuite COMMAND [options]
 ```
@@ -38,7 +32,7 @@ Analysis commands derive output filenames or prefixes from the primary input bas
 | Command | Function |
 |---|---|
 | [`tracks`](docs/commands/tracks.md) | Generate multiple range-specific signal and coordinate tracks in one fragment pass. |
-| [`nuc-score`](docs/commands/nuc-score.md) | Calculate SNS, PNS, BNS or TNS nucleosome score tracks and shared peak calls; SNS is the standalone default. |
+| [`pns`](docs/commands/pns.md) | Calculate probabilistic nucleosome score tracks, nucleosome regions and breakpoint peaks. |
 | [`wps`](docs/commands/wps.md) | Calculate window protection score tracks and WPS peak calls. |
 | [`coverage`](docs/commands/coverage.md) | Calculate per-base fragment coverage. |
 | [`mean-scale`](docs/commands/mean-scale.md) | Mean-normalize BigWig signal or BED-family scores relative to a calculated or supplied reference mean. |
@@ -80,7 +74,7 @@ Analysis commands derive output filenames or prefixes from the primary input bas
 |---|---|
 | [`mnase-suite`](docs/commands/mnase-suite.md) | Run the coordinated MNase-seq workflow. |
 | [`cfdna-suite`](docs/commands/cfdna-suite.md) | Run the coordinated cfDNA fragmentomics workflow. |
-| [`cutn-suite`](docs/commands/cutn-suite.md) | Run matched target-control CUT&RUN/CUT&Tag SNS, TNS, BNS or PNS analysis. |
+| [`cutn-suite`](docs/commands/cutn-suite.md) | Run matched treatment/control CUT&RUN/CUT&Tag discovery, replicate measurement and clustering. |
 | [`cutn-compare`](docs/commands/cutn-compare.md) | Compare Stage 1 clusters between two conditions and summarize cluster overlap. |
 | [`combine`](docs/commands/combine.md) | Combine outputs from an existing chromosome-wise run. |
 | [`chrom-sizes`](docs/commands/chrom-sizes.md) | Write chromosome names and lengths from a BAM or CRAM header. |
@@ -89,36 +83,20 @@ Analysis commands derive output filenames or prefixes from the primary input bas
 | [`plot`](docs/commands/plot.md) | Recreate and deeply customize all applicable figures from existing NucleoSuite output tables. |
 
 
-## Typical workflows
+## What you can analyse
 
-For a single analysis, run the command that produces the required signal, profile, peak set, or spacing result. For coordinated analyses, use [`mnase-suite`](docs/commands/mnase-suite.md), [`cfdna-suite`](docs/commands/cfdna-suite.md), or the matched target/control [`cutn-suite`](docs/commands/cutn-suite.md). Existing chromosome-wise runs can be recombined with [`combine`](docs/commands/combine.md), and generated figures can be recreated or customized with [`plot`](docs/commands/plot.md).
+| Question | Analyses and workflows |
+|---|---|
+| Where is DNA protected, and where does cleavage recur? | PNS, WPS, fragment coverage, dyads, ends, nucleosome and breakpoint calls. |
+| How are nucleosomes spaced and organized? | Adjacent and higher-order peak distances, DAC, DCC, NRL, callset comparisons and flanking spacing. |
+| How do fragments differ in size or sequence? | Length distributions and heatmaps, dinucleotide profiles, WW/SS classes and class-specific dyads. |
+| How does chromatin organization vary across annotations? | Chromatin-state summaries, feature-centred profiles, heatmaps, region extraction and peak-state enrichment. |
+| How does organization relate to transcription? | Gene-set assignment, expression-dependent spacing and periodicity, and TSS expression quintiles. |
+| How can whole experiments be analysed consistently? | cfDNA and MNase suites; matched CUT&RUN/CUT&Tag discovery, replicate measurement, clustering and condition comparison. |
 
-A minimal `nuc-score` command using the default SNS kernel:
+Use individual commands for a focused analysis, `tracks` for several fragment-derived outputs in one input pass, or a coordinated suite for a complete experiment. Inputs include paired-end BAMs, fragment BED/bigBed files, genomic BigWigs and existing peak callsets. Outputs include reusable tracks and intervals, quantitative tables, and customizable plots.
 
-```bash
-nucleosuite nuc-score \
-  --bam sample.bam \
-  --fasta genome.fa \
-  --contigs chr1 chr2 chr3 chr4 \
-  --cores 4 \
-  --out-prefix sample
-```
-
-Standalone `nuc-score` estimates its protected-DNA mode automatically from the unsmoothed accepted-fragment histogram. The resolved estimate is printed and recorded; use an integer such as `--mode 167` to apply a fixed mode instead. `wps` uses a fixed 120 bp protection window with 120–180 bp fragments by default.
-
-A minimal target/control CUT&RUN/CUT&Tag analysis is:
-
-```bash
-nucleosuite cutn-suite \
-  --treatment1-bam target.bam \
-  --control1-bam control.bam \
-  --outdir target_cutn_suite \
-  --cores 8
-```
-
-`cutn-suite` uses SNS for nucleosome-aware peak discovery by default, with PNS, BNS and TNS available as alternatives. See the [`cutn-suite`](docs/commands/cutn-suite.md) page and [Workflows](docs/WORKFLOWS.md) for mode estimation, replicate handling, clustering, statistical comparison and aggregate analyses.
-
-Detailed command behaviour, advanced options, output layouts, resource handling, and workflow examples are documented in the pages linked above and in the guides below.
+The [workflow guide](docs/WORKFLOWS.md) contains detailed command sequences for these analyses. [Choosing a command](docs/CHOOSING_A_COMMAND.md) starts from the data you already have; the [command reference](docs/COMMAND_REFERENCE.md) describes every tool. Randomized controls, chromosome-wise processing, bundled annotations and plotting utilities support the workflows throughout.
 
 ## Installation
 

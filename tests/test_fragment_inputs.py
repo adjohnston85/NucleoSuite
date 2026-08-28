@@ -3,6 +3,10 @@ from __future__ import annotations
 import gzip
 from pathlib import Path
 
+import numpy as np
+import pyBigWig
+import pytest
+
 from nucleosuite.core.fragment_inputs import IntervalFragmentSource
 from nucleosuite.fragments_command import main as fragments_main
 from nucleosuite.cli.main import build_parser
@@ -62,9 +66,50 @@ def test_fragments_command_combines_interval_inputs(tmp_path: Path):
 
 def test_pns_parser_accepts_fragment_bed_input():
     parser = build_parser()
-    args = parser.parse_args(["nuc-score", "--fragments", "sample.bed.gz"])
+    args = parser.parse_args(["pns", "--fragments", "sample.bed.gz"])
     assert args.fragment_files == ["sample.bed.gz"]
     assert args.bamfiles is None
+
+
+@pytest.mark.parametrize('chunk_bp,call_peaks', [(100, False), (1000, True)])
+def test_pns_writes_native_percent_kernels_with_and_without_peak_calls(tmp_path, chunk_bp, call_peaks):
+    """Check real BigWig values, short/even geometry and chunk ownership."""
+    from nucleosuite.cli.main import main
+
+    fragments = [(100, 220), (270, 437), (480, 660)]
+    bed = tmp_path / 'fragments.bed'
+    bed.write_text(''.join(f'chr1\t{s}\t{e}\n' for s, e in fragments))
+    sizes = tmp_path / 'genome.sizes'
+    sizes.write_text('chr1\t800\n')
+    argv = ['pns', '--fragments', str(bed), '--chrom-sizes', str(sizes),
+            '--mode', '167', '--frag-lower', '120', '--frag-upper', '180',
+            '--chunk-bp', str(chunk_bp), '--overlap-bp', '300', '--cores', '1',
+            '--interval-format', 'bed', '--other-tracks', 'none',
+            '--out-prefix', str(tmp_path / 'native')]
+    if not call_peaks:
+        argv.append('--no-peak-calling')
+    assert main(argv) == 0
+    expected = np.zeros(800)
+    reference = np.zeros(800)
+    for start, end in fragments:
+        length = end-start
+        width = 167+abs(length-167)
+        q = -np.cos(2*np.pi*np.arange(width)/(width-1))
+        q[np.isclose(q, 0, atol=1e-14)] = 0
+        kernel = np.zeros(width)
+        kernel[q > 0] = 100*q[q > 0]/q[q > 0].sum()
+        kernel[q < 0] = 100*q[q < 0]/(-q[q < 0]).sum()
+        left = start-max(0, 167-length)
+        expected[left:left+width] += kernel
+        reference[left:left+width] += kernel-kernel.min()
+    for suffix, values in [('pns', expected), ('posPNS', reference)]:
+        paths = list(tmp_path.glob(f'native*_{suffix}.bw'))
+        assert len(paths) == 1
+        with pyBigWig.open(str(paths[0])) as bw:
+            actual = np.nan_to_num(bw.values('chr1', 0, 800, numpy=True))
+        np.testing.assert_allclose(actual, values, rtol=1e-6, atol=1e-7)
+    peaks = list(tmp_path.glob('native*_nucleosome_regions.bed'))
+    assert bool(peaks) == call_peaks
 
 
 def test_dcc_bam_mode_accepts_fragment_inputs():

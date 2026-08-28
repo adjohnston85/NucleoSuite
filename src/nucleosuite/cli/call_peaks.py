@@ -37,14 +37,7 @@ def register(subparsers):
         choices=("both", "nucleosome", "breakpoint"), default="both",
         help="Write nucleosome calls, breakpoint calls, or both (default: both).",
     )
-    parser.add_argument(
-        "--scoring-method", choices=("sns", "pns", "bns", "tns"), default="sns",
-        help=(
-            "Originating nucleosome-score kernel when --peak-caller pns is used. "
-            "This controls the method-aware default bigBed score conversion "
-            "(default: sns)."
-        ),
-    )
+    parser.set_defaults(scoring_method="pns")
     parser.add_argument(
         "-r", "--regions", nargs="+", default=None,
         help="Optional contigs/regions; supports all, autosomes and numeric ranges.",
@@ -70,8 +63,8 @@ def register(subparsers):
         "--bigbed-score-scale", type=float, default=None,
         help=(
             "Multiplier applied to floating nucleosome-score BED peak scores during "
-            "bigBed conversion. SNS defaults to 1 (no rescaling); PNS, BNS and TNS "
-            "default to 1000. WPS bigBed scores use their standard BED integer scale."
+            "bigBed conversion (default: 1). "
+            "BigWig values retain their native scale."
         ),
     )
 
@@ -116,7 +109,7 @@ def run(args):
     )
     if args.bigbed_score_scale is None:
         args.bigbed_score_scale = (
-            1.0 if args.scoring_method == "sns" else 1000.0
+            1.0
         )
     if args.chunk_bp < 1 or args.overlap_bp < 0:
         raise ValueError("Chunk size must be positive and overlap non-negative")

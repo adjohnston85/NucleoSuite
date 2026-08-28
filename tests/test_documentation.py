@@ -97,10 +97,8 @@ def test_workflow_diagrams_are_present() -> None:
 def test_algorithm_figure_assets_exist_and_are_linked() -> None:
     algorithms = (ROOT / "docs" / "ALGORITHMS.md").read_text()
     figures = [
-        "pns_kernels_120_167_180_multipanel_single_legend.png",
-        "sns_kernels_120_167_180_mode167.png",
-        "bns_kernels_120_167_180_mode167.png",
-        "tns_kernels_120_167_180_mode167.png",
+        "pns_kernels_120_167_180_mode167.png",
+        "pns_length_adaptation_mode167.png",
         "wps_kernels_120_167_180_multiplot.png",
         "dac_periodicity_example.png",
     ]
@@ -489,9 +487,12 @@ def test_documentation_has_no_embedded_control_characters() -> None:
     assert not failures, "Documentation contains embedded control characters: " + ", ".join(failures)
 
 
-def test_tns_documentation_uses_renderer_safe_latex() -> None:
+def test_pns_documentation_uses_renderer_safe_latex() -> None:
     text = (ROOT / "docs" / "ALGORITHMS.md").read_text()
-    assert r"q_n(j)=\min\left(j,n-1-j\right)." in text
-    assert r"u^{TNS}_{m,L}(j)=\frac" in text
-    assert r"n(L,m)=\max(L,2m-L)." in text
-    assert "support length $n(L,m)$ [defined above](#combining-the-two-fragment-ends)" in text
+    blocks = re.findall(r"```math\n(.*?)\n```", text, re.S)
+    assert any(r"q_W(j)=-\cos" in block for block in blocks)
+    assert any(r"W(L,m)=m+|L-m|" in block for block in blocks)
+    assert any(r"p^+_W(j)=100\frac" in block for block in blocks)
+    assert text.index('## Probabilistic nucleosome scoring') < text.index('## Dyads')
+    assert text.index('## Dyads') < text.index('## Distance autocorrelation')
+    assert text.index('## Distance cross-correlation') < text.index('## `cutn-suite`')

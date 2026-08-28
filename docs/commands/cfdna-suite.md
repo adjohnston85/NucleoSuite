@@ -25,39 +25,31 @@ nucleosuite cfdna-suite \
 ```mermaid
 flowchart TB
     A[cfDNA BAM or fragments] --> B[cfdna-suite]
-    B --> C[SNS, dyads, ends, sequence]
+    B --> C[PNS, dyads, ends, sequence]
     C --> D[Combine chromosomes]
-    D --> E[Scale SNS, posSNS, coverage]
+    D --> E[Native PNS and scaled coverage]
     D --> F[DAC from ranged dyads]
     F --> G[NRL]
     E --> H[Aggregate and regional analyses]
-    D --> I[SNS peak distances]
+    D --> I[PNS peak distances]
 ```
 
 ## Main defaults
 
 | Setting | cfDNA default |
 |---|---|
-| SNS | 137–197 bp fragments; mode 167 bp |
+| PNS | 137–197 bp fragments; mode 167 bp |
 | Exact dyads and fragment ends | 145, 161, 167 bp |
 | Ranged dyads/ends, DAC and WW/SS | 144–146, 160–162, 166–168 bp |
-| SNS nucleosome distances | order 1 to 500 bp; orders 1–7 to 1500 bp |
+| PNS nucleosome distances | order 1 to 500 bp; orders 1–7 to 1500 bp |
 | Long DAC-derived NRL | 1–1500 bp, resolution 160; first called peak excluded from regression |
 | Short periodicity | 1–144 bp, resolution 1 |
 | Intermediate periodicity | 147–220, 163–220, 169–220 bp respectively; resolution 8 |
 
 
-## Post-combine normalization
+## Native PNS and coverage normalization
 
-After chromosome combination, the suite retains the raw combined outputs and creates normalized analysis inputs:
-
-- coverage is mean-scaled to 100;
-- posSNS is mean-scaled to 100;
-- SNS is scaled to 100 using the mean column-5 score of the raw combined SNS nucleosome calls as its reference mean;
-- combined SNS nucleosome-region BED scores are mean-scaled to 100;
-- combined SNS breakpoint-peak BED scores are mean-scaled to 100.
-
-The mean-scaled nucleosome and breakpoint BEDs are the peak files used by downstream suite analyses. SNS aggregate analyses (including CTCF, TSS and tissue-expression-quintile aggregation) use the scaled SNS track. Regional extraction uses the mean-scaled peak BEDs together with scaled SNS and scaled coverage.
+After chromosome combination, PNS, `posPNS`, nucleosome-region scores and breakpoint-peak scores retain their native values. Downstream spacing and score-frequency analyses use these native peak files, while CTCF/TSS/expression aggregates use native PNS. Only coverage is mean-scaled to 100 for the normalized coverage view used in regional extraction.
 
 ## DAC and NRL
 
@@ -71,22 +63,22 @@ The skipped first long-range peak remains called and labelled in the NRL profile
 
 ## Peak spacing
 
-The combined SNS nucleosome calls receive two distance analyses:
+The combined PNS nucleosome calls receive two distance analyses:
 
 - adjacent/order-1 spacing from 1–500 bp;
 - orders 1–7 from 1–1500 bp with combined regression to estimate NRL.
 
 ## Other downstream analyses
 
-The suite performs SNS peak calls, ChromHMM-stratified SNS spacing, CTCF/TSS aggregation, TSS expression quintiles, region extraction, fragment-length profiles and heatmaps, optional SNS gene-expression analysis, SNS positive runs, SNS peak-score-frequency analyses, dinucleotide profiles, WW/SS classification and WW/SS type-specific dyads.
+The suite performs PNS peak calls, ChromHMM-stratified PNS spacing, CTCF/TSS aggregation, TSS expression quintiles, region extraction, fragment-length profiles and heatmaps, optional PNS gene-expression analysis, PNS positive runs, PNS peak-score-frequency analyses, dinucleotide profiles, WW/SS classification and WW/SS type-specific dyads.
 
-`peak-score-frequency` uses the mean-scaled nucleosome and breakpoint BEDs directly with `--score-scale 1`; no additional display scaling is applied.
+`peak-score-frequency` uses the native nucleosome and breakpoint BEDs directly with `--score-scale 1`; no additional display scaling is applied.
 
 ## Randomization, resources and resume
 
 `--randomize` creates one validated randomized fragment set and runs randomized-only analysis through the same suite tree.
 
-`--with-randomized-control` runs the complete observed workflow followed by the complete randomized workflow with identical settings. Once both combined, mean-scaled nucleosome and breakpoint peak BEDs exist, the empirical randomized-peak comparison appends `empirical_p_value` and `empirical_fdr` columns to every observed combined peak. Add `--fdr 0.05` to also write FDR-filtered combined BEDs. The randomized files remain available for QC and reuse.
+`--with-randomized-control` runs the complete observed workflow followed by the complete randomized workflow with identical settings. Once both combined, native nucleosome and breakpoint peak BEDs exist, the empirical randomized-peak comparison appends `empirical_p_value` and `empirical_fdr` columns to every observed combined peak. Add `--fdr 0.05` to also write FDR-filtered combined BEDs. The randomized files remain available for QC and reuse.
 
 `--resource-set hg19-gm12878` supplies compatible bundled annotations. `--resume`, `--force`, and `--dry-run` control recovery and planning.
 

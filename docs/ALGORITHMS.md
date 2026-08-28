@@ -18,388 +18,173 @@ If a fragment overlaps any selected blacklist base, that complete fragment is ex
 
 Unless a command-specific section states otherwise, signal comparisons treat missing or non-finite BigWig values as zero while still counting those genomic positions as available comparisons. Blacklisted bases are excluded from both signal calculations and opportunity counts.
 
+
 ## Probabilistic nucleosome scoring
 
-Probabilistic nucleosome scoring (PNS) converts the boundaries of each accepted nucleosome-protected DNA fragment into a score for the nucleosome dyad: the central position of the nucleosome-bound DNA. In cfDNA, cleavage occurs more readily in exposed DNA than in DNA protected by a nucleosome or chromatosome. Fragment boundaries can therefore be treated as possible nucleosome entry or exit sites and used to predict where the dyad lies.
+Probabilistic Nucleosome Scoring (PNS) converts paired-end fragment geometry into a signed, nucleosome-centred signal. Each accepted fragment contributes one symmetric sinusoidal wave: positive support near its centre and negative support toward the outer parts of its scoring interval. The selected protected-DNA mode determines how sharply the fragment localizes that support. Fragments at the mode produce the narrowest, highest wave; fragments farther from the mode produce broader, lower waves while preserving their total contribution.
 
-PNS makes one dyad prediction from each fragment end using a triangular distribution whose width is the selected modal protected-DNA length. For the default cfDNA mode of 167 bp, each distribution is zero at its associated fragment boundary, rises to its maximum at the 84th base inward, and then returns to zero. Each endpoint distribution has total mass 0.5, so their combined distribution has total mass 1 regardless of the observed fragment length.
+The standalone [`pns`](commands/pns.md) command builds this signal and calls nucleosome regions and breakpoint peaks. [`tracks`](commands/tracks.md) calculates the same PNS kernels alongside coverage, dyads, fragment ends, WPS or sequence profiles. The cfDNA, MNase and CUT&RUN/CUT&Tag workflows use this same implementation.
 
-The two endpoint distributions are added to form one distribution for the fragment. Their maxima coincide when the fragment length equals the selected mode. When the fragment is either longer or shorter than the selected mode, the two maxima are separated. The separation increases as the observed fragment length differs further from the selected mode.
+### Fragment geometry and the protected-DNA mode
 
-PNS subtracts the mean of the combined distribution from every position in the fragment's scoring interval. The values contributed by one complete fragment then sum to zero. Values above the distribution mean become positive, and values below it become negative.
-
-NucleoSuite adds these centred fragment contributions across the genome. Positive maxima identify positions with combined support for a nucleosome dyad. Negative minima identify positions compatible with fragment boundaries or cleavage. Per-fragment centring prevents a uniformly positive coverage background, so PNS requires no running-window background subtraction.
-
-### Endpoint-derived dyad distributions
-
-Let the selected modal protected-DNA length be $m$. Each fragment end contributes a symmetric triangular distribution spanning $m$ bases. For an odd value of $m$, the triangle has one maximum at the central base. For an even value of $m$, it has equal maxima at the two central bases. These maxima represent the expected nucleosome dyad inferred from that fragment boundary.
-
-Let
+Let a fragment occupy the zero-based, half-open interval $[s,e)$, with length $L=e-s$. Its geometric centre on the genomic base grid is
 
 ```math
-h=\left\lfloor\frac{m-1}{2}\right\rfloor,
-\qquad
-q=\left\lfloor\frac{m}{2}\right\rfloor.
+c=\frac{s+e-1}{2}.
 ```
 
-For zero-based position $j$ within one endpoint triangle,
-
-```math
-p_m(j)=\frac{\min(j,m-1-j)}{2hq},
-\qquad 0\le j<m,
-```
-
-and $p_m(j)=0$ outside the triangle.
-
-Each endpoint triangle is normalized to total mass 0.5:
-
-```math
-\sum_j p_m(j)=0.5.
-```
-
-For an odd mode such as $m=167$, the distribution has one central maximum. With zero-based indexing, that maximum is at position 83:
-
-```math
-p_{167}(83)=\frac{1}{166}.
-```
-
-### Combining the two fragment ends
-
-Let $n(L,m)$ be the number of genomic positions covered by the combined endpoint distribution for a fragment of length $L$ and a selected modal protected-DNA length $m$.
-
-```math
-n(L,m)=\max(L,2m-L).
-```
-
-For a fragment $[s,e)$, the left and right endpoint triangles occupy $[s,s+m)$ and $[e-m,e)$, respectively. Their combined scoring interval is
-
-```math
-I_{L,m}=\left[\min(s,e-m),\max(e,s+m)\right).
-```
-
-Thus, only the short-fragment case extends outside the observed fragment, symmetrically about its centre.
-
-Number the positions in this scoring interval from $j=0$ to $j=n(L,m)-1$. The left fragment end contributes $p_m(j)$. The right fragment end contributes $p_m(n(L,m)-1-j)$, which reverses the triangle so that it rises inward from the right boundary. Adding these contributions gives the endpoint distribution for the fragment:
-
-```math
-u_{m,L}(j)=p_m(j)+p_m\!\left(n(L,m)-1-j\right),
-\qquad 0\le j<n(L,m).
-```
-
-Because each endpoint contributes 0.5,
-
-```math
-\sum_j u_{m,L}(j)=1.
-```
-
-For odd $m$, the distance between the two endpoint-derived maxima is $|L-m|$ bases.
-
-#### Example PNS distributions
-
-The figure below shows the endpoint-derived distributions for 120 bp, 167 bp, and 180 bp fragments using $m=167$ bp.
-
-![PNS example distributions](images/pns_kernels_120_167_180_multipanel_single_legend.png)
-
-All nucleosome-score kernel figures below measure the x axis from the fragment start at 0 bp and use grey shading for $[0,L)$. In this figure, the 120 bp fragment has a 214 bp scoring support spanning $[-47,167)$.
-
-### Mean centring
-
-The combined endpoint distribution has total mass 1 over $n(L,m)$ positions. Its mean before centring is
-
-```math
-\mu_{m,L}=\frac{1}{n(L,m)}.
-```
-
-PNS subtracts this mean from every position in the combined distribution:
-
-```math
-\psi_{m,L}(j)=u_{m,L}(j)-\frac{1}{n(L,m)}.
-```
-
-The resulting fragment contribution therefore sums to zero:
-
-```math
-\sum_j\psi_{m,L}(j)=0.
-```
-
-Positions receiving more support than the fragment-wide average become positive, while positions receiving less support become negative.
-
-The genome-wide PNS track is the sum of the centred fragment contributions:
-
-```math
-PNS_m(x)=\sum_i\psi_{m,L_i}(x).
-```
-
-PNS represents population-level enrichment of nucleosome dyads across the genome, producing nucleosome occupancy tracts rather than discrete individual nucleosome positions. Local maxima within the PNS signal identify positions of greatest dyad enrichment within those tracts.
-
-### `posPNS`
-
-`posPNS` retains the combined endpoint distributions before mean centring:
-
-```math
-posPNS_m(x)=\sum_i u_{m,L_i}(x).
-```
-
-Because each fragment contributes total mass 1, `posPNS` reports the accumulated endpoint-derived positional support.
-
-## Sinusoidal nucleosome scoring
-
-Sinusoidal Nucleosome Scoring (SNS) is the default scoring kernel used by the standalone `nuc-score` command. SNS uses the same accepted fragments and the same fragment-length-dependent support geometry as PNS, but replaces endpoint triangles with one smooth signed sinusoidal contribution centred on each fragment. The score is constructed directly as a zero-sum kernel rather than by subtracting the mean of a non-negative distribution.
+The mode $m$ is the protected-DNA length that receives the most localized positional support. Standalone `pns` estimates it automatically from accepted fragments, or uses the supplied `--mode` / `--mode-length`. The default scoring range is the resolved mode plus or minus 30 bp; explicit fragment bounds override either side independently. Mode estimation and selection of the scoring range are separate steps. See [fragment-mode estimation](#bootstrap-stabilized-fragment-mode-estimation) for sampling, bootstrap uncertainty and stopping criteria.
 
 ### Length-dependent support width
 
-Let the selected protected-DNA mode be $m$ and the observed fragment length be $L$. SNS defines its support width as
+The number of genomic bins occupied by the wave is
 
 ```math
-W(L,m)=m+|L-m|.
+W(L,m)=m+|L-m|=\max(L,2m-L).
 ```
 
-This is algebraically identical to the PNS support length $n(L,m)=\max(L,2m-L)$ defined above. Written piecewise,
+For $L\ge m$, the support is exactly the observed fragment interval. For $L<m$, it extends by $m-L$ bases beyond **each** fragment end. Define its left coordinate as
 
 ```math
-W(L,m)=2m-L \qquad \text{for } L<m
+a=s-\max(0,m-L).
 ```
 
-and
+The support is $[a,a+W)$ and has the same centre as the fragment. Its width is smallest at $L=m$ and increases equally for equal departures above or below the mode.
 
-```math
-W(L,m)=L \qquad \text{for } L\ge m.
-```
+For a mode of 167 bp, the following fragments illustrate the geometry:
 
-The wave is therefore narrowest when $L=m$. As fragment length departs from the mode in either direction, the support broadens by the same amount. For fragments longer than the mode, the support is the observed fragment itself. For fragments shorter than the mode, the extra support is divided equally between the two ends. The extension on each side is
+| Fragment length $L$ | Distance from mode | Support width $W$ | Extension beyond each fragment end |
+|---:|---:|---:|---:|
+| 120 bp | 47 bp | 214 bp | 47 bp |
+| 137 bp | 30 bp | 197 bp | 30 bp |
+| 152 bp | 15 bp | 182 bp | 15 bp |
+| 167 bp | 0 bp | 167 bp | 0 bp |
+| 182 bp | 15 bp | 182 bp | 0 bp |
+| 197 bp | 30 bp | 197 bp | 0 bp |
 
-```math
-\frac{W-L}{2}=m-L,\qquad L<m.
-```
+Thus 137 bp and 197 bp fragments have the same wave shape when aligned at their centres, despite different observed fragment spans. The shorter fragment's wave extends beyond its observed endpoints. At the mode, and for longer fragments, the negative minima lie at the observed outermost bases; for shorter fragments they lie at the extended support boundaries.
 
-For $m=167$ bp:
+Because $W$ and $L$ always have the same parity, their centres coincide exactly. Odd lengths have one central genomic bin; even lengths have two central bins around a half-base midpoint. The wave preserves that symmetry without shifting the fragment centre.
 
-| Fragment length $L$ | SNS support $W$ | Extension beyond each fragment end |
-|---:|---:|---:|
-| 120 bp | 214 bp | 47 bp |
-| 167 bp | 167 bp | 0 bp |
-| 180 bp | 180 bp | 0 bp |
+### Sampling the sinusoidal shape
 
-The parity of the support always matches the parity of the fragment length. If $L\ge m$, then $W=L$. If $L<m$, then $W=2m-L$, and subtracting $L$ from the even number $2m$ preserves the parity of $L$. This matters on an integer genomic grid: an odd-length fragment and its odd-length support have one central base, while an even-length fragment and its even-length support share the same half-base geometric midpoint and have two equally placed central bins. No 0.5-bp rounding shift is required.
-
-### Discrete sinusoidal kernel
-
-Number the integer genomic bins across the support from $j=0$ to $j=W-1$. SNS first evaluates one inverted cosine cycle
+For local bin $j=0,\ldots,W-1$, PNS samples one inverted cosine cycle:
 
 ```math
 q_W(j)=-\cos\left(\frac{2\pi j}{W-1}\right).
 ```
 
-Thus $q_W(0)=q_W(W-1)=-1$: the wave begins and ends at its minimum. For odd $W$, the central bin $j=(W-1)/2$ has value $+1$. For even $W$, the geometric centre lies between two bins and those two bins have equal maximum values. The samples are therefore exactly left-right symmetric on the discrete genomic grid.
+The first and last bins have value $-1$. Odd widths have a single central value of $+1$; even widths have two equal central maxima. Samples within floating-point tolerance of zero are set to zero before normalization.
 
-A continuous sinusoid can be normalized analytically by its integral, but NucleoSuite stores genomic signal at discrete integer positions. Direct sampling causes small length-dependent differences in the sums of the positive and negative samples. SNS therefore normalizes the two signed parts after discrete sampling. Define
+PNS constructs the signed wave directly. Its normalization uses the actual sampled genomic bins, so odd/even widths and the duplicated negative endpoint are accounted for explicitly.
 
-```math
-P_W=\sum_{j:q_W(j)>0} q_W(j)
-```
+### Probability mass represented in percent
 
-and
+Define the sums of the positive samples and the magnitudes of the negative samples:
 
 ```math
-N_W=\sum_{j:q_W(j)<0} |q_W(j)|.
+A_+(W)=\sum_{j:q_W(j)>0}q_W(j),
+\qquad
+A_-(W)=\sum_{j:q_W(j)<0}|q_W(j)|.
 ```
 
-The final per-fragment SNS kernel is
-
-For positive samples,
+Each side defines a non-negative positional distribution with total probability represented as **100 percent**:
 
 ```math
-\psi^{SNS}_{m,L}(j)=q_W(j)\dfrac{50}{P_W} \qquad \text{when } q_W(j)>0.
+p^+_W(j)=100\frac{\max(q_W(j),0)}{A_+(W)},
+\qquad
+p^-_W(j)=100\frac{\max(-q_W(j),0)}{A_-(W)}.
 ```
 
-For negative samples,
+The signed contribution is their difference:
 
 ```math
-\psi^{SNS}_{m,L}(j)=q_W(j)\dfrac{50}{N_W} \qquad \text{when } q_W(j)<0.
+k_W(j)=p^+_W(j)-p^-_W(j).
 ```
 
-Samples for which $q_W(j)=0$ remain zero.
-
-This guarantees, for every complete fragment and every support width,
+Equivalently, positive cosine samples are multiplied by $100/A_+$ and negative samples by $100/A_-$. These factors can differ slightly because normalization is discrete. The resulting kernel retains its left-right symmetry and satisfies
 
 ```math
-\sum_{\psi^{SNS}>0}\psi^{SNS}=+50,
+\sum_j p^+_W(j)=100,
+\qquad
+\sum_j p^-_W(j)=100,
 ```
 
 ```math
-\sum_{\psi^{SNS}<0}\psi^{SNS}=-50,
+\sum_{j:k_W(j)>0}k_W(j)=100,
+\qquad
+\sum_{j:k_W(j)<0}k_W(j)=-100,
 ```
-
-so that
 
 ```math
-\sum_j\psi^{SNS}_{m,L}(j)=0
+\sum_j k_W(j)=0,
+\qquad
+\sum_j |k_W(j)|=200.
 ```
 
-and
+Here **mass** means the sum over genomic bins, not the maximum height. The mode-length wave does not have a fixed height of 100. Wider waves distribute the same positive and negative mass across more bins, lowering their amplitude as fragment length departs from the mode. Every complete accepted fragment therefore has the same total weight, independent of its length.
+
+The positive and negative distributions describe two kinds of positional support. Their values are not complementary probabilities that sum to 100 at each genomic position. Negative PNS values encode the negative contribution of the flank distribution; they are not negative probabilities. This geometric scoring model provides positional evidence rather than a calibrated posterior probability of nucleosome occupancy.
+
+### Example PNS kernels and fragment spans
+
+The first figure shows the observed fragment above each kernel, with genomic position zero at the fragment start. Dashed vertical lines mark the observed outermost bases. The 120 bp fragment at mode 167 bp extends 47 bp in each direction and spans 214 bins. All three panels share the same score scale.
+
+![PNS fragment geometry, signed kernels and non-negative references for 120, 167 and 180 bp fragments](images/pns_kernels_120_167_180_mode167.png)
+
+The second figure aligns fragments at their geometric centres. The matching waves for lengths equally far from 167 bp show how mass is conserved as spatial support broadens. The right panel plots the peak amplitude and positive/negative mass across fragment lengths.
+
+![PNS width, peak amplitude and conserved percent mass across fragment lengths](images/pns_length_adaptation_mode167.png)
+
+The figures are generated directly from the scoring implementation by [`examples/plot_pns_kernels.py`](../examples/plot_pns_kernels.py). PNG and SVG versions are included.
+
+### Accumulating a genomic PNS signal
+
+For accepted fragments indexed by $i$, each kernel is placed at its support start $a_i$ and the contributions are added:
 
 ```math
-\sum_j\left|\psi^{SNS}_{m,L}(j)\right|=100.
+PNS_m(x)=\sum_i k_{W_i}(x-a_i).
 ```
 
-Every accepted fragment therefore contributes the same total signed balance and the same total absolute mass of 100, while fragment length changes only the spatial width and corresponding per-base amplitude of the wave. Short or long fragments produce broader, shallower contributions than mode-length fragments.
+A kernel contributes zero outside its support. Overlapping fragment centres reinforce positive signal, while flanking contributions can cancel or outweigh central support. Positive regions identify recurrent nucleosome-centred protection; negative regions identify recurrent flank or breakpoint support.
 
-The genome-wide SNS track is
+The BigWig stores this sum in its **native score units**. PNS and `posPNS` tracks are not automatically divided by a reference mean or multiplied after accumulation. Because many fragments can contribute at the same position, a genomic score can exceed 100 and depends on fragment abundance. The 100-percent normalization applies to each single-fragment positional distribution, not to the total genomic track.
+
+Complete kernels sum to zero. Cropping to a selected genomic interval or a chromosome boundary can retain only part of a kernel; a cropped track segment therefore need not have zero total mass. Overlapping computation chunks supply context, and only each chunk's owned core is written, so kernels are not counted twice at chunk joins.
+
+### The non-negative reference track: `posPNS`
+
+For each individual fragment, the complete signed wave is translated vertically until its minimum is zero:
 
 ```math
-SNS_m(x)=\sum_i\psi^{SNS}_{m,L_i}(x).
+u_W(j)=k_W(j)-\min_t k_W(t),
+\qquad 0\le j<W.
 ```
 
-Positive SNS signal represents genomic positions collectively favoured as nucleosome-centred protection, while negative signal represents the flanking portions of the sinusoidal support.
-
-### `posSNS`
-
-`posSNS` preserves the complete SNS waveform but translates it vertically so that its minimum value is zero. For a signed single-fragment SNS kernel $\psi^{SNS}_{m,L}(j)$, let
+The reference track is the sum of these translated kernels:
 
 ```math
-\psi_{min}=\min_j \psi^{SNS}_{m,L}(j).
+posPNS_m(x)=\sum_i u_{W_i}(x-a_i).
 ```
 
-The corresponding non-negative kernel is
+This translation preserves the support width, centre, symmetry and differences between bins. **`posPNS` is distinct from the positive lobe $p^+$.** It includes the entire translated wave, is not clipped at the original zero crossing, and is not renormalized to a mass of 100. Translation occurs per fragment before summation, not by shifting the completed genomic PNS track.
 
-```math
-u^{SNS,+}_{m,L}(j)=\psi^{SNS}_{m,L}(j)-\psi_{min}.
-```
+`posPNS` is an auxiliary non-negative support track. PNS peak calling uses the signed PNS signal. The standard workflows retain native `posPNS` values alongside PNS.
 
-This is a pure vertical shift: no negative portion of the sinusoid is clipped or discarded, and the shifted kernel is not renormalized afterwards. `posSNS` therefore has the same support width, centre, symmetry and point-to-point waveform as `sns`, with its lowest value translated to zero.
+### Optional smoothing
 
-`posSNS` is used as the method-matched non-negative reference for operations such as replicate mean scaling. Peak calling uses the signed `sns` track, not `posSNS`.
+Raw PNS is used by default (`--smooth-window 0`; `tracks` uses `--score-smooth-window 0`). An explicitly requested Savitzky–Golay filter produces `pns_smoothed`, and peak calling then uses that smoothed signal. The window must be an odd integer of at least three and exceed the polynomial order. Smoothing acts on the summed signal; the per-fragment mass identities above describe the kernels before this optional processing.
 
-#### Example SNS distributions
-
-The figure below shows the discrete signed SNS kernels for 120 bp, 167 bp, and 180 bp fragments with $m=167$ bp. Grey shading marks the observed fragment. The 120 bp wave extends 47 bp beyond each end and spans 214 genomic bins.
-
-![SNS example distributions](images/sns_kernels_120_167_180_mode167.png)
-
-## Boxcar nucleosome scoring
-
-Boxcar nucleosome scoring (BNS) uses the same accepted fragments and support length $n(L,m)$ [defined above](#combining-the-two-fragment-ends) as PNS, but replaces the two endpoint triangles with one symmetric central boxcar. The uncentred boxcar has total mass 1 and zero outer flanks. Mean centring produces a positive central contribution and negative flanks whose total contribution sums to zero for every fragment.
-
-The ideal centred BNS kernel assigns equal-magnitude positive values to the central half of this support and negative values to the two outer quarters. Because genomic positions are discrete, not every support length divides exactly into four equal blocks. NucleoSuite uses symmetric half-weight or zero transition positions so that the positive and negative contributions remain balanced and the kernel stays centred.
-
-Let $n=4k+r$, where $r$ is 0, 1, 2, or 3, and let
-
-```math
-a=\frac{1}{n}.
-```
-
-The centred single-fragment BNS kernel is constructed as follows, from left to right:
-
-| $r$ | Centred kernel layout |
-|---:|---|
-| 0 | $k$ values of $-a$, then $2k$ values of $+a$, then $k$ values of $-a$ |
-| 1 | $k$ values of $-a$, then $+a/2$, then $2k-1$ values of $+a$, then $+a/2$, then $k$ values of $-a$ |
-| 2 | $k$ values of $-a$, then 0, then $2k$ values of $+a$, then 0, then $k$ values of $-a$ |
-| 3 | $k$ values of $-a$, then $-a/2$, then $2k+1$ values of $+a$, then $-a/2$, then $k$ values of $-a$ |
-
-For every support length, the centred values satisfy
-
-```math
-\sum_j\psi^{BNS}_{m,L}(j)=0.
-```
-
-Adding the fragment-wide mean $1/n$ back to every position gives the uncentred BNS boxcar:
-
-```math
-u^{BNS}_{m,L}(j)=\psi^{BNS}_{m,L}(j)+\frac{1}{n(L,m)}.
-```
-
-Its outer flanks are zero and its total mass is 1:
-
-```math
-\sum_j u^{BNS}_{m,L}(j)=1.
-```
-
-The genome-wide tracks are
-
-```math
-BNS_m(x)=\sum_i\psi^{BNS}_{m,L_i}(x)
-```
-
-and
-
-```math
-posBNS_m(x)=\sum_i u^{BNS}_{m,L_i}(x).
-```
-
-For $m=167$ bp, a 120 bp fragment has support 214 bp and gives 53 negative positions, a zero transition, 106 positive positions, a second zero transition, and 53 negative positions. A 180 bp fragment has support 180 bp and gives 45 negative positions, 90 positive positions, and 45 negative positions. Odd support lengths use the half-weight transition rules above to preserve symmetry and exact zero-sum centring.
-
-#### Example BNS distributions
-
-The figure below shows the uncentred unit-mass boxcar and the resulting mean-centred BNS kernel for 120 bp, 167 bp, and 180 bp fragments using $m=167$ bp.
-
-![BNS example distributions](images/bns_kernels_120_167_180_mode167.png)
-
-## Triangular nucleosome scoring
-
-Triangular nucleosome scoring (TNS) uses the same accepted fragments and support length $n(L,m)$ [defined above](#combining-the-two-fragment-ends) as PNS and BNS, but represents each fragment with one symmetric triangle centred on the fragment. The raw triangle has total mass 1 before mean centring.
-
-A fragment shorter than the mode therefore receives a wider scoring support. For example, with $m=167$ bp, a 137 bp fragment is 30 bp shorter than the mode and uses a 197 bp support. A 197 bp fragment also uses a 197 bp support because it is longer than the mode. The two fragments therefore use the same precomputed TNS kernel shape.
-
-For a support of length $n$, number positions from $j=0$ to $j=n-1$ and define the unnormalised triangle
-
-```math
-q_n(j)=\min\left(j,n-1-j\right).
-```
-
-This makes the triangle zero at both support boundaries. Odd support lengths have one central maximum. Even support lengths have two equal central maximum values, producing a two-base plateau at the centre.
-
-The uncentred unit-mass TNS kernel is
-
-```math
-u^{TNS}_{m,L}(j)=\frac{q_{n(L,m)}(j)}{\sum_k q_{n(L,m)}(k)}.
-```
-
-Therefore
-
-```math
-\sum_j u^{TNS}_{m,L}(j)=1.
-```
-
-The mean of this unit-mass distribution across the support is $1/n(L,m)$. TNS subtracts that value from every position:
-
-```math
-\psi^{TNS}_{m,L}(j)=u^{TNS}_{m,L}(j)-\frac{1}{n(L,m)}.
-```
-
-The centred fragment contribution therefore satisfies
-
-```math
-\sum_j\psi^{TNS}_{m,L}(j)=0.
-```
-
-The genome-wide TNS track is
-
-```math
-TNS_m(x)=\sum_i\psi^{TNS}_{m,L_i}(x),
-```
-
-while `posTNS` retains the non-negative unit-mass triangles before mean subtraction:
-
-```math
-posTNS_m(x)=\sum_i u^{TNS}_{m,L_i}(x).
-```
-
-#### Example TNS distributions
-
-The figure below shows the uncentred unit-mass triangle and the resulting mean-centred TNS kernel for 120 bp, 167 bp, and 180 bp fragments using $m=167$ bp.
-
-![TNS example distributions](images/tns_kernels_120_167_180_mode167.png)
 
 ### PNS peak calling
 
-Positive SNS, PNS, BNS or TNS regions are genomic intervals where overlapping fragments collectively favour nucleosome protection. SNS, BNS and TNS use the same peak caller as PNS. Negative score regions can be called separately as breakpoint peaks.
+Positive PNS regions are genomic intervals where overlapping fragments collectively favour nucleosome protection. Negative score regions can be called separately as breakpoint peaks.
 
-A positive candidate region begins when the selected SNS, PNS, BNS or TNS signal rises above zero and ends when the permitted run of zero-or-negative values is exceeded. Regions shorter than `--min-region-length` are discarded. The output records each retained region, its midpoint as the representative position, and its highest score value as the region score.
+A positive candidate region begins when the selected PNS signal rises above zero and ends when the permitted run of zero-or-negative values is exceeded. Regions shorter than `--min-region-length` are discarded. The output records each retained region, its midpoint as the representative position, and its highest score value as the region score.
 
-Breakpoint calling applies the same procedure to the sign-inverted SNS, PNS, BNS or TNS signal, so negative regions are treated as positive during segmentation.
+Breakpoint calling applies the same procedure to the sign-inverted PNS signal, so negative regions are treated as positive during segmentation.
 
-Text SNS, PNS, BNS and TNS BED scores are written as six-decimal floating-point values after `--peak-score-scale` is applied. For bigBed output, let $B$ be `--bigbed-score-scale`. SNS uses $B=1$ by default so its native scores are not rescaled; PNS, BNS and TNS use $B=1000$ by default because their native peak-score ranges are fractional:
+Text PNS BED scores are written as six-decimal floating-point values after `--peak-score-scale` is applied. For bigBed output, let $B$ be `--bigbed-score-scale`. The default is $B=1$; this conversion affects only the integer bigBed score field:
 
 ```math
 score_{bigBed}=\min\left(1000,\max\left(0,\mathrm{round}(B\,score_{BED})\right)\right).
@@ -407,177 +192,491 @@ score_{bigBed}=\min\left(1000,\max\left(0,\mathrm{round}(B\,score_{BED})\right)\
 
 Optional [Savitzky-Golay smoothing](https://doi.org/10.1021/ac60214a047) can be applied before peak calling. It fits a low-order polynomial within a moving window and evaluates the fitted value at the centre. Raw scoring signal is used by default.
 
-Standalone `nuc-score` uses SNS by default. Select `--scoring-method pns` for the original endpoint-derived PNS kernel, `--scoring-method bns` for BNS, or `--scoring-method tns` for TNS. `nuc-score` estimates $m$ automatically from the accepted fragments unless an integer `--mode` is supplied. The cfDNA and MNase suites use their workflow-specific protected-DNA settings.
+`pns` estimates $m$ automatically from the accepted fragments unless an integer `--mode` is supplied. The cfDNA and MNase suites use their workflow-specific protected-DNA settings.
 
-## Bootstrap-stabilized fragment-mode estimation
 
-### What is estimated and why
+## Dyads
 
-`nuc-score` and `cutn-suite` use a protected-DNA mode to define SNS/PNS/BNS/TNS scoring geometry. With `--mode auto`, the dominant accepted fragment length is estimated from the library. This matters because digestion, library preparation, and assay type can shift the observed protected-fragment distribution.
+A dyad track places signal at the fragment centre.
 
-An integer `--mode` bypasses estimation and uses that value exactly. This is useful when a fixed geometry is required across separately processed analyses.
-
-### Sampling the histogram
-
-Indexed genomic blocks from the selected analysis contigs are visited in seeded random order. Random block order prevents the estimate from being determined by whichever chromosomes happen to occur first in the input. A fragment enters the histogram only if it passes the same alignment, duplicate-coordinate, fragment-length, contig, and blacklist rules used by the analysis. The estimate therefore describes the fragments that will actually contribute to the score.
-
-The accepted fragment lengths are counted in one-base bins across the selected mode-search range. `nuc-score` uses its accepted fragment range as the default search range. `cutn-suite` samples fragments that pass its broad 1–1,000 bp coverage selection but counts the 120–250 bp nucleosome-sized subset when estimating the mode. This prevents the potentially abundant short or long fragments retained for coverage measurement from defining nucleosome-scoring geometry.
-
-The raw integer histogram is used by default. The modal length is the lowest length tied for the largest observed count. No histogram smoothing is applied because smoothing can merge nearby modes or move the maximum away from the most frequently observed integer length.
-
-Optional `--mode-histogram-smoothing binomial` applies the normalized five-bin kernel
+For a fragment of length $L_i$, the right-hand central coordinate is
 
 ```math
-\frac{1}{16}(1,4,6,4,1)
+d_i=s_i+\left\lfloor\frac{L_i}{2}\right\rfloor.
 ```
 
-before selecting the mode. This option can reduce isolated bin-to-bin noise, but it is deliberately opt-in because it changes the quantity being maximized.
+For an odd-length fragment this is the single central base. For an even-length fragment there are two central bases: $d_i-1$ and $d_i$.
 
-### Bootstrap stability and stopping
+With `--even-dyad split`, an even fragment contributes 0.5 to each central base. With `left` or `right`, the complete value 1 is placed on the selected central base.
 
-At each sampling checkpoint, NucleoSuite draws multinomial bootstrap histograms from the current empirical length distribution and recalculates the mode using the same smoothing setting. These bootstrap modes provide a percentile 95% interval. Sampling stops early only when both conditions are met:
 
-1. the recent point estimates differ by no more than `--mode-max-change`; and
-2. the bootstrap interval is no wider than `--mode-max-ci-width`.
+## Fragment ends
 
-Otherwise sampling continues until `--mode-max-fragments` is reached. Requiring stability across checkpoints reduces the chance of stopping on a temporary maximum produced by too few sampled fragments.
-
-The resolved estimate, bootstrap interval, sampled-fragment counts, search range, smoothing setting, convergence result, checkpoint count, seed, and histogram are written to a mode-estimation report. The resolved estimates are also printed during execution so a long `cutn-suite` run immediately shows the mode selected for every treatment and control group.
-
-### Pooling treatment and control estimates in `cutn-suite`
-
-`cutn-suite` estimates each treatment and control group separately before selecting the analysis mode. The default pooled strategy converts the two histograms to within-group probabilities and gives them equal weight:
+The first and last covered bases are
 
 ```math
-p_{pool}(L)=\frac{1}{2}\left(\frac{n_T(L)}{\sum_j n_T(j)}+\frac{n_C(L)}{\sum_j n_C(j)}\right).
-```
-
-Equal weighting prevents the deeper BAM group from determining the shared mode solely because it contains more fragments. With two conditions, corresponding estimates are pooled again so both Stage 1 analyses use compatible scoring geometry. This compatibility is required because Stage 2 compares measurements made within peak regions defined by those Stage 1 analyses.
-
-## `cutn-suite` discovery, measurement, and clustering
-
-### Discovery score and broad coverage
-
-`cutn-suite` uses SNS for peak discovery by default; PNS, BNS and TNS are available as alternatives. The discovery score uses fragments from the resolved protected-DNA mode plus or minus 30 bp by default. `--frag-mode-padding` changes this distance, while `--score-frag-lower` and `--score-frag-upper` override the derived bounds independently.
-
-Broad coverage uses 1–1,000 bp fragments by default. The discovery score defines **where** a nucleosome-positioned candidate occurs; coverage measures **how strongly** each replicate supports that interval.
-
-### Normalizing replicate SNS tracks for discovery
-
-Each replicate SNS track is divided by the finite, non-zero mean of its `posSNS` track before treatment replicates are averaged:
-
-```math
-Z_{i,scaled}(x)=\frac{Z_i(x)}{\mathrm{mean}\!\left(Z_i^+(x)\mid Z_i^+(x)>0\right)}.
-```
-
-This places replicate score tracks on comparable scales so differences in sequencing depth do not cause higher-depth libraries to contribute disproportionately to the condition-average discovery track. The normalized treatment SNS tracks are then averaged and candidate peaks are called once on that common track.
-
-### Coverage normalization and Stage 1 interval measurement
-
-For Stage 1 treatment-versus-control measurement, each broad coverage track is independently scaled to a finite non-zero mean of 100:
-
-```math
-Cov_{100,i}(x)=100\frac{Cov_i(x)}{\mathrm{mean}(Cov_i(x)\mid Cov_i(x)>0)}.
-```
-
-For candidate interval $R$, the default replicate measurement is the **mean scaled coverage across the complete interval**:
-
-```math
-P_i(R)=\frac{1}{|R|}\sum_{x\in R}Cov_{100,i}(x).
-```
-
-`--stage1-coverage-statistic max` selects the interval maximum instead. The treatment and control replicate measurements are independent groups and are not paired by input order.
-
-Define
-
-```math
-\bar T(R)=\mathrm{mean}_i\,T_i(R),
+l_i=s_i,
 \qquad
-\bar C(R)=\mathrm{mean}_j\,C_j(R),
+r_i=e_i-1.
 ```
 
-and the conservative all-controls gate
+The left-end track adds 1 at $l_i$, the right-end track adds 1 at $r_i$, and the combined end track adds both contributions.
+
+`--max-per-coordinate` limits the maximum accumulated value that can be assigned to any single genomic base in sparse dyad or fragment-end tracks. It is applied after contributions have been accumulated at each coordinate and is separate from complete-fragment duplicate filtering.
+
+
+## Coverage
+
+For fragment $i=[s_i,e_i)$, every covered base from $s_i$ through $e_i-1$ receives a contribution of 1. If $C_i(x)$ is that per-fragment indicator, total coverage is
 
 ```math
-\min_i T_i(R)>\max_j C_j(R).
+C(x)=\sum_i C_i(x).
 ```
 
-The mean gate is
+
+## Distance autocorrelation
+
+DAC compares a signal with itself at every positive distance $d$ to measure how much signal recurs at that separation.
+
+### One pair at one distance
+
+For signal $S(x)$, one valid pair of positions separated by $d$ contributes
 
 ```math
-\bar T(R)>\bar C(R).
+P_d(x)=S(x)S(x+d).
 ```
 
-### Replicate-aware default seed and member rules
+If either position has zero signal, the product is zero. If both positions have signal, the pair contributes their product.
 
-Cluster seeds (**S**) and gated extension members (**G**) use independently configurable gates.
+For a binary dyad track, both values are either 0 or 1, so a matching pair contributes
 
-When either treatment or control has fewer than three biological replicates, the automatic defaults are:
+```math
+1\times1=1.
+```
+
+### Add all pairs within one region
+
+For region $r$, raw DAC at distance $d$ is the sum of all valid pair products:
+
+```math
+DAC_r(d)=\sum_{x\in V_r(d)}S(x)S(x+d),
+```
+
+where $V_r(d)$ contains the valid starting positions whose partner $d$ bases away remains inside the same region and is not excluded by masking.
+
+Pairs never cross a region boundary.
+
+### Example: a periodic dyad signal
+
+Consider five binary dyad peaks separated by 185 bp:
 
 ```text
-S = all-controls gate
-G = all-controls gate
+position:   0        185        370        555        740
+            |---------|----------|----------|----------|
+            ●         ●          ●          ●          ●
 ```
 
-Peak p-values are not used for the default statistical seed rule in this case.
-
-When treatment and control each have at least three biological replicates, the automatic defaults are:
+There are **four** pairs separated by 185 bp:
 
 ```text
-S = raw one-sided Welch p < 0.05 AND mean treatment > mean control
-G = all-controls gate
+0   -> 185
+185 -> 370
+370 -> 555
+555 -> 740
 ```
 
-The seed threshold is controlled by `--cluster-seed-p-value`. `--cluster-seed-mode gated` makes the seed gate alone define S. `--cluster-seed-gate-mode` changes the S gate independently, and `--stage1-gate-mode` changes the G gate. The startup log reports the automatically selected rules when these options are not explicitly supplied.
-
-For p-value seed mode, the one-sided Welch test asks whether the treatment replicate mean exceeds the control replicate mean without assuming equal variances. The raw p-value is reported for every treatment candidate in the complete peak BED and statistics table.
-
-### Seeded cluster extension
-
-With the default `--cluster-member-mode seed-and-gated`, both S peaks and G peaks are cluster members. A seed remains a member even when the seed's mean gate passes but the stricter G all-controls gate does not. `significant-only` restricts membership to S peaks.
-
-One consecutive non-member may bridge included members by default (`--cluster-max-non-member-gap 1`). A separation greater than 1,000 bp between adjacent included-member summits ends the cluster (`--max-cluster-gap 1000`). At least two included members are required by default (`--min-cluster-members 2`). Cluster boundaries are the outermost included-member intervals.
-
-The aggregate anchor is the discovery summit of the included member with the strongest condition-mean Stage 1 coverage measurement. The default cluster-aligned directional NRL peak resolution is 130 bp.
-
-### `cutn-compare` Stage 2
-
-Stage 2 compares clusters between two completed conditions and uses the retained **raw broad-coverage tracks**. Overlap-connected Stage 1 clusters form comparison loci. When clusters from both conditions overlap, the default measurement interval is the actual genomic overlap, rather than the full union. For condition-specific loci, the complete locus is measured.
-
-For raw coverage $Cov_i(x)$ and the comparison interval set $O_R$, replicate $i$ contributes mean raw coverage
+so
 
 ```math
-M_i(R)=\frac{1}{\sum_{[a,b)\in O_R}(b-a)}
-\sum_{[a,b)\in O_R}\sum_{x=a}^{b-1}Cov_i(x).
+DAC_{raw}(185)=4.
 ```
 
-The four independent groups are condition 1 treatment, condition 1 control, condition 2 treatment, and condition 2 control. Values are transformed as
+There are three pairs separated by 370 bp,
 
 ```math
-Y=\log_2(M+1),
+DAC_{raw}(370)=3,
 ```
 
-and a factorial model tests the condition-by-treatment interaction. The comparison table reports the raw interaction p-values, empirical-Bayes moderated p-values, and Benjamini-Hochberg FDR across cluster loci, together with effect sizes and confidence intervals.
-
-## Empirical randomized-peak FDR
-
-`empirical-peak-fdr` is a standalone comparison between an observed peak file and one or more peak files produced from fragment-randomized controls. It is independent of `cutn-suite` Stage 1.
-
-For observed score $s$, a pooled empirical upper-tail p-value is
+two pairs separated by 555 bp,
 
 ```math
-p_{emp}(s)=\frac{1+R(\mathrm{score}\ge s)}{1+N_R},
+DAC_{raw}(555)=2,
 ```
 
-where $N_R$ is the total number of randomized peaks and $R(\mathrm{score}\ge s)$ is the number at least as strong as the observed peak.
-
-For FDR, let $S(s)$ be the number of observed peaks with score at least $s$, and $R_b(s)$ the corresponding count in randomized callset $b$. With $B$ randomized callsets:
+and one pair separated by 740 bp,
 
 ```math
-\widehat{FDR}(s)=\min\left(1,\frac{1+\sum_{b=1}^{B}R_b(s)}{B\max(1,S(s))}\right).
+DAC_{raw}(740)=1.
 ```
 
-Each observed peak is reported with both its raw empirical p-value and monotonic empirical FDR/q-value.
+![Periodic signal and DAC example](images/dac_periodicity_example.png)
+
+The raw DAC profile has peaks at the repeating distance and its multiples. Their decreasing height in this finite example reflects the smaller number of available pairs at larger multiples.
+
+### Combine regions and tracks
+
+When several regions are analysed, NucleoSuite calculates pair products within each region and then adds the raw values:
+
+```math
+DAC_{raw}(d)=\sum_t\sum_r DAC_{t,r}(d).
+```
+
+The same is done across multiple input BigWigs. Each BigWig is autocorrelated with itself; different BigWigs are not multiplied against one another in DAC.
+
+### Correct for the number of possible pairs
+
+Large distances usually have fewer genomic position pairs available for comparison. NucleoSuite therefore counts the number of valid opportunities at each distance.
+
+For one region-track pair,
+
+```math
+O_{t,r}(d)=|V_{t,r}(d)|.
+```
+
+Across all regions and tracks,
+
+```math
+O(d)=\sum_t\sum_rO_{t,r}(d).
+```
+
+The default DAC value is the raw pair-product sum divided by the number of opportunities:
+
+```math
+DAC(d)=\frac{DAC_{raw}(d)}{O(d)}.
+```
+
+`--no-normalize-dac` reports the raw product sum.
+
+### Derived DAC columns
+
+After the principal DAC profile has been calculated, its percentage contribution is
+
+```math
+DAC_{percent}(d)=100\frac{DAC(d)}{\sum_{q=1}^{d_{max}}DAC(q)}.
+```
+
+If raw DAC is selected, the same percentage calculation uses the raw profile.
+
+The separate signal-depth-scaled column starts from the raw product sum. If $T$ is the total retained signal,
+
+```math
+DAC_{per\ million}(d)=\frac{DAC_{raw}(d)}{T^2}\times10^6.
+```
+
+`--cpm-scale` can replace $10^6$ with another scale.
+
+Sparse calculation enumerates non-zero signal pairs directly. FFT calculation evaluates the same autocorrelation from dense arrays. `--algorithm auto` chooses between them from signal density.
+
+BigWig inputs follow the [shared missing-value and blacklist convention](#bigwig-missing-values-and-masks).
+
+When chromosome-level DAC results are combined, raw DAC and opportunities are summed first. Normalized DAC, percentages, and depth-scaled values are then recalculated from those combined quantities.
+
+
+## Distance cross-correlation
+
+DCC compares signal $A$ with signal $B$ at signed lag $\ell$ to measure where one tends to occur relative to the other.
+
+### One pair at one lag
+
+For an A position at $x$, the contribution is
+
+```math
+P_\ell(x)=A(x)B(x+\ell).
+```
+
+The lag convention is
+
+```math
+\ell=p_B-p_A.
+```
+
+A positive lag means B lies downstream of A in the active coordinate orientation. A negative lag means B lies upstream. Minus-strand feature regions are reversed before calculation so this interpretation remains consistent in feature-oriented analyses.
+
+### Add all pairs within one region
+
+For one region,
+
+```math
+DCC_r(\ell)=\sum_{x\in V_r(\ell)}A(x)B(x+\ell).
+```
+
+### Example: B shifted downstream of A
+
+Suppose signal A occurs at three positions and signal B occurs 10 bp downstream of each one:
+
+```text
+A:     ●----------------●----------------------●
+       100              300                    530
+
+B:       ●----------------●----------------------●
+         110              310                    540
+```
+
+At lag $+10$ bp, all three A positions line up with B positions, so a binary signal gives
+
+```math
+DCC_{raw}(+10)=3.
+```
+
+A DCC maximum at +10 bp therefore indicates that B is repeatedly enriched 10 bp downstream of A.
+
+### Combine regions and input tracks
+
+Across regions,
+
+```math
+DCC_{raw}(\ell)=\sum_rDCC_r(\ell).
+```
+
+In BigWig mode, all A BigWigs are first added base-by-base within a region to form one A signal, and all B BigWigs are added in the same way to form one B signal. DCC is then calculated between those two combined signals. Because the signals are combined before multiplication, multiple A or B tracks can contribute cross-terms.
+
+BigWig inputs follow the [shared missing-value and blacklist convention](#bigwig-missing-values-and-masks).
+
+### Correct for the number of possible pairs
+
+For one region, the opportunity count is
+
+```math
+O_r(\ell)=|V_r(\ell)|.
+```
+
+Total opportunities are summed across regions. The default DCC value is
+
+```math
+DCC(\ell)=\frac{DCC_{raw}(\ell)}{O(\ell)}.
+```
+
+`--no-normalize-dcc` reports the uncorrected raw profile.
+
+If `--normalize-by-signal-totals` is also requested, the selected DCC profile is divided by
+
+```math
+T_AT_B,
+```
+
+where $T_A$ and $T_B$ are the total retained signal sums.
+
+### Signed and absolute distances
+
+With `--signed-lags`, NucleoSuite keeps negative and positive lags separately.
+
+Without `--signed-lags`, direction is collapsed into absolute distance. For $d>0$, NucleoSuite first adds the raw values from $-d$ and $+d$:
+
+```math
+DCC_{raw,abs}(d)=DCC_{raw}(-d)+DCC_{raw}(+d).
+```
+
+The corresponding opportunities are also added:
+
+```math
+O_{abs}(d)=O(-d)+O(+d).
+```
+
+The normalized absolute-distance value is then
+
+```math
+DCC_{abs}(d)=\frac{DCC_{raw,abs}(d)}{O_{abs}(d)}.
+```
+
+Lag zero is included once:
+
+```math
+DCC_{raw,abs}(0)=DCC_{raw}(0),
+\qquad
+O_{abs}(0)=O(0).
+```
+
+Raw values and opportunities are therefore collapsed **before** normalization.
+
+### Derived DCC columns
+
+The percentage column is calculated from the complete reported DCC profile:
+
+```math
+DCC_{percent}(\ell)=100\frac{DCC(\ell)}{\sum_qDCC(q)}.
+```
+
+The signal-depth-scaled column starts from raw DCC:
+
+```math
+DCC_{per\ million}(\ell)=\frac{DCC_{raw}(\ell)}{T_AT_B}\times10^6.
+```
+
+`--cpm-scale` can replace $10^6$ with another scale.
+
+Sparse enumeration and FFT calculate the same pair-product profile. Blacklisted bases are removed from both products and opportunities. Chromosome-wise combination sums raw DCC and opportunities before recalculating normalized and derived profiles.
+
+
+## Nucleosome repeat length
+
+`nrl` estimates the repeating distance between peaks in a DAC or DCC profile.
+
+### Choose the peak resolution
+
+Let the selected peak resolution be $R$ bp. Peaks reported by the long-range caller must be at least $R$ bp apart. The default is
+
+```math
+R=160\ \mathrm{bp}.
+```
+
+The same resolution determines two smoothing widths. Before smoothing, each requested width is rounded downward to the permitted series 11, 21, 31, 41, 51 bp, and so on. A value below 11 bp means no smoothing. Define
+
+```math
+Q(t)=10\left\lfloor\frac{\max(t-1,0)}{10}\right\rfloor+1.
+```
+
+Here $Q=1$ represents no smoothing. The broad detection window is
+
+```math
+W_{detect}=Q\left(\frac{R}{2.5}\right),
+```
+
+and the finer local-maximum window is
+
+```math
+W_{local}=Q\left(\frac{R}{6}\right).
+```
+
+For the default $R=160$ bp,
+
+```math
+W_{detect}=61\ \mathrm{bp},
+\qquad
+W_{local}=21\ \mathrm{bp}.
+```
+
+For example, the default broad-window target is 64 bp and is snapped down to 61 bp.
+
+### Smooth at the two scales
+
+For a smoothing width $W$, NucleoSuite averages profile values whose distance coordinates lie within $(W-1)/2$ bp of the current distance. If the input profile is $S(d)$, the smoothed value at profile coordinate $d_i$ is
+
+```math
+\widetilde{S}_W(d_i)=
+\frac{1}{|V_i(W)|}
+\sum_{j\in V_i(W)}S(d_j),
+```
+
+where
+
+```math
+V_i(W)=\left\{j:\left|d_j-d_i\right|\le\frac{W-1}{2}\right\}.
+```
+
+At the ends of the selected distance range, only available coordinates are averaged.
+
+The broader $W_{detect}$ profile is used only to identify the repeating peak neighbourhoods. The finer $W_{local}$ profile is used to place the final peak positions and values.
+
+### Detect the broad peaks
+
+Local maxima are first found on the $W_{detect}$ profile. If two candidate maxima are closer than $R$, the stronger detection maximum is retained. This suppresses small wiggles around one broad NRL peak without requiring a perfectly monotonic rise and fall.
+
+### Refine each peak position
+
+For each retained detection peak, NucleoSuite looks within half a resolution on either side and selects the strongest local maximum from the finer $W_{local}$ profile. If the broad detection peak is at $d^{detect}$, the refinement neighbourhood is
+
+```math
+\left|d-d^{detect}\right|\le\frac{R}{2}.
+```
+
+The refined local maximum is the peak distance used for the NRL regression. Final reported peaks are again required to remain at least $R$ bp apart.
+
+### Measure peak spacing
+
+If the refined peak distances are
+
+```math
+d_1,d_2,d_3,\ldots,
+```
+
+the adjacent spacings are
+
+```math
+\Delta_j=d_{j+1}-d_j.
+```
+
+For example, peaks near 370, 555, 740, 925, and 1110 bp have adjacent spacings close to 185 bp.
+
+### Fit the recurring period
+
+NucleoSuite fits peak distance against peak number:
+
+```math
+d_j=\alpha+\lambda j+\varepsilon_j,
+\qquad j=1,2,\ldots
+```
+
+The fitted slope $\lambda$ is the reported NRL or recurring-period estimate in base pairs per peak. The output also reports the intercept, $R^2$, slope standard error, and mean adjacent spacing.
+
+Setting `--peak-resolution 0` disables resolution-based smoothing and peak separation. The cfDNA and MNase suites use this setting for their separate short-range periodicity summaries; their main long-range NRL analysis uses the configured NRL peak resolution.
+
+
+## Peak distances
+
+`distances` measures the separation between ordered peak positions within the same contig or state.
+
+If the ordered positions are
+
+```math
+p_1,p_2,p_3,\ldots,
+```
+
+then the order-$q$ distance from peak $i$ is
+
+```math
+d_{i,q}=p_{i+q}-p_i.
+```
+
+Order 1 measures adjacent peaks. Order 2 skips one intervening peak, order 3 skips two, and so on.
+
+For a histogram count $H(d)$ over the retained distances, the percentage at distance $d$ is
+
+```math
+H_{percent}(d)=100\frac{H(d)}{\sum_qH(q)}.
+```
+
+Pooled histograms, chromatin-state summaries, score-bin subsets, and optional NRL regressions are all derived from these measured distances.
+
+
+## One-to-one comparison of nucleosome callsets
+
+`compare-positions` treats one BED as the main nucleosome callset and compares each supplied comparison BED against it independently.
+
+For one main/comparison pair, let the filtered callset sizes be $N_M$ and $N_C$. The smaller callset is used as the query and the larger callset as the target. Candidate matches are ordered by absolute summit distance on each chromosome. The one-to-one matcher accepts nearest available pairs while preventing reuse of either accepted position. A maximum allowed distance can optionally reject pairs.
+
+The comparison is performed only once; there is no reciprocal second search. Regardless of which callset was used as the query, every accepted pair is represented as main call plus comparison call, and signed distance is
+
+```math
+d = x_C - x_M.
+```
+
+Absolute matched distance is $|d|$. The matched-position distribution plot retains the signed value $d$, while percentile-distance summaries and score-correlation distance bins use $|d|$.
+
+After matching, accepted pairs are sorted by the **main call score**. Equal-frequency percentile groups are then assigned from this sorted matched set. With the default 25-percent interval, the groups are 0-25, 25-50, 50-75, and 75-100. Percentile assignment is performed independently for each comparison because different comparison callsets can match different subsets of the main BED.
+
+For optional statistical testing, pairwise comparisons are made separately within each percentile group. If all observations in both comparison distributions within that group correspond to the same main calls, the observations are paired. If complete pairing is unavailable, the full distributions are treated as unpaired. The default non-parametric analysis uses a two-sided Wilcoxon signed-rank test for completely paired data and a two-sided Mann-Whitney U test otherwise. The parametric alternative uses a paired t-test or Welch's t-test. Holm adjustment is applied independently to the pairwise tests within each percentile group by default.
+
+For the 1%-percentile trend, matched pairs are divided into 100 equal-frequency bins by main-callset score. Each comparison is summarized by the median absolute matched distance in each bin, with the 25th-75th percentile interval retained as the dispersion band.
+
+
+## Flanking nucleosome spacing around categorized reference sites
+
+For each reference site at coordinate `r`, `flank-spacing` identifies the closest nucleosome centre `u` satisfying `u < r` and the closest nucleosome centre `d` satisfying `d > r`. Nucleosome centres at exactly the reference coordinate are not used as either flank. The reported flanking spacing is:
+
+```math
+s = d-u.
+```
+
+Reference sites are grouped by a BED category column, column 4 by default. A density or raw-count distribution is then constructed independently for each category. Density mode uses a Gaussian kernel-density estimate from all valid flanking-spacing observations in the category; count mode reports the observed integer spacing counts.
+
+For ranking positions `x_1` and `x_2`, which default to 190 and 260 bp, the category statistic is:
+
+```math
+R = \frac{y(x_1)}{y(x_2)}.
+```
+
+Categories are ranked from the smallest finite ratio to the largest. An infinite ratio follows finite ratios, and an undefined ratio sorts last. The display range does not filter observations before density estimation. See [`flank-spacing`](commands/flank-spacing.md) for plotting and output details.
+
 
 ## Windowed protection score
 
@@ -717,6 +816,7 @@ Breakpoint calling applies the same procedure to the sign-inverted selected WPS 
 
 The WPS caller reproduces the block-building behaviour of the Snyder et al. source implementation. When the above-median positions contain a gap, the first above-median position encountered after that gap is not included when the next block is started. This affects the exact boundaries of some calls and is retained for source-compatible peak calling.
 
+
 ## Positive-signal runs
 
 `positive-runs` finds continuous stretches of a BigWig signal that stay above a chosen threshold.
@@ -738,45 +838,6 @@ A_{run}=\sum_{x=a}^{b-1}S(x).
 
 Signal-specific peak callers may apply additional rules.
 
-## Coverage, dyads, and fragment ends
-
-These tracks describe different parts of the same accepted fragments.
-
-### Coverage
-
-For fragment $i=[s_i,e_i)$, every covered base from $s_i$ through $e_i-1$ receives a contribution of 1. If $C_i(x)$ is that per-fragment indicator, total coverage is
-
-```math
-C(x)=\sum_i C_i(x).
-```
-
-### Dyads
-
-A dyad track places signal at the fragment centre.
-
-For a fragment of length $L_i$, the right-hand central coordinate is
-
-```math
-d_i=s_i+\left\lfloor\frac{L_i}{2}\right\rfloor.
-```
-
-For an odd-length fragment this is the single central base. For an even-length fragment there are two central bases: $d_i-1$ and $d_i$.
-
-With `--even-dyad split`, an even fragment contributes 0.5 to each central base. With `left` or `right`, the complete value 1 is placed on the selected central base.
-
-### Fragment ends
-
-The first and last covered bases are
-
-```math
-l_i=s_i,
-\qquad
-r_i=e_i-1.
-```
-
-The left-end track adds 1 at $l_i$, the right-end track adds 1 at $r_i$, and the combined end track adds both contributions.
-
-`--max-per-coordinate` limits the maximum accumulated value that can be assigned to any single genomic base in sparse dyad or fragment-end tracks. It is applied after contributions have been accumulated at each coordinate and is separate from complete-fragment duplicate filtering.
 
 ## Dinucleotide profiles and WW/SS classes
 
@@ -840,6 +901,7 @@ The four fragment classes are then defined by the two Boolean results:
 - `type4`: WW not enriched, SS enriched.
 
 When contig-level results are combined, type percentages are recalculated from the summed type counts.
+
 
 ## Fragment-length counts and heatmap transformations
 
@@ -934,443 +996,6 @@ p_j=\frac{n_j}{N}.
 
 If $N$ is greater than target $T$, NucleoSuite draws exactly $T$ fragments from a multinomial distribution using the probabilities $p_j$. Profiles already at or below $T$ are unchanged. `--downsample-to min` uses the smallest positive profile total as $T$.
 
-## Peak distances
-
-`distances` measures the separation between ordered peak positions within the same contig or state.
-
-If the ordered positions are
-
-```math
-p_1,p_2,p_3,\ldots,
-```
-
-then the order-$q$ distance from peak $i$ is
-
-```math
-d_{i,q}=p_{i+q}-p_i.
-```
-
-Order 1 measures adjacent peaks. Order 2 skips one intervening peak, order 3 skips two, and so on.
-
-For a histogram count $H(d)$ over the retained distances, the percentage at distance $d$ is
-
-```math
-H_{percent}(d)=100\frac{H(d)}{\sum_qH(q)}.
-```
-
-Pooled histograms, chromatin-state summaries, score-bin subsets, and optional NRL regressions are all derived from these measured distances.
-
-## One-to-one comparison of nucleosome callsets
-
-`compare-positions` treats one BED as the main nucleosome callset and compares each supplied comparison BED against it independently.
-
-For one main/comparison pair, let the filtered callset sizes be $N_M$ and $N_C$. The smaller callset is used as the query and the larger callset as the target. Candidate matches are ordered by absolute summit distance on each chromosome. The one-to-one matcher accepts nearest available pairs while preventing reuse of either accepted position. A maximum allowed distance can optionally reject pairs.
-
-The comparison is performed only once; there is no reciprocal second search. Regardless of which callset was used as the query, every accepted pair is represented as main call plus comparison call, and signed distance is
-
-```math
-d = x_C - x_M.
-```
-
-Absolute matched distance is $|d|$. The matched-position distribution plot retains the signed value $d$, while percentile-distance summaries and score-correlation distance bins use $|d|$.
-
-After matching, accepted pairs are sorted by the **main call score**. Equal-frequency percentile groups are then assigned from this sorted matched set. With the default 25-percent interval, the groups are 0-25, 25-50, 50-75, and 75-100. Percentile assignment is performed independently for each comparison because different comparison callsets can match different subsets of the main BED.
-
-For optional statistical testing, pairwise comparisons are made separately within each percentile group. If all observations in both comparison distributions within that group correspond to the same main calls, the observations are paired. If complete pairing is unavailable, the full distributions are treated as unpaired. The default non-parametric analysis uses a two-sided Wilcoxon signed-rank test for completely paired data and a two-sided Mann-Whitney U test otherwise. The parametric alternative uses a paired t-test or Welch's t-test. Holm adjustment is applied independently to the pairwise tests within each percentile group by default.
-
-For the 1%-percentile trend, matched pairs are divided into 100 equal-frequency bins by main-callset score. Each comparison is summarized by the median absolute matched distance in each bin, with the 25th-75th percentile interval retained as the dispersion band.
-
-## Flanking nucleosome spacing around categorized reference sites
-
-For each reference site at coordinate `r`, `flank-spacing` identifies the closest nucleosome centre `u` satisfying `u < r` and the closest nucleosome centre `d` satisfying `d > r`. Nucleosome centres at exactly the reference coordinate are not used as either flank. The reported flanking spacing is:
-
-```math
-s = d-u.
-```
-
-Reference sites are grouped by a BED category column, column 4 by default. A density or raw-count distribution is then constructed independently for each category. Density mode uses a Gaussian kernel-density estimate from all valid flanking-spacing observations in the category; count mode reports the observed integer spacing counts.
-
-For ranking positions `x_1` and `x_2`, which default to 190 and 260 bp, the category statistic is:
-
-```math
-R = \frac{y(x_1)}{y(x_2)}.
-```
-
-Categories are ranked from the smallest finite ratio to the largest. An infinite ratio follows finite ratios, and an undefined ratio sorts last. The display range does not filter observations before density estimation. See [`flank-spacing`](commands/flank-spacing.md) for plotting and output details.
-
-## Distance autocorrelation
-
-DAC compares a signal with itself at every positive distance $d$ to measure how much signal recurs at that separation.
-
-### One pair at one distance
-
-For signal $S(x)$, one valid pair of positions separated by $d$ contributes
-
-```math
-P_d(x)=S(x)S(x+d).
-```
-
-If either position has zero signal, the product is zero. If both positions have signal, the pair contributes their product.
-
-For a binary dyad track, both values are either 0 or 1, so a matching pair contributes
-
-```math
-1\times1=1.
-```
-
-### Add all pairs within one region
-
-For region $r$, raw DAC at distance $d$ is the sum of all valid pair products:
-
-```math
-DAC_r(d)=\sum_{x\in V_r(d)}S(x)S(x+d),
-```
-
-where $V_r(d)$ contains the valid starting positions whose partner $d$ bases away remains inside the same region and is not excluded by masking.
-
-Pairs never cross a region boundary.
-
-### Example: a periodic dyad signal
-
-Consider five binary dyad peaks separated by 185 bp:
-
-```text
-position:   0        185        370        555        740
-            |---------|----------|----------|----------|
-            ●         ●          ●          ●          ●
-```
-
-There are **four** pairs separated by 185 bp:
-
-```text
-0   -> 185
-185 -> 370
-370 -> 555
-555 -> 740
-```
-
-so
-
-```math
-DAC_{raw}(185)=4.
-```
-
-There are three pairs separated by 370 bp,
-
-```math
-DAC_{raw}(370)=3,
-```
-
-two pairs separated by 555 bp,
-
-```math
-DAC_{raw}(555)=2,
-```
-
-and one pair separated by 740 bp,
-
-```math
-DAC_{raw}(740)=1.
-```
-
-![Periodic signal and DAC example](images/dac_periodicity_example.png)
-
-The raw DAC profile has peaks at the repeating distance and its multiples. Their decreasing height in this finite example reflects the smaller number of available pairs at larger multiples.
-
-### Combine regions and tracks
-
-When several regions are analysed, NucleoSuite calculates pair products within each region and then adds the raw values:
-
-```math
-DAC_{raw}(d)=\sum_t\sum_r DAC_{t,r}(d).
-```
-
-The same is done across multiple input BigWigs. Each BigWig is autocorrelated with itself; different BigWigs are not multiplied against one another in DAC.
-
-### Correct for the number of possible pairs
-
-Large distances usually have fewer genomic position pairs available for comparison. NucleoSuite therefore counts the number of valid opportunities at each distance.
-
-For one region-track pair,
-
-```math
-O_{t,r}(d)=|V_{t,r}(d)|.
-```
-
-Across all regions and tracks,
-
-```math
-O(d)=\sum_t\sum_rO_{t,r}(d).
-```
-
-The default DAC value is the raw pair-product sum divided by the number of opportunities:
-
-```math
-DAC(d)=\frac{DAC_{raw}(d)}{O(d)}.
-```
-
-`--no-normalize-dac` reports the raw product sum.
-
-### Derived DAC columns
-
-After the principal DAC profile has been calculated, its percentage contribution is
-
-```math
-DAC_{percent}(d)=100\frac{DAC(d)}{\sum_{q=1}^{d_{max}}DAC(q)}.
-```
-
-If raw DAC is selected, the same percentage calculation uses the raw profile.
-
-The separate signal-depth-scaled column starts from the raw product sum. If $T$ is the total retained signal,
-
-```math
-DAC_{per\ million}(d)=\frac{DAC_{raw}(d)}{T^2}\times10^6.
-```
-
-`--cpm-scale` can replace $10^6$ with another scale.
-
-Sparse calculation enumerates non-zero signal pairs directly. FFT calculation evaluates the same autocorrelation from dense arrays. `--algorithm auto` chooses between them from signal density.
-
-BigWig inputs follow the [shared missing-value and blacklist convention](#bigwig-missing-values-and-masks).
-
-When chromosome-level DAC results are combined, raw DAC and opportunities are summed first. Normalized DAC, percentages, and depth-scaled values are then recalculated from those combined quantities.
-
-## Distance cross-correlation
-
-DCC compares signal $A$ with signal $B$ at signed lag $\ell$ to measure where one tends to occur relative to the other.
-
-### One pair at one lag
-
-For an A position at $x$, the contribution is
-
-```math
-P_\ell(x)=A(x)B(x+\ell).
-```
-
-The lag convention is
-
-```math
-\ell=p_B-p_A.
-```
-
-A positive lag means B lies downstream of A in the active coordinate orientation. A negative lag means B lies upstream. Minus-strand feature regions are reversed before calculation so this interpretation remains consistent in feature-oriented analyses.
-
-### Add all pairs within one region
-
-For one region,
-
-```math
-DCC_r(\ell)=\sum_{x\in V_r(\ell)}A(x)B(x+\ell).
-```
-
-### Example: B shifted downstream of A
-
-Suppose signal A occurs at three positions and signal B occurs 10 bp downstream of each one:
-
-```text
-A:     ●----------------●----------------------●
-       100              300                    530
-
-B:       ●----------------●----------------------●
-         110              310                    540
-```
-
-At lag $+10$ bp, all three A positions line up with B positions, so a binary signal gives
-
-```math
-DCC_{raw}(+10)=3.
-```
-
-A DCC maximum at +10 bp therefore indicates that B is repeatedly enriched 10 bp downstream of A.
-
-### Combine regions and input tracks
-
-Across regions,
-
-```math
-DCC_{raw}(\ell)=\sum_rDCC_r(\ell).
-```
-
-In BigWig mode, all A BigWigs are first added base-by-base within a region to form one A signal, and all B BigWigs are added in the same way to form one B signal. DCC is then calculated between those two combined signals. Because the signals are combined before multiplication, multiple A or B tracks can contribute cross-terms.
-
-BigWig inputs follow the [shared missing-value and blacklist convention](#bigwig-missing-values-and-masks).
-
-### Correct for the number of possible pairs
-
-For one region, the opportunity count is
-
-```math
-O_r(\ell)=|V_r(\ell)|.
-```
-
-Total opportunities are summed across regions. The default DCC value is
-
-```math
-DCC(\ell)=\frac{DCC_{raw}(\ell)}{O(\ell)}.
-```
-
-`--no-normalize-dcc` reports the uncorrected raw profile.
-
-If `--normalize-by-signal-totals` is also requested, the selected DCC profile is divided by
-
-```math
-T_AT_B,
-```
-
-where $T_A$ and $T_B$ are the total retained signal sums.
-
-### Signed and absolute distances
-
-With `--signed-lags`, NucleoSuite keeps negative and positive lags separately.
-
-Without `--signed-lags`, direction is collapsed into absolute distance. For $d>0$, NucleoSuite first adds the raw values from $-d$ and $+d$:
-
-```math
-DCC_{raw,abs}(d)=DCC_{raw}(-d)+DCC_{raw}(+d).
-```
-
-The corresponding opportunities are also added:
-
-```math
-O_{abs}(d)=O(-d)+O(+d).
-```
-
-The normalized absolute-distance value is then
-
-```math
-DCC_{abs}(d)=\frac{DCC_{raw,abs}(d)}{O_{abs}(d)}.
-```
-
-Lag zero is included once:
-
-```math
-DCC_{raw,abs}(0)=DCC_{raw}(0),
-\qquad
-O_{abs}(0)=O(0).
-```
-
-Raw values and opportunities are therefore collapsed **before** normalization.
-
-### Derived DCC columns
-
-The percentage column is calculated from the complete reported DCC profile:
-
-```math
-DCC_{percent}(\ell)=100\frac{DCC(\ell)}{\sum_qDCC(q)}.
-```
-
-The signal-depth-scaled column starts from raw DCC:
-
-```math
-DCC_{per\ million}(\ell)=\frac{DCC_{raw}(\ell)}{T_AT_B}\times10^6.
-```
-
-`--cpm-scale` can replace $10^6$ with another scale.
-
-Sparse enumeration and FFT calculate the same pair-product profile. Blacklisted bases are removed from both products and opportunities. Chromosome-wise combination sums raw DCC and opportunities before recalculating normalized and derived profiles.
-
-## Nucleosome repeat length
-
-`nrl` estimates the repeating distance between peaks in a DAC or DCC profile.
-
-### Choose the peak resolution
-
-Let the selected peak resolution be $R$ bp. Peaks reported by the long-range caller must be at least $R$ bp apart. The default is
-
-```math
-R=160\ \mathrm{bp}.
-```
-
-The same resolution determines two smoothing widths. Before smoothing, each requested width is rounded downward to the permitted series 11, 21, 31, 41, 51 bp, and so on. A value below 11 bp means no smoothing. Define
-
-```math
-Q(t)=10\left\lfloor\frac{\max(t-1,0)}{10}\right\rfloor+1.
-```
-
-Here $Q=1$ represents no smoothing. The broad detection window is
-
-```math
-W_{detect}=Q\left(\frac{R}{2.5}\right),
-```
-
-and the finer local-maximum window is
-
-```math
-W_{local}=Q\left(\frac{R}{6}\right).
-```
-
-For the default $R=160$ bp,
-
-```math
-W_{detect}=61\ \mathrm{bp},
-\qquad
-W_{local}=21\ \mathrm{bp}.
-```
-
-For example, the default broad-window target is 64 bp and is snapped down to 61 bp.
-
-### Smooth at the two scales
-
-For a smoothing width $W$, NucleoSuite averages profile values whose distance coordinates lie within $(W-1)/2$ bp of the current distance. If the input profile is $S(d)$, the smoothed value at profile coordinate $d_i$ is
-
-```math
-\widetilde{S}_W(d_i)=
-\frac{1}{|V_i(W)|}
-\sum_{j\in V_i(W)}S(d_j),
-```
-
-where
-
-```math
-V_i(W)=\left\{j:\left|d_j-d_i\right|\le\frac{W-1}{2}\right\}.
-```
-
-At the ends of the selected distance range, only available coordinates are averaged.
-
-The broader $W_{detect}$ profile is used only to identify the repeating peak neighbourhoods. The finer $W_{local}$ profile is used to place the final peak positions and values.
-
-### Detect the broad peaks
-
-Local maxima are first found on the $W_{detect}$ profile. If two candidate maxima are closer than $R$, the stronger detection maximum is retained. This suppresses small wiggles around one broad NRL peak without requiring a perfectly monotonic rise and fall.
-
-### Refine each peak position
-
-For each retained detection peak, NucleoSuite looks within half a resolution on either side and selects the strongest local maximum from the finer $W_{local}$ profile. If the broad detection peak is at $d^{detect}$, the refinement neighbourhood is
-
-```math
-\left|d-d^{detect}\right|\le\frac{R}{2}.
-```
-
-The refined local maximum is the peak distance used for the NRL regression. Final reported peaks are again required to remain at least $R$ bp apart.
-
-### Measure peak spacing
-
-If the refined peak distances are
-
-```math
-d_1,d_2,d_3,\ldots,
-```
-
-the adjacent spacings are
-
-```math
-\Delta_j=d_{j+1}-d_j.
-```
-
-For example, peaks near 370, 555, 740, 925, and 1110 bp have adjacent spacings close to 185 bp.
-
-### Fit the recurring period
-
-NucleoSuite fits peak distance against peak number:
-
-```math
-d_j=\alpha+\lambda j+\varepsilon_j,
-\qquad j=1,2,\ldots
-```
-
-The fitted slope $\lambda$ is the reported NRL or recurring-period estimate in base pairs per peak. The output also reports the intercept, $R^2$, slope standard error, and mean adjacent spacing.
-
-Setting `--peak-resolution 0` disables resolution-based smoothing and peak separation. The cfDNA and MNase suites use this setting for their separate short-range periodicity summaries; their main long-range NRL analysis uses the configured NRL peak resolution.
 
 ## Regional aggregation
 
@@ -1434,6 +1059,7 @@ d_j^-=\alpha_- + \lambda_-j+\varepsilon_j.
 
 The slopes $\lambda_+$ and $\lambda_-$ are the positive- and negative-direction repeat lengths. The regression minimum, maximum and effective exclusion interval affect only regression membership; they do not crop the profile used for smoothing, peak calling or the unified peak plot. The profile plot marks every unified peak and shades the interval when exclusion is enabled.
 
+
 ## Gene-set assignment
 
 `gene-sets` assigns genes to categories from the chromatin states that overlap them.
@@ -1447,6 +1073,7 @@ Leftover=EligibleGenes\setminus\bigcup_cCandidate_c.
 ```
 
 A gene that entered a candidate category but was later excluded from its named final category is still not part of `leftover`.
+
 
 ## Gene-expression analyses
 
@@ -1514,6 +1141,43 @@ R_i=\frac{I_i(193)+I_i(196)+I_i(199)}{3}.
 
 The ranking correlation is then calculated across genes between $R_i$ and transformed expression. Profiles are ordered from the most negative correlation upward.
 
+
+## Bootstrap-stabilized fragment-mode estimation
+
+### What is estimated and why
+
+`pns` and `cutn-suite` use a protected-DNA mode to define PNS scoring geometry. With `--mode auto`, the dominant accepted fragment length is estimated from the library. This matters because digestion, library preparation, and assay type can shift the observed protected-fragment distribution.
+
+An integer `--mode` bypasses estimation and uses that value exactly. This is useful when a fixed geometry is required across separately processed analyses.
+
+### Sampling the histogram
+
+Indexed genomic blocks from the selected analysis contigs are visited in seeded random order. Random block order prevents the estimate from being determined by whichever chromosomes happen to occur first in the input. A fragment enters the histogram only if it passes the same alignment, duplicate-coordinate, fragment-length, contig, and blacklist rules used by the analysis. The estimate therefore describes the fragments that will actually contribute to the score.
+
+The accepted fragment lengths are counted in one-base bins across the selected mode-search range. `pns` uses its accepted fragment range as the default search range. `cutn-suite` samples fragments that pass its broad 1–1,000 bp coverage selection but counts the 120–250 bp nucleosome-sized subset when estimating the mode. This prevents the potentially abundant short or long fragments retained for coverage measurement from defining nucleosome-scoring geometry.
+
+The raw integer histogram is used by default. The modal length is the lowest length tied for the largest observed count. No histogram smoothing is applied because smoothing can merge nearby modes or move the maximum away from the most frequently observed integer length.
+
+Optional `--mode-histogram-smoothing binomial` applies the normalized five-bin kernel
+
+```math
+\frac{1}{16}(1,4,6,4,1)
+```
+
+before selecting the mode. This option can reduce isolated bin-to-bin noise, but it is deliberately opt-in because it changes the quantity being maximized.
+
+### Bootstrap stability and stopping
+
+At each sampling checkpoint, NucleoSuite draws multinomial bootstrap histograms from the current empirical length distribution and recalculates the mode using the same smoothing setting. These bootstrap modes provide a percentile 95% interval. Sampling stops early only when both conditions are met:
+
+1. the recent point estimates differ by no more than `--mode-max-change`; and
+2. the bootstrap interval is no wider than `--mode-max-ci-width`.
+
+Otherwise sampling continues until `--mode-max-fragments` is reached. Requiring stability across checkpoints reduces the chance of stopping on a temporary maximum produced by too few sampled fragments.
+
+The resolved estimate, bootstrap interval, sampled-fragment counts, search range, smoothing setting, convergence result, checkpoint count, seed, and histogram are written to a mode-estimation report. The resolved estimates are also printed during execution so a long `cutn-suite` run immediately shows the mode selected for every treatment and control group.
+
+
 ## Randomized fragment controls
 
 Uniform randomization moves each accepted fragment to another valid coordinate on the same contig while preserving its fragment length.
@@ -1521,6 +1185,144 @@ Uniform randomization moves each accepted fragment to another valid coordinate o
 Dinucleotide-matched randomization also preserves one selected terminal dinucleotide. NucleoSuite indexes valid placements in the active reference block and samples a placement whose selected terminal dinucleotide matches the source fragment.
 
 A randomized placement must remain within the contig, contain canonical bases, differ from the source interval, and avoid the effective blacklist. `--fallback uniform|skip` controls what happens when no dinucleotide-matched placement can be found.
+
+
+## Empirical randomized-peak FDR
+
+`empirical-peak-fdr` is a standalone comparison between an observed peak file and one or more peak files produced from fragment-randomized controls. It is independent of `cutn-suite` Stage 1.
+
+For observed score $s$, a pooled empirical upper-tail p-value is
+
+```math
+p_{emp}(s)=\frac{1+R(\mathrm{score}\ge s)}{1+N_R},
+```
+
+where $N_R$ is the total number of randomized peaks and $R(\mathrm{score}\ge s)$ is the number at least as strong as the observed peak.
+
+For FDR, let $S(s)$ be the number of observed peaks with score at least $s$, and $R_b(s)$ the corresponding count in randomized callset $b$. With $B$ randomized callsets:
+
+```math
+\widehat{FDR}(s)=\min\left(1,\frac{1+\sum_{b=1}^{B}R_b(s)}{B\max(1,S(s))}\right).
+```
+
+Each observed peak is reported with both its raw empirical p-value and monotonic empirical FDR/q-value.
+
+
+## `cutn-suite` discovery, measurement, and clustering
+
+### Pooling treatment and control estimates in `cutn-suite`
+
+`cutn-suite` estimates each treatment and control group separately before selecting the analysis mode. The default pooled strategy converts the two histograms to within-group probabilities and gives them equal weight:
+
+```math
+p_{pool}(L)=\frac{1}{2}\left(\frac{n_T(L)}{\sum_j n_T(j)}+\frac{n_C(L)}{\sum_j n_C(j)}\right).
+```
+
+Equal weighting prevents the deeper BAM group from determining the shared mode solely because it contains more fragments. With two conditions, corresponding estimates are pooled again so both Stage 1 analyses use compatible scoring geometry. This compatibility is required because Stage 2 compares measurements made within peak regions defined by those Stage 1 analyses.
+
+### Discovery score and broad coverage
+
+`cutn-suite` uses PNS for peak discovery. The discovery score uses fragments from the resolved protected-DNA mode plus or minus 30 bp by default. `--frag-mode-padding` changes this distance, while `--score-frag-lower` and `--score-frag-upper` override the derived bounds independently.
+
+Broad coverage uses 1–1,000 bp fragments by default. The discovery score defines **where** a nucleosome-positioned candidate occurs; coverage measures **how strongly** each replicate supports that interval.
+
+### Native PNS replicate tracks for discovery
+
+Each replicate contributes its native PNS track. With $R$ treatment replicates, the consensus score is their arithmetic mean:
+
+```math
+\overline{PNS}(x)=\frac{1}{R}\sum_{r=1}^{R}PNS_r(x).
+```
+
+The single-fragment kernels each retain +100/−100 mass. The accumulated PNS and `posPNS` BigWigs retain their native values, and PNS is not divided by the `posPNS` mean. Higher-depth replicates can therefore contribute larger signal amplitudes to the consensus. Candidate discovery and cluster-centred positioning use these same native tracks; quantitative treatment/control measurement uses separately normalized coverage.
+
+### Coverage normalization and Stage 1 interval measurement
+
+For Stage 1 treatment-versus-control measurement, each broad coverage track is independently scaled to a finite non-zero mean of 100:
+
+```math
+Cov_{100,i}(x)=100\frac{Cov_i(x)}{\mathrm{mean}(Cov_i(x)\mid Cov_i(x)>0)}.
+```
+
+For candidate interval $R$, the default replicate measurement is the **mean scaled coverage across the complete interval**:
+
+```math
+P_i(R)=\frac{1}{|R|}\sum_{x\in R}Cov_{100,i}(x).
+```
+
+`--stage1-coverage-statistic max` selects the interval maximum instead. The treatment and control replicate measurements are independent groups and are not paired by input order.
+
+Define
+
+```math
+\bar T(R)=\mathrm{mean}_i\,T_i(R),
+\qquad
+\bar C(R)=\mathrm{mean}_j\,C_j(R),
+```
+
+and the conservative all-controls gate
+
+```math
+\min_i T_i(R)>\max_j C_j(R).
+```
+
+The mean gate is
+
+```math
+\bar T(R)>\bar C(R).
+```
+
+### Replicate-aware default seed and member rules
+
+Cluster seeds (**S**) and gated extension members (**G**) use independently configurable gates.
+
+When either treatment or control has fewer than three biological replicates, the automatic defaults are:
+
+```text
+S = all-controls gate
+G = all-controls gate
+```
+
+Peak p-values are not used for the default statistical seed rule in this case.
+
+When treatment and control each have at least three biological replicates, the automatic defaults are:
+
+```text
+S = raw one-sided Welch p < 0.05 AND mean treatment > mean control
+G = all-controls gate
+```
+
+The seed threshold is controlled by `--cluster-seed-p-value`. `--cluster-seed-mode gated` makes the seed gate alone define S. `--cluster-seed-gate-mode` changes the S gate independently, and `--stage1-gate-mode` changes the G gate. The startup log reports the automatically selected rules when these options are not explicitly supplied.
+
+For p-value seed mode, the one-sided Welch test asks whether the treatment replicate mean exceeds the control replicate mean without assuming equal variances. The raw p-value is reported for every treatment candidate in the complete peak BED and statistics table.
+
+### Seeded cluster extension
+
+With the default `--cluster-member-mode seed-and-gated`, both S peaks and G peaks are cluster members. A seed remains a member even when the seed's mean gate passes but the stricter G all-controls gate does not. `significant-only` restricts membership to S peaks.
+
+One consecutive non-member may bridge included members by default (`--cluster-max-non-member-gap 1`). A separation greater than 1,000 bp between adjacent included-member summits ends the cluster (`--max-cluster-gap 1000`). At least two included members are required by default (`--min-cluster-members 2`). Cluster boundaries are the outermost included-member intervals.
+
+The aggregate anchor is the discovery summit of the included member with the strongest condition-mean Stage 1 coverage measurement. The default cluster-aligned directional NRL peak resolution is 130 bp.
+
+### `cutn-compare` Stage 2
+
+Stage 2 compares clusters between two completed conditions and uses the retained **raw broad-coverage tracks**. Overlap-connected Stage 1 clusters form comparison loci. When clusters from both conditions overlap, the default measurement interval is the actual genomic overlap, rather than the full union. For condition-specific loci, the complete locus is measured.
+
+For raw coverage $Cov_i(x)$ and the comparison interval set $O_R$, replicate $i$ contributes mean raw coverage
+
+```math
+M_i(R)=\frac{1}{\sum_{[a,b)\in O_R}(b-a)}
+\sum_{[a,b)\in O_R}\sum_{x=a}^{b-1}Cov_i(x).
+```
+
+The four independent groups are condition 1 treatment, condition 1 control, condition 2 treatment, and condition 2 control. Values are transformed as
+
+```math
+Y=\log_2(M+1),
+```
+
+and a factorial model tests the condition-by-treatment interaction. The comparison table reports the raw interaction p-values, empirical-Bayes moderated p-values, and Benjamini-Hochberg FDR across cluster loci, together with effect sizes and confidence intervals.
+
 
 ## Chromosome-wise execution and combination
 

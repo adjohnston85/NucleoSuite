@@ -26,7 +26,7 @@ logs/
 
 ```text
 01_combined_tracks/
-├── sns/
+├── pns/
 ├── scaled/
 ├── dyads/
 │   ├── exact/<length>/
@@ -43,7 +43,7 @@ logs/
 └── completion_report.tsv
 ```
 
-Raw SNS, posSNS, coverage, nucleosome-region and breakpoint-peak outputs are written beneath `sns/`. After chromosome combination, `scaled/` receives mean-scaled coverage, mean-scaled posSNS, SNS scaled relative to the mean raw combined nucleosome-peak score, and mean-scaled nucleosome-region and breakpoint-peak BEDs. Downstream peak-based suite analyses use the mean-scaled peak BEDs, while SNS aggregate stages use the scaled SNS track.
+Native PNS, `posPNS`, coverage, nucleosome-region and breakpoint-peak outputs are written beneath `pns/`. After chromosome combination, `scaled/` receives mean-scaled coverage. Downstream peak analyses use the native peak BEDs and aggregate analyses use native PNS. The score tracks and peak scores are not automatically rescaled.
 
 MNase uses the 146–148 bp ranged class, exact 147 bp dyads/ends, and exact 145/147 bp dinucleotide profiles. cfDNA uses ranged classes 144–146, 160–162 and 166–168 bp plus exact 145, 161 and 167 bp dyads/ends.
 
@@ -52,13 +52,13 @@ MNase uses the 146–148 bp ranged class, exact 147 bp dyads/ends, and exact 145
 `02_dac/` contains DAC from ranged dyads. `04_nrl/from_dac/` mirrors the DAC range paths and stores the long, short, and intermediate periodicity fits.
 
 ```text
-05_ctcf_aggregation/{sns,dyads,type_dyads}/
+05_ctcf_aggregation/{pns,dyads,type_dyads}/
 06_tss_aggregation/<signal>/<gene-set>/
 07_distances/pns_peaks/
-08_region_extract/ctcf/sns/
-11_gene_expression/sns/
-12_positive_runs/sns/
-13_peak_analysis/score_frequencies/sns/
+08_region_extract/ctcf/pns/
+11_gene_expression/pns/
+12_positive_runs/pns/
+13_peak_analysis/score_frequencies/pns/
 ```
 
 Fragment-length products remain under:
@@ -78,7 +78,7 @@ Randomized runs use the same tree and mark their sample/output names with `_rand
 With `--with-randomized-control`, the observed and randomized trees are both completed before FDR annotation. Combined observed nucleosome and breakpoint BEDs with appended FDR are written beneath:
 
 ```text
-combined/13_peak_analysis/sns/empirical_fdr/
+combined/13_peak_analysis/pns/empirical_fdr/
 ```
 
 If the suite is not using the multicontig wrapper layout, the same directory is created directly beneath the suite root.
@@ -88,9 +88,9 @@ If the suite is not using the multicontig wrapper layout, the same directory is 
 `cutn-suite` uses a separate target/control layout:
 
 ```text
-00_setup/                 fragment-mode and score-scaling reports
+00_setup/                 fragment-mode and track-processing reports
 01_score_tracks/          method-specific discovery score/positive score plus raw broad-range coverage
-02_mean_scaled_tracks/    normalized method-specific score tracks and coverage scaled to mean 100
+02_analysis_tracks/    native condition-mean PNS and coverage scaled to mean 100
 03_peak_calls/            treatment nucleosome candidates only
 04_peak_statistics/              replicate statistics, gate-selected peaks and seeded clusters
 05_cluster_aggregate/     strongest-member anchors, method-specific heatmap/profiles, confidence band, NRLs
@@ -99,7 +99,7 @@ cutn_stage1_manifest.json
 cutn_suite_run_manifest.json
 ```
 
-With biological replicates, `01_score_tracks/` and `02_mean_scaled_tracks/` retain replicate-specific outputs. The resolved mode-centred SNS/`posSNS` pair and broad 1–1,000 bp coverage are generated together for each replicate. Each SNS track is normalized by its own `posSNS` mean before treatment tracks are averaged for candidate discovery. Broad coverage is independently scaled to a non-zero mean of 100 for Stage 1 interval measurement, using the mean across each peak by default. Automatic S/G clustering rules depend on replicate count and are recorded in the Stage 1 manifest. The normalized SNS tracks are reused for cluster heatmaps, aggregate profiles, confidence bands and directional NRLs. An explicit `--mode` is recorded with `mode_source=explicit`; automatic runs retain treatment, control and pooled mode estimates.
+With biological replicates, `01_score_tracks/` retains native PNS/`posPNS` and raw broad coverage. `02_analysis_tracks/` contains native condition-mean PNS plus normalized replicate/condition-mean coverage. PNS and `posPNS` are not divided by a reference mean. Broad coverage is scaled to a non-zero mean of 100 for Stage 1 interval measurement, using the mean across each peak by default. Automatic S/G clustering rules depend on replicate count and are recorded in the Stage 1 manifest. Native PNS tracks are reused for cluster heatmaps, aggregate profiles, confidence bands and directional NRLs. Explicit and estimated modes are recorded in the mode report.
 
 A four-group run places the two layouts under `01_condition1_stage1/` and `02_condition2_stage1/`. `03_condition_comparison/` contains the complete cluster-only differential table, all-direction, robust-direction and FDR-significant BEDs, overlap-component mapping, Venn and occupied-base summaries, matched cluster-locus method-specific aggregates, and `cutn_comparison_manifest.json`. The root `cutn_suite_run_manifest.json` records both biological conditions, their BAM membership, the Stage 1 manifests, run-level parameters and the Stage 2 manifest. The standalone `cutn-compare` command writes the same Stage 2 layout from two existing Stage 1 manifests.
 

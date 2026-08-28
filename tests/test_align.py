@@ -139,6 +139,19 @@ def test_aggregate_suffix_defaults_and_explicit_filter_overrides():
     assert explicit.colorbar_label == "Custom"
     assert explicit.mean_ylabel == "Mean custom"
 
+    for suffix in ('pns', 'pns_smoothed', 'posPNS'):
+        native = parser.parse_args([
+            'aggregate', '--bigwig', f'sample_{suffix}.bw', '--region-bed', 'regions.bed'
+        ])
+        _resolve_automatic_options(native)
+        assert native.max_score == float('inf')
+        selected = parser.parse_args([
+            'aggregate', '--bigwig', f'sample_{suffix}.bw', '--region-bed', 'regions.bed',
+            '--max-score', '500',
+        ])
+        _resolve_automatic_options(selected)
+        assert selected.max_score == 500
+
 
 def test_no_valid_message_reports_counts_and_only_relevant_filter_suggestions():
     config = AlignmentConfig(bigwig=Path("signal.bw"), region_bed=Path("regions.bed"))
