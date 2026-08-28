@@ -46,7 +46,7 @@ Dinucleotide profiles do not split even-length fragments between alternative cen
 
 ## Empirical FDR
 
-An estimate of the fraction of retained discoveries expected to be false. `pns-peak-fdr` uses peak-score counts from fragment-randomized runs and reports monotonic empirical q-values. `cutn-suite` Stage 1 uses one-sided Welch p-values from replicate maximum scaled coverage followed by Benjamini-Hochberg correction across all treatment candidates, but uses the all-controls gate (every treatment replicate > every control replicate) rather than FDR as its default selector; a mean gate remains available. `cutn-compare` applies BH correction to empirical-Bayes moderated four-group interaction tests across overlap-connected cluster loci; its Venn and occupied-base summaries are descriptive rather than FDR analyses.
+An estimate of the fraction of retained discoveries expected to be false. `empirical-peak-fdr` uses peak-score counts from fragment-randomized runs and reports both pooled empirical p-values and monotonic empirical q-values. `cutn-compare` applies Benjamini-Hochberg correction to empirical-Bayes moderated four-group interaction tests across overlap-connected cluster loci. In `cutn-suite` Stage 1, replicate-aware seed selection uses raw one-sided Welch p-values when both treatment and control have at least three biological replicates.
 
 ## Flanking spacing
 
@@ -70,7 +70,7 @@ Subtraction of a vector's arithmetic mean from every value. PNS, BNS and TNS use
 
 ## Mode estimation
 
-Estimation of the dominant accepted fragment length used to set SNS, PNS, BNS, TNS, or standalone WPS scoring geometry. `nuc-score`, `wps`, and `cutn-suite` sample accepted fragments from seeded randomly ordered genomic blocks and bootstrap the raw integer length histogram until the mode stabilizes. Histogram smoothing is disabled by default and is available explicitly with `--mode-histogram-smoothing binomial`. `cutn-suite` uses an equal-weight pooled treatment/control mode by default. An integer `--mode` bypasses estimation.
+Estimation of the dominant accepted fragment length used to set SNS, PNS, BNS and TNS scoring geometry. `nuc-score` and `cutn-suite` sample accepted fragments from seeded randomly ordered genomic blocks and bootstrap the raw integer length histogram until the mode stabilizes. Histogram smoothing is disabled by default and is available explicitly with `--mode-histogram-smoothing binomial`. `cutn-suite` uses an equal-weight pooled treatment/control mode by default. An integer `--mode` bypasses estimation.
 
 ## NRL
 

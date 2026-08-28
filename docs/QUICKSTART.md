@@ -58,7 +58,7 @@ nucleosuite filter-peaks \
 Run the observed and randomized sample with identical PNS settings, then compare their peak BEDs:
 
 ```bash
-nucleosuite pns-peak-fdr \
+nucleosuite empirical-peak-fdr \
   sample_nucleosome_regions.bed \
   sample_randomized_control_nucleosome_regions.bed
 ```
@@ -80,7 +80,11 @@ nucleosuite cutn-suite \
 
 Use `--scoring-method pns`, `--scoring-method bns`, or `--scoring-method tns` to select an alternative discovery score. Use `--mode 167` to bypass automatic sampling and use exactly 167 bp for both target and control; with the default `--frag-mode-padding 30` this gives a 137–197 bp discovery range.
 
-Each replicate score is divided by the mean of its method-matched positive track before treatment tracks are averaged. This prevents sequencing-depth differences from weighting the consensus peak-discovery track toward one replicate. The same shared pass also writes broad-range coverage, which is independently scaled to a non-zero mean of 100 for measurement. A candidate passes Stage 1 by default only when every treatment replicate exceeds every control replicate; `--stage1-gate-mode mean` selects the less conservative mean treatment > mean control rule. P-values and BH FDR remain annotations unless optional cutoffs are supplied. Clusters start at gate-passing peaks with p < 0.05. By default both S and G are members, one non-member bridge is allowed, at least two included members are required, and adjacent included-member summits cannot exceed 1,000 bp. `--cluster-member-mode significant-only` restricts membership to S peaks. The selected SNS/PNS/BNS/TNS score is reused for aggregate plots and directional NRLs. Treatment and control groups are independent, may contain different replicate counts, and are never paired by input order. Use `--bam-mode merged` to pool a group. Supplying `--treatment2-bam` and `--control2-bam` adds a log2 empirical-Bayes four-group interaction test. Two independently completed Stage 1 runs can instead be compared with [`cutn-compare`](commands/cutn-compare.md).
+Each replicate SNS track is divided by the mean of its `posSNS` track before treatment tracks are averaged, placing replicate discovery scores on comparable scales. Broad-range coverage is independently scaled to a non-zero mean of 100 for Stage 1 treatment/control measurement, with mean coverage across each candidate interval used by default.
+
+Clustering defaults adapt to biological replicate count. If either treatment or control has fewer than three replicates, both seed peaks (S) and gated members (G) use the all-controls rule. When both groups have at least three replicates, S requires raw one-sided Welch p < 0.05 plus mean treatment > mean control, while G uses the all-controls rule. The selected defaults are printed when the run starts. Seed and member gates can also be set explicitly.
+
+Treatment and control groups are independent and may contain different replicate counts. Use `--bam-mode merged` to pool a group. Supplying `--treatment2-bam` and `--control2-bam` adds a between-condition cluster comparison using mean raw coverage over the actual shared interval for overlapping clusters, with raw and moderated p-values and BH FDR reported. Two independently completed Stage 1 runs can instead be compared with [`cutn-compare`](commands/cutn-compare.md).
 
 ## 5. Measure nucleosome spacing
 

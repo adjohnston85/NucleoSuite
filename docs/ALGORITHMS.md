@@ -407,13 +407,13 @@ score_{bigBed}=\min\left(1000,\max\left(0,\mathrm{round}(B\,score_{BED})\right)\
 
 Optional [Savitzky-Golay smoothing](https://doi.org/10.1021/ac60214a047) can be applied before peak calling. It fits a low-order polynomial within a moving window and evaluates the fitted value at the centre. Raw scoring signal is used by default.
 
-Standalone `nuc-score` uses SNS by default. Select `--scoring-method pns` for the original endpoint-derived PNS kernel, `--scoring-method bns` for BNS, or `--scoring-method tns` for TNS. Standalone `nuc-score` now estimates $m$ automatically from the accepted fragments unless an integer `--mode` is supplied. The cfDNA and MNase suites retain their workflow-specific protected-DNA settings.
+Standalone `nuc-score` uses SNS by default. Select `--scoring-method pns` for the original endpoint-derived PNS kernel, `--scoring-method bns` for BNS, or `--scoring-method tns` for TNS. `nuc-score` estimates $m$ automatically from the accepted fragments unless an integer `--mode` is supplied. The cfDNA and MNase suites use their workflow-specific protected-DNA settings.
 
 ## Bootstrap-stabilized fragment-mode estimation
 
 ### What is estimated and why
 
-`nuc-score`, `wps`, and `cutn-suite` use a protected-DNA length to define their scoring geometry. With `--mode auto`, NucleoSuite estimates the dominant accepted fragment length instead of assuming that every library has the same modal length. This matters because digestion, library preparation, and assay type can shift the observed protected-fragment distribution.
+`nuc-score` and `cutn-suite` use a protected-DNA mode to define SNS/PNS/BNS/TNS scoring geometry. With `--mode auto`, the dominant accepted fragment length is estimated from the library. This matters because digestion, library preparation, and assay type can shift the observed protected-fragment distribution.
 
 An integer `--mode` bypasses estimation and uses that value exactly. This is useful when a fixed geometry is required across separately processed analyses.
 
@@ -421,7 +421,7 @@ An integer `--mode` bypasses estimation and uses that value exactly. This is use
 
 Indexed genomic blocks from the selected analysis contigs are visited in seeded random order. Random block order prevents the estimate from being determined by whichever chromosomes happen to occur first in the input. A fragment enters the histogram only if it passes the same alignment, duplicate-coordinate, fragment-length, contig, and blacklist rules used by the analysis. The estimate therefore describes the fragments that will actually contribute to the score.
 
-The accepted fragment lengths are counted in one-base bins across the selected mode-search range. `nuc-score` and `wps` use their accepted fragment range as the default search range. `cutn-suite` samples fragments that pass its broad 1–1,000 bp coverage selection but counts the 120–250 bp nucleosome-sized subset when estimating the mode. This prevents the potentially abundant short or long fragments retained for abundance measurement from defining nucleosome-scoring geometry.
+The accepted fragment lengths are counted in one-base bins across the selected mode-search range. `nuc-score` uses its accepted fragment range as the default search range. `cutn-suite` samples fragments that pass its broad 1–1,000 bp coverage selection but counts the 120–250 bp nucleosome-sized subset when estimating the mode. This prevents the potentially abundant short or long fragments retained for coverage measurement from defining nucleosome-scoring geometry.
 
 The raw integer histogram is used by default. The modal length is the lowest length tied for the largest observed count. No histogram smoothing is applied because smoothing can merge nearby modes or move the maximum away from the most frequently observed integer length.
 
@@ -454,197 +454,136 @@ p_{pool}(L)=\frac{1}{2}\left(\frac{n_T(L)}{\sum_j n_T(j)}+\frac{n_C(L)}{\sum_j n
 
 Equal weighting prevents the deeper BAM group from determining the shared mode solely because it contains more fragments. With two conditions, corresponding estimates are pooled again so both Stage 1 analyses use compatible scoring geometry. This compatibility is required because Stage 2 compares measurements made within peak regions defined by those Stage 1 analyses.
 
-## `cutn-suite` discovery and measurement tracks
+## `cutn-suite` discovery, measurement, and clustering
 
-### Separate fragment selections and why they are used
+### Discovery score and broad coverage
 
-`cutn-suite` uses SNS for peak discovery by default; PNS, BNS and TNS remain explicit alternatives. After resolving the treatment and control modes, each discovery score accepts fragments from its corresponding mode minus 30 bp through mode plus 30 bp. This narrow range focuses the positioning model on fragments consistent with one protected nucleosome. Change the automatic distance from the mode with `--frag-mode-padding`; `--score-frag-lower` and `--score-frag-upper` override their corresponding derived bounds independently.
+`cutn-suite` uses SNS for peak discovery by default; PNS, BNS and TNS are available as alternatives. The discovery score uses fragments from the resolved protected-DNA mode plus or minus 30 bp by default. `--frag-mode-padding` changes this distance, while `--score-frag-lower` and `--score-frag-upper` override the derived bounds independently.
 
-Coverage is generated by an independent pass that accepts 1–1,000 bp fragments by default. Coverage has a different purpose from the discovery score: it measures how much fragment signal supports a discovered interval. Retaining the broader fragment population avoids discarding subnucleosomal and longer fragments that may contribute to CUT&RUN or CUT&Tag enrichment. `--coverage-frag-lower` and `--coverage-frag-upper` change those bounds. Consequently, the discovery score answers where a nucleosome-positioned candidate is located, while broad-range coverage answers how strongly each replicate supports that candidate.
+Broad coverage uses 1–1,000 bp fragments by default. The discovery score defines **where** a nucleosome-positioned candidate occurs; coverage measures **how strongly** each replicate supports that interval.
 
-## Positive-score mean normalization
+### Normalizing replicate SNS tracks for discovery
 
-### Normalizing replicate score tracks for peak discovery
-
-SNS, PNS, BNS, or TNS is used to locate candidate peaks, not to provide the final CUT&RUN/CUT&Tag peak abundance. Before treatment replicates are averaged, each centred score track $Z_i(x)$ is divided by the finite, non-zero mean of its matching matching non-negative positive-reference track $Z_i^+(x)$:
+Each replicate SNS track is divided by the finite, non-zero mean of its `posSNS` track before treatment replicates are averaged:
 
 ```math
 Z_{i,scaled}(x)=\frac{Z_i(x)}{\mathrm{mean}\!\left(Z_i^+(x)\mid Z_i^+(x)>0\right)}.
 ```
 
-SNS uses `posSNS`, PNS uses `posPNS`, BNS uses `posBNS`, and TNS uses `posTNS`. The positive track provides a non-negative method-matched reference for fragment support, so its mean provides a method-matched reference for the overall score amplitude.
+This places replicate score tracks on comparable scales so differences in sequencing depth do not cause higher-depth libraries to contribute disproportionately to the condition-average discovery track. The normalized treatment SNS tracks are then averaged and candidate peaks are called once on that common track.
 
-This normalization is performed before averaging because raw score magnitudes depend on library depth. Averaging unscaled tracks would give a higher-depth replicate more influence over candidate discovery. Dividing each replicate by its own positive-score mean places the tracks on comparable scales, allowing each replicate to contribute equally to the condition-average discovery track.
+### Coverage normalization and Stage 1 interval measurement
 
-The normalized treatment tracks are averaged because peak calling requires one common candidate set. Signal consistently present across replicates is reinforced, while replicate-specific fluctuations have less influence. Calling peaks once on the average also ensures that every treatment and control replicate is later measured over exactly the same intervals. Control score tracks are retained for inspection, but control peaks are not called and control is not subtracted from treatment.
-
-### Normalizing coverage for peak measurement
-
-Peak strength is measured from broad-range fragment coverage rather than SNS, PNS, BNS, or TNS height. Each treatment and control replicate is independently scaled to a finite non-zero coverage mean of 100:
+For Stage 1 treatment-versus-control measurement, each broad coverage track is independently scaled to a finite non-zero mean of 100:
 
 ```math
 Cov_{100,i}(x)=100\frac{Cov_i(x)}{\mathrm{mean}(Cov_i(x)\mid Cov_i(x)>0)}.
 ```
 
-This scaling compensates for differences in total usable coverage between samples. A value of 100 represents the mean among covered bases in that replicate, so local values describe coverage relative to the replicate's typical covered position. Scaling every replicate separately makes treatment and control measurements comparable without globally subtracting one track from another. The raw coverage BigWigs are retained so the original depth remains available.
-
-For a candidate interval $R$, the replicate peak score is the maximum scaled coverage within the interval:
+For candidate interval $R$, the default replicate measurement is the **mean scaled coverage across the complete interval**:
 
 ```math
-P_i(R)=\max_{x\in R}Cov_{100,i}(x).
+P_i(R)=\frac{1}{|R|}\sum_{x\in R}Cov_{100,i}(x).
 ```
 
-The maximum captures the strongest local enrichment supporting the score-defined candidate and is less dependent on the width of the called interval than a sum or area. SNS, PNS, BNS, or TNS therefore answers **where is the candidate?**, while scaled coverage answers **how strong is it in each replicate?**
+`--stage1-coverage-statistic max` selects the interval maximum instead. The treatment and control replicate measurements are independent groups and are not paired by input order.
 
-## Empirical peak FDR
-
-### Randomized-peak FDR with `pns-peak-fdr`
-
-Let $S(s)$ be the number of observed peaks with score at least $s$, and let $R_b(s)$ be the corresponding count in randomized callset $b$. With $B$ randomized callsets, `pns-peak-fdr` estimates:
+Define
 
 ```math
-\widehat{FDR}(s)=\min\left(1,\frac{1+\sum_{b=1}^{B}R_b(s)}{B\max\left(1,S(s)\right)}\right).
-```
-
-The randomized callsets preserve the relevant fragment properties while removing the original genomic positioning, so their peak-score distribution represents peaks expected under a positional null. The pseudocount prevents a zero estimate above every randomized peak. Scores are evaluated at the distinct observed thresholds. Each observed peak receives the smallest estimated FDR among thresholds that retain that peak, producing a monotonic empirical q-value. Coordinates are not matched because randomized positions are intentionally unrelated to the observed positions.
-
-### `cutn-suite` Stage 1: treatment versus control
-
-Stage 1 asks whether a treatment-defined candidate is reproducibly stronger than the condition-matched control. It does not use the randomized-peak FDR above.
-
-Candidate intervals are called from the average normalized treatment SNS, PNS, BNS, or TNS track. Control peaks are not called because a control signal should be able to challenge a treatment candidate even when the control does not independently form a called peak.
-
-For treatment replicate $i$, control replicate $j$, and candidate interval $R$, the maximum scaled-coverage scores are
-
-```math
-T_i(R)=\max_{x\in R}Cov_{100,T_i}(x),
+\bar T(R)=\mathrm{mean}_i\,T_i(R),
 \qquad
-C_j(R)=\max_{x\in R}Cov_{100,C_j}(x).
+\bar C(R)=\mathrm{mean}_j\,C_j(R),
 ```
 
-The default treatment-control gate is the **all-controls** rule:
+and the conservative all-controls gate
 
 ```math
 \min_i T_i(R)>\max_j C_j(R).
 ```
 
-The optional `--stage1-gate-mode mean` instead requires
+The mean gate is
 
 ```math
-\mathrm{mean}_i T_i(R)>\mathrm{mean}_j C_j(R).
+\bar T(R)>\bar C(R).
 ```
 
-The mean gate tolerates replicate-level variation while requiring average treatment enrichment. The all-controls gate is deliberately more conservative: one weak treatment replicate or one strong control replicate prevents the peak from proceeding. Treatment and control BAMs are independent groups and are not paired by input order.
+### Replicate-aware default seed and member rules
 
-The gate is the default Stage 1 peak selector. When both groups contain at least two biological replicates, a one-sided Welch test also asks whether the treatment-score mean is greater than the control-score mean without assuming equal variances. Benjamini-Hochberg correction is calculated across all candidates, but p-values and FDR are annotations by default. This separation is necessary because a nucleosome-scale analysis can contain hundreds of thousands of correlated tests, while two biological replicates per group provide unstable peak-specific variance estimates. `--stage1-p-value` and `--peak-fdr` enable optional additional filtering. With fewer than two replicates in either group, the scores and gate remain available but p-value and FDR are reported as unavailable.
+Cluster seeds (**S**) and gated extension members (**G**) use independently configurable gates.
 
-The complete annotated peak BED appends raw Welch p-value and BH FDR, and a dedicated parameter-aware seed BED reports every `S` peak that passes the selected gate and satisfies the seed threshold. The statistics table also reports a conservative fold enrichment using a pseudocount of 1,
-
-```math
-F_{cons}(R)=\frac{\min_i T_i(R)+1}{\max_j C_j(R)+1},
-```
-
-and its base-2 logarithm. The conservative fold remains reported regardless of gate mode as a worst-case effect-size annotation. The selected excess used for clustering is minimum treatment minus maximum control in the default all-controls mode and mean treatment minus mean control in mean mode.
-
-### Stage 1 peak clusters
-
-Stage 1 uses a seeded extension algorithm so nominal replicate evidence identifies where a cluster begins without requiring every nucleosome in the wider domain to pass an underpowered peak-specific test.
-
-A seed peak must pass the selected treatment-control gate and satisfy $p<0.05$ by default. `--cluster-seed-p-value` changes this threshold. In the default `--cluster-member-mode seed-and-gated`, both significant seed peaks (S) and other gate-passing peaks (G) are cluster members. In `significant-only`, only S peaks are members; G and gate-failing x candidates count as non-members for gap handling. The default cluster requires at least two included members (`--min-cluster-members 2`).
-
-By default, one consecutive non-member can bridge two included members (`--cluster-max-non-member-gap 1`). The bridge is not an endpoint or score contributor and is counted only if a later included member reconnects the run. Two consecutive non-members therefore split the run at the default gap. A separation greater than 1,000 bp between adjacent included-member summits also stops extension (`--max-cluster-gap 1000`). Exactly 1,000 bp is allowed.
+When either treatment or control has fewer than three biological replicates, the automatic defaults are:
 
 ```text
-S = gated seed with p < 0.05
-G = gated extension; no p-value requirement
-x = non-gated candidate
-. = not a cluster member
+S = all-controls gate
+G = all-controls gate
 ```
+
+Peak p-values are not used for the default statistical seed rule in this case.
+
+When treatment and control each have at least three biological replicates, the automatic defaults are:
 
 ```text
-state:    S G
-cluster:  1 1
-
-state:    S x G
-cluster:  1 . 1
-span:     └───┘
-
-state:    S G x x G S G
-cluster:  1 1 . . 2 2 2
-
-state:    G S G x x G G
-cluster:  1 1 1 . . . .
+S = raw one-sided Welch p < 0.05 AND mean treatment > mean control
+G = all-controls gate
 ```
 
-In the final example, the right-hand `G G` has no seed and is therefore not a cluster. Connected expansions from multiple seeds are emitted once rather than as overlapping duplicate clusters.
+The seed threshold is controlled by `--cluster-seed-p-value`. `--cluster-seed-mode gated` makes the seed gate alone define S. `--cluster-seed-gate-mode` changes the S gate independently, and `--stage1-gate-mode` changes the G gate. The startup log reports the automatically selected rules when these options are not explicitly supplied.
 
-Cluster boundaries are the outermost included-member intervals. By default, the Stage 1 gate requires every treatment replicate to exceed every control replicate and the cluster score is the sum of minimum-treatment-minus-maximum-control excess across included members. `--stage1-gate-mode mean` instead uses mean treatment > mean control and mean treatment minus mean control as the member excess. `--cluster-member-mode seed-and-gated` includes both significant seed (S) peaks and other gate-passing (G) peaks; `significant-only` includes only S peaks. Non-members may bridge included members up to `--cluster-max-non-member-gap` but do not contribute to the boundary or score. The aggregate anchor is the discovery-track summit of the included member with the largest condition-mean scaled-coverage maximum; selected excess and genomic position break ties. Coverage ranks members because it is the direct abundance measurement, while the selected member's SNS/TNS/BNS/PNS summit preserves the positioning estimate.
+For p-value seed mode, the one-sided Welch test asks whether the treatment replicate mean exceeds the control replicate mean without assuming equal variances. The raw p-value is reported for every treatment candidate in the complete peak BED and statistics table.
 
-### `cutn-compare` Stage 2: differences between conditions
+### Seeded cluster extension
 
-Stage 2 asks whether treatment enrichment relative to control changes between two biological conditions. It compares clusters only, reads the Stage 1 manifests and saved BigWigs, and does not return to the BAM files.
+With the default `--cluster-member-mode seed-and-gated`, both S peaks and G peaks are cluster members. A seed remains a member even when the seed's mean gate passes but the stricter G all-controls gate does not. `significant-only` restricts membership to S peaks.
 
-Selected clusters from both conditions are converted into overlap-connected components. Direct or transitive overlaps form one cluster locus; non-overlapping clusters remain separate regardless of distance. This preserves one-to-many and many-to-many relationships without arbitrary one-to-one matching. `region_origin` is `overlap_union`, `condition1_only`, or `condition2_only`, and every contributing Stage 1 cluster ID is retained.
+One consecutive non-member may bridge included members by default (`--cluster-max-non-member-gap 1`). A separation greater than 1,000 bp between adjacent included-member summits ends the cluster (`--max-cluster-gap 1000`). At least two included members are required by default (`--min-cluster-members 2`). Cluster boundaries are the outermost included-member intervals.
 
-For cluster locus $R$, replicate $i$ contributes positive scaled-coverage area
+The aggregate anchor is the discovery summit of the included member with the strongest condition-mean Stage 1 coverage measurement. The default cluster-aligned directional NRL peak resolution is 130 bp.
+
+### `cutn-compare` Stage 2
+
+Stage 2 compares clusters between two completed conditions and uses the retained **raw broad-coverage tracks**. Overlap-connected Stage 1 clusters form comparison loci. When clusters from both conditions overlap, the default measurement interval is the actual genomic overlap, rather than the full union. For condition-specific loci, the complete locus is measured.
+
+For raw coverage $Cov_i(x)$ and the comparison interval set $O_R$, replicate $i$ contributes mean raw coverage
 
 ```math
-A_i(R)=\sum_{x\in R}\max(Cov_{100,i}(x),0).
+M_i(R)=\frac{1}{\sum_{[a,b)\in O_R}(b-a)}
+\sum_{[a,b)\in O_R}\sum_{x=a}^{b-1}Cov_i(x).
 ```
 
-Area retains both magnitude and enriched extent, which are both properties of a cluster-scale domain. Condition-specific loci are measured in all four groups rather than being assigned zero in the other condition. The four independent groups are condition 1 treatment ($T_1$), condition 1 control ($C_1$), condition 2 treatment ($T_2$), and condition 2 control ($C_2$). Each area is transformed to
+The four independent groups are condition 1 treatment, condition 1 control, condition 2 treatment, and condition 2 control. Values are transformed as
 
 ```math
-Y=\log_2(A+1).
+Y=\log_2(M+1),
 ```
 
-The transformation makes multiplicative enrichment differences comparable across the coverage range and permits zero-valued regions. A factorial linear model contains condition, treatment/control status, and their interaction. Its tested coefficient is
+and a factorial model tests the condition-by-treatment interaction. The comparison table reports the raw interaction p-values, empirical-Bayes moderated p-values, and Benjamini-Hochberg FDR across cluster loci, together with effect sizes and confidence intervals.
+
+## Empirical randomized-peak FDR
+
+`empirical-peak-fdr` is a standalone comparison between an observed peak file and one or more peak files produced from fragment-randomized controls. It is independent of `cutn-suite` Stage 1.
+
+For observed score $s$, a pooled empirical upper-tail p-value is
 
 ```math
-\Delta_{log}=(\bar Y_{T_2}-\bar Y_{C_2})-(\bar Y_{T_1}-\bar Y_{C_1}).
+p_{emp}(s)=\frac{1+R(\mathrm{score}\ge s)}{1+N_R},
 ```
 
-Subtracting the matched control within each condition first separates target-specific enrichment from condition-specific background. Comparing those two effects then tests the biological condition change rather than a raw treatment-track difference.
+where $N_R$ is the total number of randomized peaks and $R(\mathrm{score}\ge s)$ is the number at least as strong as the observed peak.
 
-Let $s_R^2$ be the ordinary residual variance for region $R$, with residual degrees of freedom $d_R$. NucleoSuite estimates a shared scaled-inverse-chi-square variance prior with variance $s_0^2$ and degrees of freedom $d_0$ from the winsorized distribution of log residual variances across regions. The posterior variance is
+For FDR, let $S(s)$ be the number of observed peaks with score at least $s$, and $R_b(s)$ the corresponding count in randomized callset $b$. With $B$ randomized callsets:
 
 ```math
-s_{post,R}^2=\frac{d_0s_0^2+d_Rs_R^2}{d_0+d_R}.
+\widehat{FDR}(s)=\min\left(1,\frac{1+\sum_{b=1}^{B}R_b(s)}{B\max(1,S(s))}\right).
 ```
 
-The ordinary p-value is the two-sided t test of the interaction coefficient using $s_R^2$ and $d_R$. The moderated t statistic uses $s_{post,R}^2$ and $d_0+d_R$ degrees of freedom. Borrowing variance information across loci stabilizes inference when each group has only two or three replicates; it does not increase the biological replicate count. Benjamini-Hochberg correction is applied to the moderated p-values across all cluster loci. Fewer than two replicates in any group produces descriptive effects without inferential FDR. Ordinary and moderated standard errors and 95% confidence intervals are retained.
-
-Stage 2 also reports a stringent replicate-separation annotation. On the log scale, condition $k$ has enrichment bounds
-
-```math
-L_k=\min(Y_{T_k})-\max(Y_{C_k}),
-\qquad
-U_k=\max(Y_{T_k})-\min(Y_{C_k}).
-```
-
-`robust_gain` requires $L_2>U_1$ and `robust_loss` requires $U_2<L_1$. These labels mean every possible treatment-control contrast is ordered in the same direction. They are descriptive consistency annotations rather than replacements for moderated FDR.
-
-### Cluster-centred method-matched score aggregate
-
-For treatment replicate $i$, the selected nucleosome score is normalized before averaging:
-
-```math
-S_{scaled,i}(x)=\frac{S_i(x)}{\mathrm{mean}(posS_i(x)\mid posS_i(x)>0)},
-\qquad
-\overline{S}_{scaled}(x)=\frac{1}{n}\sum_i S_{scaled,i}(x).
-```
-
-Scaling before averaging removes usable-depth magnitude from each replicate so a deeper library does not dominate the condition mean. The selected discovery method supplies the positioning aggregate throughout: SNS is normalized by `posSNS`, PNS by `posPNS`, BNS by `posBNS`, and TNS by `posTNS`. Coverage-to-100 remains the abundance statistic used for treatment/control tests.
-
-Each Stage 1 cluster is aligned at the discovery summit of its strongest coverage-scored member. Stage 2 additionally builds one common union-locus anchor set and uses it for both conditions, allowing row-matched heatmaps with a shared symmetric colour scale. The default directional NRL caller uses 130 bp resolution, includes the central peak as order 0, retains called order numbers, fits orders 0–3 on both sides, and applies no central regression exclusion.
-
-Observed cluster-locus counts and occupied-base overlap are reported descriptively. This build does not perform a genomic randomization overlap test.
+Each observed peak is reported with both its raw empirical p-value and monotonic empirical FDR/q-value.
 
 ## Windowed protection score
 
 [Windowed protection score (WPS)](https://doi.org/10.1016/j.cell.2015.11.050) was introduced by Snyder et al. to infer nucleosome protection from cfDNA fragmentation. NucleoSuite's implementation was written to reproduce their L-WPS algorithm and default settings.
 
-The original L-WPS fragment range is 120–180 bp and its fixed protection-window width is $k=120$ bp. Standalone NucleoSuite `wps` retains the 120–180 bp fragment range but now sets $k$ to the automatically estimated fragment mode by default. This adapts the protection geometry to the analysed library. Supply `--mode 120` to reproduce the original fixed L-WPS width.
+The default L-WPS fragment range is 120–180 bp and the protection-window width is fixed at $k=120$ bp. `--frag-lower`, `--frag-upper`, and `--protection` allow these values to be changed explicitly. WPS does not use automatic fragment-mode estimation to set its protection window.
 
 ### One fragment at one window centre
 

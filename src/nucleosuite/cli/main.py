@@ -184,7 +184,7 @@ def _peak_states_main(argv: Sequence[str] | None = None) -> int:
     return main(argv)
 
 
-def _pns_peak_fdr_main(argv: Sequence[str] | None = None) -> int:
+def _empirical_peak_fdr_main(argv: Sequence[str] | None = None) -> int:
     from nucleosuite.peak_fdr import main
     return main(argv)
 
@@ -215,7 +215,7 @@ DELEGATED_COMMANDS: dict[str, tuple[CommandMain, str]] = {
     "plot": (_plot_main, "Recreate and customise figures from NucleoSuite output tables."),
     "positive-runs": (_positive_runs_main, "Measure the lengths of continuous positive-signal regions."),
     "peak-score-frequency": (_peak_score_frequency_main, "Compare the score distributions of peak callsets."),
-    "pns-peak-fdr": (_pns_peak_fdr_main, "Assign empirical FDR values using fragment-randomized PNS peaks."),
+    "empirical-peak-fdr": (_empirical_peak_fdr_main, "Compare observed peak scores with fragment-randomized peak callsets."),
     "peak-states": (_peak_states_main, "Measure peak abundance and enrichment by chromatin state."),
     "gene-sets": (_gene_sets_main, "Group genes by the chromatin states that overlap them."),
     "gene-expression": (_gene_expression_main, "Compare gene expression with nucleosome spacing or periodicity."),
@@ -252,7 +252,7 @@ DELEGATED_MODULES: dict[str, str] = {
     "plot": "nucleosuite.replot",
     "positive-runs": "nucleosuite.positive_runs",
     "peak-score-frequency": "nucleosuite.peak_score_frequency",
-    "pns-peak-fdr": "nucleosuite.peak_fdr",
+    "empirical-peak-fdr": "nucleosuite.peak_fdr",
     "peak-states": "nucleosuite.peak_states",
     "gene-sets": "nucleosuite.gene_sets",
     "gene-expression": "nucleosuite.gene_expression",
@@ -432,7 +432,7 @@ def build_parser() -> argparse.ArgumentParser:
         "fragment-heatmap",
         "filter-peaks",
         "peak-score-frequency",
-        "pns-peak-fdr",
+        "empirical-peak-fdr",
         "peak-states",
         "compare-positions",
         "distances",

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import numpy as np
 
-from nucleosuite.peak_fdr import annotate_peak_fdr, empirical_peak_qvalues
+from nucleosuite.peak_fdr import annotate_peak_fdr, empirical_peak_pvalues, empirical_peak_qvalues
 
 
 def _write_bed(path: Path, scores):
@@ -29,8 +29,15 @@ def test_empirical_peak_qvalues_use_random_peak_counts_and_are_monotonic():
     assert qvalues[0] <= qvalues[1] <= qvalues[2] <= qvalues[3]
     assert qvalues.tolist() == [0.5, 0.5, 0.5, 0.5]
 
+def test_empirical_peak_pvalues_use_pooled_random_upper_tail():
+    observed = np.asarray([30.0, 18.0, 5.0])
+    randomized = [np.asarray([20.0, 10.0]), np.asarray([15.0])]
+    pvalues = empirical_peak_pvalues(observed, randomized)
+    assert np.allclose(pvalues, [0.25, 0.5, 1.0])
 
-def test_peak_fdr_preserves_input_fields_and_appends_one_column(tmp_path: Path):
+
+
+def test_peak_fdr_preserves_input_fields_and_appends_pvalue_and_fdr(tmp_path: Path):
     sample = tmp_path / "sample.bed"
     random = tmp_path / "random.bed"
     _write_bed(sample, [30, 24, 18, 12])
@@ -48,7 +55,8 @@ def test_peak_fdr_preserves_input_fields_and_appends_one_column(tmp_path: Path):
         line.split("\t") for line in result.annotated_path.read_text().splitlines()
     ]
     assert len(output_fields) == len(source_fields)
-    assert all(output[:-1] == source for output, source in zip(output_fields, source_fields))
+    assert all(output[:-2] == source for output, source in zip(output_fields, source_fields))
+    assert all(0 <= float(output[-2]) <= 1 for output in output_fields)
     assert all(0 <= float(output[-1]) <= 1 for output in output_fields)
     assert result.significant_path is not None
     assert result.summary_path.is_file()

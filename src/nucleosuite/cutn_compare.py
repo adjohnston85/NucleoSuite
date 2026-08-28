@@ -17,7 +17,7 @@ from scipy.stats import t as student_t
 
 from nucleosuite.bigwig_ops import (
     bigwig_chroms,
-    interval_positive_area,
+    interval_mean,
     open_bigwigs,
 )
 from nucleosuite.cutn_aggregate import (
@@ -28,7 +28,7 @@ from nucleosuite.cutn_aggregate import (
 
 MANIFEST_NAME = "cutn_stage1_manifest.json"
 MANIFEST_SCHEMA = "nucleosuite_cutn_stage1"
-MANIFEST_SCHEMA_VERSION = 5
+MANIFEST_SCHEMA_VERSION = 6
 
 
 @dataclass(frozen=True)
@@ -53,6 +53,7 @@ class Region:
     origin: str
     condition1_cluster_ids: tuple[str, ...] = ()
     condition2_cluster_ids: tuple[str, ...] = ()
+    measurement_intervals: tuple[tuple[int, int], ...] = ()
 
 
 def _manifest_path(value: str | Path) -> Path:
@@ -73,7 +74,7 @@ def load_stage1_manifest(value: str | Path) -> tuple[Path, dict[str, object]]:
     if payload.get("schema") != MANIFEST_SCHEMA:
         raise ValueError(f"Not a cutn-suite Stage 1 manifest: {path}")
     if int(payload.get("schema_version", -1)) not in {
-        1, 2, 3, 4, MANIFEST_SCHEMA_VERSION
+        1, 2, 3, 4, 5, MANIFEST_SCHEMA_VERSION
     }:
         raise ValueError(f"Unsupported Stage 1 manifest schema version: {path}")
     return path, payload
@@ -106,11 +107,9 @@ def _validate_compatibility(
         "score_track",
         "positive_track",
         "peak_discovery_track",
-        "peak_measurement_track",
         "target_mode",
         "control_mode",
         "contigs",
-        "stage1_statistics",
     ]
     if first.get("target_score_frag_lower") is not None or second.get(
         "target_score_frag_lower"
@@ -138,7 +137,7 @@ def _validate_compatibility(
     first_chroms = bigwig_chroms(first_track)
     second_chroms = bigwig_chroms(second_track)
     if first_chroms != second_chroms:
-        raise ValueError("Stage 1 scaled-coverage BigWigs have different chromosome definitions")
+        raise ValueError("Stage 1 coverage BigWigs have different chromosome definitions")
     return first_chroms
 
 
@@ -284,6 +283,28 @@ def _read_cluster_records(path: Path, *, condition: int) -> list[ClusterRecord]:
     return records
 
 
+def _merged_overlap_intervals(
+    first: Sequence[ClusterRecord], second: Sequence[ClusterRecord]
+) -> tuple[tuple[int, int], ...]:
+    overlaps: list[tuple[int, int]] = []
+    for left in first:
+        for right in second:
+            start = max(left.start, right.start)
+            end = min(left.end, right.end)
+            if start < end:
+                overlaps.append((start, end))
+    if not overlaps:
+        return ()
+    overlaps.sort()
+    merged: list[list[int]] = []
+    for start, end in overlaps:
+        if merged and start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return tuple((start, end) for start, end in merged)
+
+
 def _consensus_cluster_regions(
     first: Sequence[ClusterRecord],
     second: Sequence[ClusterRecord],
@@ -322,13 +343,16 @@ def _consensus_cluster_regions(
         end = min(chroms[chrom], max(record.end for record in component))
         if end <= start:
             continue
-        first_ids = tuple(
-            record.cluster_id for record in component if record.condition == 1
-        )
-        second_ids = tuple(
-            record.cluster_id for record in component if record.condition == 2
-        )
+        first_records = [record for record in component if record.condition == 1]
+        second_records = [record for record in component if record.condition == 2]
+        first_ids = tuple(record.cluster_id for record in first_records)
+        second_ids = tuple(record.cluster_id for record in second_records)
         support1, support2 = bool(first_ids), bool(second_ids)
+        measurement_intervals = (
+            _merged_overlap_intervals(first_records, second_records)
+            if support1 and support2
+            else ((start, end),)
+        )
         origin = (
             "overlap_union"
             if support1 and support2
@@ -350,6 +374,7 @@ def _consensus_cluster_regions(
                 origin=origin,
                 condition1_cluster_ids=first_ids,
                 condition2_cluster_ids=second_ids,
+                measurement_intervals=measurement_intervals or ((start, end),),
             )
         )
     output.sort(key=lambda value: (value.chrom, value.start, value.end))
@@ -534,7 +559,7 @@ def _write_union_anchor_bed(regions: Sequence[Region], output_path: Path) -> Pat
 
 
 def _group_tracks(manifest: dict[str, object]) -> tuple[list[Path], list[Path]]:
-    """Return independent treatment and control scaled-coverage tracks."""
+    """Return independent treatment and control raw-coverage tracks."""
 
     treatment_records = manifest.get("treatment_replicates")
     control_records = manifest.get("control_replicates")
@@ -547,7 +572,7 @@ def _group_tracks(manifest: dict[str, object]) -> tuple[list[Path], list[Path]]:
             for record in records:
                 if not isinstance(record, dict):
                     raise ValueError(f"Invalid {label} replicate record")
-                path = Path(str(record.get("scaled_coverage", ""))).resolve()
+                path = Path(str(record.get("coverage") or record.get("scaled_coverage", ""))).resolve()
                 if not path.is_file():
                     raise FileNotFoundError(path)
                 output.append(path)
@@ -790,16 +815,17 @@ def _compare_regions(
     rows: list[dict[str, object]] = []
     try:
         for region in regions:
-            measured = [
-                [
-                    max(
-                        float(statistic(handle, region.chrom, region.start, region.end)),
-                        0.0,
-                    )
-                    for handle in group
-                ]
-                for group in grouped_handles
-            ]
+            intervals = region.measurement_intervals or ((region.start, region.end),)
+            total_bp = sum(end - start for start, end in intervals)
+            def measure_handle(handle: object) -> float:
+                if total_bp <= 0:
+                    return 0.0
+                weighted = sum(
+                    float(statistic(handle, region.chrom, start, end)) * (end - start)
+                    for start, end in intervals
+                )
+                return max(weighted / total_bp, 0.0)
+            measured = [[measure_handle(handle) for handle in group] for group in grouped_handles]
             log_measured = [
                 [math.log2(value + 1.0) for value in group] for group in measured
             ]
@@ -927,7 +953,7 @@ def _compare_regions(
         ]
         table.write(
             "chromosome\tstart\tend\tsummit\tcondition1_stage1_support\t"
-            "condition2_stage1_support\tregion_origin\t"
+            "condition2_stage1_support\tregion_origin\tmeasurement_intervals\tmeasurement_bp\t"
             "condition1_cluster_count\tcondition2_cluster_count\t"
             "condition1_cluster_ids\tcondition2_cluster_ids\tstatistic\t"
             + "\t".join(replicate_columns)
@@ -970,6 +996,8 @@ def _compare_regions(
                 str(region.condition1_support).lower(),
                 str(region.condition2_support).lower(),
                 region.origin,
+                ";".join(f"{start}-{end}" for start, end in (region.measurement_intervals or ((region.start, region.end),))),
+                str(sum(end - start for start, end in (region.measurement_intervals or ((region.start, region.end),)))),
                 str(len(region.condition1_cluster_ids)),
                 str(len(region.condition2_cluster_ids)),
                 ";".join(region.condition1_cluster_ids),
@@ -1183,8 +1211,8 @@ def compare_stage1(
             cluster_regions,
             first,
             second,
-            statistic_name="cluster_positive_coverage_area",
-            statistic=interval_positive_area,
+            statistic_name="mean_raw_coverage_over_overlap",
+            statistic=interval_mean,
             output_path=output_dir / "differential_clusters.tsv",
             fdr=fdr,
         )
@@ -1207,7 +1235,7 @@ def compare_stage1(
                 "peak_discovery_track": first.get("peak_discovery_track"),
                 "measurement_track": first.get("peak_measurement_track"),
                 "statistical_model": "empirical_bayes_log2_factorial_interaction",
-                "coverage_transform": "log2(mean_scaled_coverage_plus_1)",
+                "coverage_transform": "log2(mean_raw_coverage_plus_1)",
                 "fdr": fdr,
                 "cluster_overlap": overlap,
                 "cluster_aligned_aggregates": aggregate_outputs,

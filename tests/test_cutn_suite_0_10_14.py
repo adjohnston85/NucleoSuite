@@ -19,10 +19,13 @@ def _record(i, *, mean_diff, all_gate, p):
     )
 
 
-def test_cutn_suite_0_10_14_public_defaults(tmp_path: Path):
+def test_cutn_suite_public_clustering_defaults(tmp_path: Path):
     t = tmp_path / "t.bam"; c = tmp_path / "c.bam"; t.touch(); c.touch()
     args = build_parser().parse_args(["--treatment1-bam", str(t), "--control1-bam", str(c), "--outdir", str(tmp_path/'out')])
-    assert args.stage1_gate_mode == "all-controls"
+    assert args.cluster_seed_mode == "auto"
+    assert args.cluster_seed_gate_mode == "auto"
+    assert args.stage1_gate_mode == "auto"
+    assert args.stage1_coverage_statistic == "mean"
     assert args.cluster_member_mode == "seed-and-gated"
     assert args.cluster_max_non_member_gap == 1
     assert args.min_cluster_members == 2
@@ -32,10 +35,10 @@ def test_cutn_suite_0_10_14_public_defaults(tmp_path: Path):
 
 def test_mean_gate_can_pass_when_all_controls_gate_fails():
     records = [_record(0, mean_diff=2.5, all_gate=False, p=0.01), _record(1, mean_diff=2.5, all_gate=False, p=0.2)]
-    clusters = cluster_seeded_gate_peaks(records, gate_mode="mean", member_mode="seed-and-gated")
+    clusters = cluster_seeded_gate_peaks(records, seed_gate_mode="mean", member_gate_mode="mean", member_mode="seed-and-gated")
     assert len(clusters) == 1
     assert clusters[0].score == pytest.approx(5.0)
-    assert cluster_seeded_gate_peaks(records, gate_mode="all-controls") == []
+    assert cluster_seeded_gate_peaks(records, seed_gate_mode="all-controls", member_gate_mode="all-controls") == []
 
 
 def test_significant_only_and_non_member_gap_split_clusters():
@@ -47,7 +50,7 @@ def test_significant_only_and_non_member_gap_split_clusters():
         _record(4, mean_diff=2, all_gate=True, p=0.01),  # S
     ]
     clusters = cluster_seeded_gate_peaks(
-        records, gate_mode="mean", member_mode="significant-only",
+        records, seed_gate_mode="mean", member_gate_mode="mean", member_mode="significant-only",
         maximum_non_member_gap=1, minimum_member_peaks=1,
     )
     assert len(clusters) == 2
@@ -147,7 +150,7 @@ def test_stage2_manifest_uses_selected_method_score_tracks(tmp_path: Path):
     assert resolved[2:] == ("bns", "posBNS")
 
 
-def test_stage1_statistics_and_seed_beds_append_raw_p_and_fdr(tmp_path: Path, monkeypatch):
+def test_stage1_statistics_and_seed_beds_append_raw_p(tmp_path: Path, monkeypatch):
     import nucleosuite.cutn_peaks as cp
 
     class Handle:
@@ -160,7 +163,7 @@ def test_stage1_statistics_and_seed_beds_append_raw_p_and_fdr(tmp_path: Path, mo
     target_bed.write_text("chr1\t100\t180\tpeak1\t8\t.\t140\t141\n", encoding="utf-8")
     handles = [Handle(120.0), Handle(122.0), Handle(50.0), Handle(52.0), Handle(121.0)]
     monkeypatch.setattr(cp, "open_bigwigs", lambda _paths: handles)
-    monkeypatch.setattr(cp, "interval_max", lambda handle, *_args: handle.score)
+    monkeypatch.setattr(cp, "interval_mean", lambda handle, *_args: handle.score)
 
     outputs = cp.analyze_cutn_replicate_peaks(
         target_bed,
@@ -171,12 +174,11 @@ def test_stage1_statistics_and_seed_beds_append_raw_p_and_fdr(tmp_path: Path, mo
         minimum_cluster_members=1,
     )
 
-    assert outputs["annotated_peaks"].name == "target_peaks_replicate_statistics_gate_all-controls.bed"
-    assert outputs["seed_peaks"].name == "target_seed_peaks_gate_all-controls_seed_p0.05.bed"
-    assert outputs["competition_table"].name == "target_peak_replicate_statistics_gate_all-controls.tsv"
+    assert outputs["annotated_peaks"].name == "target_peaks_replicate_statistics.bed"
+    assert outputs["seed_peaks"].name == "target_seed_peaks_S-pvalue-mean.bed"
+    assert outputs["competition_table"].name == "target_peak_replicate_statistics.tsv"
     annotated = outputs["annotated_peaks"].read_text().strip().split("\t")
     seed = outputs["seed_peaks"].read_text().strip().split("\t")
-    assert len(annotated) == 10
+    assert len(annotated) == 9
     assert seed == annotated
-    assert float(annotated[-2]) < 0.05
-    assert float(annotated[-1]) <= 0.05
+    assert float(annotated[-1]) < 0.05

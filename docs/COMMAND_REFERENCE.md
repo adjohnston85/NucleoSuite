@@ -24,8 +24,8 @@ Each command page describes the calculation, a typical invocation, analysis opti
 
 ## Analyse peaks and spacing
 
-- [`call-peaks`](commands/call-peaks.md) — call PNS or WPS features from an existing signal track.
-- [`pns-peak-fdr`](commands/pns-peak-fdr.md) — assign empirical FDR values using fragment-randomized PNS peaks.
+- [`call-peaks`](commands/call-peaks.md) — call nucleosome-score or WPS features from an existing signal track.
+- [`empirical-peak-fdr`](commands/empirical-peak-fdr.md) — compare observed peaks with fragment-randomized peak callsets and report empirical p-values and FDR.
 - [`filter-peaks`](commands/filter-peaks.md) — filter peak intervals by score, score percentile, region length, and/or BigWig coverage.
 - [`peak-score-frequency`](commands/peak-score-frequency.md) — compare peak-score distributions.
 - [`peak-states`](commands/peak-states.md) — count peaks and score-dependent enrichment across chromatin states.

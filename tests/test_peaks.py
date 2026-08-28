@@ -44,8 +44,10 @@ def test_wps_peak_caller_is_default():
     parser = build_parser()
     args = parser.parse_args(["wps", "-b", "sample.bam"])
     assert args.peak_caller == "wps"
-    assert args.protection == "auto"
-    assert args.mode_histogram_smoothing == "none"
+    assert args.protection == 120
+    assert (args.frag_lower, args.frag_upper) == (120, 180)
+    assert not hasattr(args, "mode")
+    assert not hasattr(args, "mode_histogram_smoothing")
 
 
 def test_call_peaks_method_specific_smoothing_defaults():

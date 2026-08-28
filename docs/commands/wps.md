@@ -10,7 +10,7 @@ Use WPS to compare complete-window protection with fragment termination at each 
 
 ## How it works
 
-Before WPS is calculated, the default `--mode auto` estimates the dominant accepted fragment length from an unsmoothed fragment-length histogram. The resolved mode becomes the centred protection-window width. This adapts the protected window to the library instead of assuming that every assay has the same modal protected length. Use an integer such as `--mode 120` to reproduce a fixed 120 bp L-WPS protection window.
+WPS uses a fixed centred protection window. The default protection width is **120 bp**, and the default accepted fragment range is **120–180 bp**. These values are independent of fragment-mode estimation.
 
 For each genomic window centre, one fragment contributes:
 
@@ -18,31 +18,35 @@ For each genomic window centre, one fragment contributes:
 - **−1** if a fragment endpoint lies inside the window; or
 - **0** if neither condition applies.
 
-Raw WPS is the sum of those fragment contributions. With a 120 bp protection window, a 120 bp fragment has one central +1 position; longer fragments have a wider +1 interior.
+Raw WPS is the sum of those fragment contributions. NucleoSuite can smooth raw WPS and subtract a 1,000 bp running-median baseline. The default peak caller uses the smoothed, median-centred `sm_mWPS` track.
 
-NucleoSuite can smooth raw WPS and subtract a 1,000 bp running-median baseline. The default peak caller uses the smoothed, median-centred track `sm_mWPS`.
-
-See [Windowed protection score](../ALGORITHMS.md#windowed-protection-score) for the kernel examples, exact preprocessing, and peak-calling steps.
+See [Windowed protection score](../ALGORITHMS.md#windowed-protection-score) for the exact kernel geometry and peak-calling steps.
 
 ## Basic usage
 
 ```bash
 nucleosuite wps \
   --bam sample.bam \
-  --frag-lower 120 \
-  --frag-upper 180 \
-  --score-format bigwig \
   --out-prefix sample_wps
 ```
 
-## Defaults
+The defaults used by this command are equivalent to:
 
-NucleoSuite's WPS implementation was written to reproduce the L-WPS algorithm used by [Snyder et al.](https://doi.org/10.1016/j.cell.2015.11.050). Signal preprocessing and peak-calling defaults follow that method, while the protection width now defaults to an automatically estimated fragment mode. Supply `--mode 120` for the original fixed 120 bp protection width.
+```bash
+nucleosuite wps \
+  --bam sample.bam \
+  --frag-lower 120 \
+  --frag-upper 180 \
+  --protection 120 \
+  --out-prefix sample_wps
+```
+
+## Core options
 
 | Setting | Default |
 |---|---:|
 | Fragment range | 120–180 bp |
-| Protection window | Automatically estimated fragment mode |
+| Protection window | 120 bp |
 | Savitzky–Golay window/order | 21 bp / 2 |
 | Running-median baseline | 1,000 bp |
 | Peak input | `sm_mWPS` |
@@ -51,27 +55,19 @@ NucleoSuite's WPS implementation was written to reproduce the L-WPS algorithm us
 | Positive-position merge gap | 5 bp |
 | Peak maximum cutoff | strictly greater than 5 |
 
-Automatic estimation uses raw integer histogram counts by default. Optional `--mode-histogram-smoothing binomial` applies the normalized `1,4,6,4,1` kernel. This option affects only fragment-mode estimation. It does not change the 21 bp Savitzky–Golay smoothing applied to the genomic WPS signal; use `--sg-window 0` to disable that separate signal-processing step.
-
-The resolved mode is printed and written to `*_fragment_mode_estimation.tsv` with its bootstrap interval, sampling counts, search range, convergence result, seed, smoothing setting, and histogram. Output filenames contain the resolved numeric protection length.
-
-## Peak calling
-
-The WPS caller:
-
-1. finds positive regions of the selected adjusted WPS signal;
-2. keeps the stronger, above-median parts of each region;
-3. selects one or more appropriately sized peak-like blocks;
-4. requires the retained block to exceed the WPS cutoff; and
-5. reports the retained block midpoint as the call centre.
-
-See [WPS peak calling](../ALGORITHMS.md#wps-peak-calling) for the exact segmentation and selection rules.
+Use `--protection` to change the protection-window width. `--frag-lower` and `--frag-upper` change the accepted fragment range. `--sg-window 0` disables Savitzky–Golay smoothing.
 
 ## Outputs
 
 WPS can write raw, smoothed, median-adjusted, and smoothed median-adjusted signals. It can also write coverage and dyad tracks, nucleosome and breakpoint calls, and fragment summaries.
 
 Use `--score-tracks` to choose signal outputs, `--peak-track` to choose the calling signal, and `--peak-caller none` to omit peak calling.
+
+## Related commands
+
+- [`nuc-score`](nuc-score.md) — SNS nucleosome scoring by default, with PNS/BNS/TNS alternatives.
+- [`call-peaks`](call-peaks.md) — call peaks from an existing score track.
+- [`tracks`](tracks.md) — generate several fragment-derived tracks in one pass.
 
 [Back to the command reference](../COMMAND_REFERENCE.md)
 

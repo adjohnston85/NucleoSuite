@@ -47,12 +47,12 @@ flowchart TB
     C --> D[Full randomized suite]
     B --> E[Observed combined peaks]
     D --> F[Randomized combined peaks]
-    E --> G[pns-peak-fdr]
+    E --> G[empirical-peak-fdr]
     F --> G
-    G --> H[All peaks plus empirical FDR]
+    G --> H[All peaks plus empirical p and FDR]
 ```
 
-Both coordinated suites accept `--with-randomized-control`. The randomized workflow uses the same filtering, track, scaling, and peak-calling settings. If `--fdr` is omitted, all observed combined peaks are retained with FDR appended; if it is supplied, an additional filtered BED is written.
+Both coordinated suites accept `--with-randomized-control`. The randomized workflow uses the same filtering, track, scaling, and peak-calling settings. All observed combined peaks are retained with empirical p-value and FDR appended. Supplying `--fdr` also writes an additional filtered BED.
 
 ### Nucleosome scoring followed by spacing analysis
 
@@ -494,8 +494,8 @@ flowchart LR
 
 The `cfdna-suite` and `mnase-suite` commands provide randomized-only workflow execution with `--randomize` and paired full execution with `--with-randomized-control`.
 
-When observed and randomized peak calls already exist, [`pns-peak-fdr`](commands/pns-peak-fdr.md) assigns monotonic empirical FDR values without positional matching:
+When observed and randomized peak calls already exist, [`empirical-peak-fdr`](commands/empirical-peak-fdr.md) reports pooled empirical p-values and monotonic empirical FDR values without positional matching:
 
 ```bash
-nucleosuite pns-peak-fdr observed_peaks.bed randomized_peaks.bed --fdr 0.05
+nucleosuite empirical-peak-fdr observed_peaks.bed randomized_peaks.bed --fdr 0.05
 ```

@@ -46,23 +46,24 @@ Forcing a one-to-one match would discard either B or C or make the result depend
 
 A condition-specific cluster is still measured in every BigWig from the other condition. Failure to call a cluster is not treated as proof of zero signal.
 
-### 3. Measure cluster enrichment in four replicate groups
+### 3. Measure cluster signal in four replicate groups
 
-Each Stage 1 coverage BigWig was independently scaled to a non-zero mean of 100. For every cluster locus $R$, `cutn-compare` sums only positive scaled coverage in each replicate:
+`cutn-compare` uses the retained **raw broad-coverage BigWigs**. When a comparison locus contains overlapping clusters from both conditions, the default measurement interval is the actual genomic intersection. A condition-specific locus is measured across its complete interval.
 
-```math
-A_i(R)=\sum_{x\in R}\max(Cov_{100,i}(x),0).
-```
-
-Positive area is used because a cluster is an extended domain: both signal magnitude and enriched span are relevant. The four independent replicate vectors are condition 1 treatment ($T_1$), condition 1 control ($C_1$), condition 2 treatment ($T_2$), and condition 2 control ($C_2$). Treatment and control files are not paired by command-line order and group sizes may differ.
-
-Each area is transformed as
+For the comparison interval set $O_R$, replicate $i$ contributes mean raw coverage:
 
 ```math
-Y=\log_2(A+1).
+M_i(R)=\frac{1}{\sum_{[a,b)\in O_R}(b-a)}
+\sum_{[a,b)\in O_R}\sum_{x=a}^{b-1}Cov_i(x).
 ```
 
-The logarithm makes multiplicative differences more comparable between weak and strong loci. The pseudocount permits loci with zero positive area.
+The four independent replicate vectors are condition 1 treatment ($T_1$), condition 1 control ($C_1$), condition 2 treatment ($T_2$), and condition 2 control ($C_2$). Treatment and control files are not paired by command-line order and group sizes may differ.
+
+Each mean is transformed as
+
+```math
+Y=\log_2(M+1).
+```
 
 ### 4. Test the treatment-by-condition interaction
 
@@ -111,13 +112,13 @@ U_k=\max(Y_{T_k})-\min(Y_{C_k}).
 - the percentage of each condition's occupied bases that overlaps; and
 - base-pair Jaccard percentage.
 
-These are descriptive summaries of the observed callsets. This build does not perform a genomic randomization test of whether overlap exceeds chance.
+These are descriptive summaries of the observed callsets and their genomic overlap.
 
 ### 7. Create matched cluster-centred method-specific score aggregates
 
 For each shared or condition-specific locus, the common anchor is the strongest coverage-scored member peak among all contributing Stage 1 clusters. Both conditions are aligned to the same ordered anchors, so heatmap rows refer to identical loci.
 
-Each treatment replicate's selected score was independently divided by the finite, non-zero mean of its matching positive-score track before averaging. SNS uses `posSNS`, PNS uses `posPNS`, BNS uses `posBNS`, and TNS uses `posTNS`. Scaling before averaging prevents a deeper replicate from determining the condition mean. The selected Stage 1 scoring method is reused for this positioning view; scaled coverage remains the statistical measurement.
+Each treatment replicate SNS track is divided by the finite, non-zero mean of its `posSNS` track before averaging. This prevents a higher-depth replicate from determining the condition-average discovery track. The saved Stage 1 discovery method is reused for the positioning view, while raw broad coverage supplies the Stage 2 statistical measurement.
 
 The matched outputs include condition-specific heatmaps with one common symmetric colour range, replicate and replicate-combined mean profiles, cluster-bootstrap 95% bands, and directional NRLs. Defaults are ±1,000 bp around the anchor, 140 bp peak resolution, central peak order 0 included, and regression through peak orders 0–3 with no central exclusion. Each Stage 1 directory also contains an own-cluster aggregate; the Stage 2 matched aggregate is intended for direct visual comparison between conditions.
 

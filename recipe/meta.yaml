@@ -1,5 +1,5 @@
 {% set name = "nucleosuite" %}
-{% set version = "0.11.1" %}
+{% set version = "0.11.2" %}
 
 package:
   name: {{ name|lower }}
@@ -62,7 +62,7 @@ test:
     - nucleosuite nrl --help
     - nucleosuite positive-runs --help
     - nucleosuite peak-score-frequency --help
-    - nucleosuite pns-peak-fdr --help
+    - nucleosuite empirical-peak-fdr --help
     - nucleosuite filter-peaks --help
     - nucleosuite plot --help
     - nucleosuite fragment-heatmap --help

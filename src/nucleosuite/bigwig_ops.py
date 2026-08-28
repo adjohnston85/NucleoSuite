@@ -32,6 +32,13 @@ def interval_max(handle, chrom: str, start: int, end: int) -> float:
     return float(np.max(values)) if values.size else 0.0
 
 
+def interval_mean(handle, chrom: str, start: int, end: int) -> float:
+    """Return the mean finite value in an interval, or zero when it is empty."""
+
+    values = _finite_values(handle, chrom, start, end)
+    return float(np.mean(values)) if values.size else 0.0
+
+
 def interval_positive_area(handle, chrom: str, start: int, end: int) -> float:
     """Return the base-wise area above zero in an interval."""
 

@@ -52,4 +52,4 @@ def test_paired_suite_annotates_combined_nucleosome_and_breakpoint_beds(tmp_path
     for result in outputs.values():
         rows = result.annotated_path.read_text().splitlines()
         assert len(rows) == 3
-        assert all(len(row.split("\t")) == 9 for row in rows)
+        assert all(len(row.split("\t")) == 10 for row in rows)

@@ -52,7 +52,7 @@ Analysis commands derive output filenames or prefixes from the primary input bas
 | Command | Function |
 |---|---|
 | [`call-peaks`](docs/commands/call-peaks.md) | Call nucleosome and breakpoint features from nucleosome-score or WPS BigWigs. |
-| [`pns-peak-fdr`](docs/commands/pns-peak-fdr.md) | Assign empirical FDR values to sample PNS peaks using fragment-randomized peaks. |
+| [`empirical-peak-fdr`](docs/commands/empirical-peak-fdr.md) | Compare observed peak scores with fragment-randomized peak callsets and report empirical p-values and FDR. |
 | [`filter-peaks`](docs/commands/filter-peaks.md) | Filter peak intervals by score, score percentile, region length, and/or BigWig coverage. |
 | [`peak-score-frequency`](docs/commands/peak-score-frequency.md) | Compare peak-score distributions. |
 | [`peak-states`](docs/commands/peak-states.md) | Measure peak abundance and score-dependent enrichment by chromatin state. |
@@ -104,7 +104,7 @@ nucleosuite nuc-score \
   --out-prefix sample
 ```
 
-Standalone `nuc-score` and `wps` estimate their protected-DNA mode automatically from the unsmoothed accepted-fragment histogram. The resolved estimate is printed and recorded; use an integer such as `--mode 167` to apply a fixed mode instead.
+Standalone `nuc-score` estimates its protected-DNA mode automatically from the unsmoothed accepted-fragment histogram. The resolved estimate is printed and recorded; use an integer such as `--mode 167` to apply a fixed mode instead. `wps` uses a fixed 120 bp protection window with 120–180 bp fragments by default.
 
 A minimal target/control CUT&RUN/CUT&Tag analysis is:
 

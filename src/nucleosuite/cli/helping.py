@@ -152,7 +152,7 @@ CORE_DESTINATIONS: dict[str, set[str]] = {
         "bins", "bin_width", "score_min", "score_max", "normalization", "plot_x_min", "plot_x_max",
         "log_y",
     },
-    "pns-peak-fdr": {
+    "empirical-peak-fdr": {
         "sample_peaks", "randomized_peaks", "score_column", "fdr",
         "output_prefix", "output",
     },
@@ -163,10 +163,10 @@ CORE_DESTINATIONS: dict[str, set[str]] = {
         "scoring_method", "mode", "mode_strategy", "frag_mode_padding",
         "score_frag_lower", "score_frag_upper", "coverage_frag_lower",
         "coverage_frag_upper", "blacklist_bed", "contigs", "cores",
-        "peak_min_region_length", "peak_max_neg_run", "stage1_p_value", "peak_fdr",
-        "stage1_gate_mode", "cluster_seed_p_value", "cluster_member_mode",
-        "cluster_max_non_member_gap", "max_cluster_gap", "min_cluster_members",
-        "cluster_fdr", "differential_fdr",
+        "peak_min_region_length", "peak_max_neg_run", "stage1_coverage_statistic",
+        "cluster_seed_mode", "cluster_seed_gate_mode", "stage1_gate_mode",
+        "cluster_seed_p_value", "cluster_member_mode", "cluster_max_non_member_gap",
+        "max_cluster_gap", "min_cluster_members", "differential_fdr",
     },
     "cutn-compare": {
         "condition1_results", "condition2_results", "outdir", "feature_level",

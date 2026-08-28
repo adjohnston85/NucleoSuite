@@ -385,41 +385,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="Savitzky-Golay polynomial order for treatment peak calling (default: 2).",
     )
     parser.add_argument(
-        "--stage1-p-value", type=float,
-        help=(
-            "Optional exploratory one-sided Stage 1 p-value cutoff. By default, "
-            "the selected treatment-control gate alone selects peaks."
-        ),
-    )
-    parser.add_argument(
-        "--peak-fdr", type=float,
-        help=(
-            "Optional Stage 1 peak FDR cutoff. No Stage 1 FDR cutoff is applied "
-            "by default."
-        ),
-    )
-    parser.add_argument(
-        "--cluster-fdr", type=float,
-        help=(
-            "Optional Stage 1 maximum-seed FDR cutoff. No cluster FDR "
-            "cutoff is applied by default."
-        ),
-    )
-    parser.add_argument(
         "--cluster-seed-p-value", type=float, default=0.05,
+        help="Raw one-sided p-value threshold for p-value cluster seeds (default: 0.05).",
+    )
+    parser.add_argument(
+        "--cluster-seed-mode", choices=("auto", "pvalue", "gated"), default="auto",
         help=(
-            "One-sided p-value required, together with the selected treatment-control gate, "
-            "for a treatment peak to seed a cluster (default: 0.05)."
+            "Cluster seed rule. auto chooses by replicate count; pvalue requires the raw "
+            "peak p-value plus the seed gate; gated uses the seed gate alone (default: auto)."
         ),
+    )
+    parser.add_argument(
+        "--cluster-seed-gate-mode", choices=("auto", "mean", "all-controls"), default="auto",
+        help=(
+            "Treatment-control gate applied to seed peaks independently of G members. "
+            "auto chooses by replicate count (default: auto)."
+        ),
+    )
+    parser.add_argument(
+        "--stage1-gate-mode", choices=("auto", "mean", "all-controls"), default="auto",
+        help=(
+            "Treatment-control gate for G cluster members. auto uses all-controls; "
+            "mean and all-controls are explicit overrides (default: auto)."
+        ),
+    )
+    parser.add_argument(
+        "--stage1-coverage-statistic", choices=("mean", "max"), default="mean",
+        help="Coverage statistic measured across each treatment peak interval (default: mean).",
     )
     parser.add_argument("--differential-fdr", type=float, default=0.05, help="Stage 2 differential FDR cutoff (default: 0.05).")
-    parser.add_argument(
-        "--stage1-gate-mode", choices=("mean", "all-controls"), default="all-controls",
-        help=(
-            "Treatment-control gate: all-controls requires every treatment replicate to "
-            "exceed every control replicate; mean compares group means (default: all-controls)."
-        ),
-    )
     parser.add_argument(
         "--cluster-member-mode", choices=("seed-and-gated", "significant-only"),
         default="seed-and-gated",
@@ -562,10 +556,7 @@ def _validate(args: argparse.Namespace) -> None:
     ):
         raise ValueError("Cluster aggregate NRL orders must satisfy 0 <= min <= max")
     for name in (
-        "stage1_p_value",
-        "peak_fdr",
         "cluster_seed_p_value",
-        "cluster_fdr",
         "differential_fdr",
     ):
         raw_value = getattr(args, name)
@@ -868,7 +859,7 @@ def _run_stage1(
     tracks_dir = outdir / "01_score_tracks"
     scaled_dir = outdir / "02_mean_scaled_tracks"
     peaks_dir = outdir / "03_peak_calls"
-    fdr_dir = outdir / "04_peak_fdr"
+    fdr_dir = outdir / "04_peak_statistics"
     aggregate_dir = outdir / "05_cluster_aggregate"
     setup_dir = outdir / "00_setup"
     for directory in (
@@ -1023,31 +1014,21 @@ def _run_stage1(
     reporter.stage(
         f"Testing {condition_name} treatment candidates across all scaled-coverage replicates"
     )
-    if args.bam_mode == "replicates" and (
-        len(target_scaled_coverage) < 3 or len(control_scaled_coverage) < 3
-    ):
-        gate_description = (
-            "every treatment replicate > every control replicate"
-            if args.stage1_gate_mode == "all-controls"
-            else "mean treatment > mean control"
-        )
-        print(
-            "WARNING: Stage 1 has fewer than three biological replicates in at "
-            "least one group; Welch p-values and FDR are exploratory. Peak "
-            f"selection uses the {args.stage1_gate_mode} gate ({gate_description}).",
-            file=sys.stderr,
-        )
+    cluster_rules = _resolve_cluster_rules(
+        args, target_scaled_coverage, control_scaled_coverage
+    )
     outputs = analyze_cutn_replicate_peaks(
         target_peaks,
         output_dir=fdr_dir,
         target_replicate_bigwigs=target_scaled_coverage,
         control_replicate_bigwigs=control_scaled_coverage,
         target_mean_bigwig=mean_target_coverage,
-        peak_pvalue=args.stage1_p_value,
-        peak_fdr=args.peak_fdr,
         cluster_seed_pvalue=args.cluster_seed_p_value,
-        cluster_fdr=args.cluster_fdr,
-        gate_mode=args.stage1_gate_mode,
+        seed_mode=str(cluster_rules["seed_mode"]),
+        seed_gate_mode=str(cluster_rules["seed_gate_mode"]),
+        member_gate_mode=str(cluster_rules["member_gate_mode"]),
+        compute_pvalues=bool(cluster_rules["compute_pvalues"]),
+        coverage_statistic=args.stage1_coverage_statistic,
         cluster_member_mode=args.cluster_member_mode,
         cluster_max_non_member_gap=args.cluster_max_non_member_gap,
         max_cluster_gap=args.max_cluster_gap,
@@ -1114,17 +1095,19 @@ def _run_stage1(
         "peak_max_neg_run": args.peak_max_neg_run,
         "peak_smooth_window": args.peak_smooth_window,
         "peak_smooth_order": args.peak_smooth_order,
-        "stage1_p_value": args.stage1_p_value,
-        "peak_fdr": args.peak_fdr,
         "cluster_seed_p_value": args.cluster_seed_p_value,
+        "cluster_seed_mode": str(cluster_rules["seed_mode"]),
+        "cluster_seed_gate_mode": str(cluster_rules["seed_gate_mode"]),
+        "stage1_gate_mode": str(cluster_rules["member_gate_mode"]),
+        "cluster_seed_mode_requested": args.cluster_seed_mode,
+        "cluster_seed_gate_mode_requested": args.cluster_seed_gate_mode,
+        "stage1_gate_mode_requested": args.stage1_gate_mode,
+        "stage1_coverage_statistic": args.stage1_coverage_statistic,
         "cluster_max_non_member_gap": args.cluster_max_non_member_gap,
         "max_cluster_gap": args.max_cluster_gap,
         "minimum_cluster_members": args.min_cluster_members,
-        "cluster_fdr": args.cluster_fdr,
-        "stage1_gate_mode": args.stage1_gate_mode,
         "cluster_member_mode": args.cluster_member_mode,
-        "stage1_selection": ("mean_treatment_exceeds_mean_control" if args.stage1_gate_mode == "mean" else "all_treatments_exceed_all_controls"),
-        "stage1_statistics": "exploratory_one_sided_welch_bh_all_candidates",
+        "stage1_statistics": ("one_sided_welch_raw_p" if cluster_rules["compute_pvalues"] else "gate_only"),
         "treatment_replicates": treatment_records,
         "control_replicates": control_records,
         "condition_mean_treatment_score": str(mean_target.resolve()),
@@ -1144,7 +1127,7 @@ def _run_stage1(
             "nrl_regression_exclusion": False,
         },
         "peak_discovery_track": score_track,
-        "peak_measurement_track": "coverage_divided_by_nonzero_mean_x100",
+        "peak_measurement_track": "raw_coverage",
         "target_candidate_peaks": str(target_peaks),
         "control_candidate_peaks": None,
         **{name: str(path.resolve()) for name, path in outputs.items()},
@@ -1200,10 +1183,11 @@ def _run_stage1(
         handle.write(f"peak_max_neg_run\t{args.peak_max_neg_run}\n")
         handle.write(f"peak_smooth_window\t{args.peak_smooth_window}\n")
         handle.write(f"peak_smooth_order\t{args.peak_smooth_order}\n")
-        handle.write(f"stage1_p_value\t{args.stage1_p_value}\n")
-        handle.write(f"peak_fdr\t{args.peak_fdr}\n")
         handle.write(f"cluster_seed_p_value\t{args.cluster_seed_p_value}\n")
-        handle.write(f"stage1_gate_mode\t{args.stage1_gate_mode}\n")
+        handle.write(f"cluster_seed_mode\t{cluster_rules['seed_mode']}\n")
+        handle.write(f"cluster_seed_gate_mode\t{cluster_rules['seed_gate_mode']}\n")
+        handle.write(f"stage1_gate_mode\t{cluster_rules['member_gate_mode']}\n")
+        handle.write(f"stage1_coverage_statistic\t{args.stage1_coverage_statistic}\n")
         handle.write(f"cluster_member_mode\t{args.cluster_member_mode}\n")
         handle.write(
             f"cluster_max_non_member_gap\t{args.cluster_max_non_member_gap}\n"
@@ -1212,7 +1196,6 @@ def _run_stage1(
         handle.write(
             f"minimum_cluster_members\t{args.min_cluster_members}\n"
         )
-        handle.write(f"cluster_fdr\t{args.cluster_fdr}\n")
         for name, path in outputs.items():
             handle.write(f"{name}\t{path}\n")
         handle.write(f"stage1_manifest\t{manifest_path}\n")
@@ -1485,11 +1468,11 @@ def _inherit_rerun_parameters(args: argparse.Namespace, manifest: dict[str, obje
         "peak_max_neg_run": ("--peak-max-neg-run", "peak_max_neg_run", 0),
         "peak_smooth_window": ("--peak-smooth-window", "peak_smooth_window", 0),
         "peak_smooth_order": ("--peak-smooth-order", "peak_smooth_order", 2),
-        "stage1_p_value": ("--stage1-p-value", "stage1_p_value", None),
-        "peak_fdr": ("--peak-fdr", "peak_fdr", None),
-        "cluster_fdr": ("--cluster-fdr", "cluster_fdr", None),
         "cluster_seed_p_value": ("--cluster-seed-p-value", "cluster_seed_p_value", 0.05),
-        "stage1_gate_mode": ("--stage1-gate-mode", "stage1_gate_mode", "all-controls"),
+        "cluster_seed_mode": ("--cluster-seed-mode", "cluster_seed_mode_requested", "auto"),
+        "cluster_seed_gate_mode": ("--cluster-seed-gate-mode", "cluster_seed_gate_mode_requested", "auto"),
+        "stage1_gate_mode": ("--stage1-gate-mode", "stage1_gate_mode_requested", "auto"),
+        "stage1_coverage_statistic": ("--stage1-coverage-statistic", "stage1_coverage_statistic", "mean"),
         "cluster_member_mode": ("--cluster-member-mode", "cluster_member_mode", "seed-and-gated"),
         "cluster_max_non_member_gap": ("--cluster-max-non-member-gap", "cluster_max_non_member_gap", 1),
         "max_cluster_gap": ("--max-cluster-gap", "max_cluster_gap", 1000),
@@ -1673,23 +1656,86 @@ def _next_rerun_directory(root: Path, exclusions: Sequence[str]) -> Path:
     return root / f"{base}_{number:02d}"
 
 
-def _warn_small_replicate_groups(
-    args: argparse.Namespace, target_scaled_coverage: Sequence[Path], control_scaled_coverage: Sequence[Path]
-) -> None:
-    if args.bam_mode == "replicates" and (
-        len(target_scaled_coverage) < 3 or len(control_scaled_coverage) < 3
-    ):
-        gate_description = (
-            "every treatment replicate > every control replicate"
-            if args.stage1_gate_mode == "all-controls"
-            else "mean treatment > mean control"
+def _resolve_cluster_rules(
+    args: argparse.Namespace,
+    target_replicates: Sequence[Path],
+    control_replicates: Sequence[Path],
+    *,
+    announce: bool = True,
+) -> dict[str, object]:
+    """Resolve automatic S/G clustering rules from biological replicate counts."""
+
+    nt, nc = len(target_replicates), len(control_replicates)
+    both_three = args.bam_mode == "replicates" and nt >= 3 and nc >= 3
+    default_seed_mode = "pvalue" if both_three else "gated"
+    default_seed_gate = "mean" if both_three else "all-controls"
+    default_member_gate = "all-controls"
+
+    seed_mode = default_seed_mode if args.cluster_seed_mode == "auto" else args.cluster_seed_mode
+    seed_gate = default_seed_gate if args.cluster_seed_gate_mode == "auto" else args.cluster_seed_gate_mode
+    member_gate = default_member_gate if args.stage1_gate_mode == "auto" else args.stage1_gate_mode
+    compute_pvalues = seed_mode == "pvalue"
+    if compute_pvalues and (nt < 2 or nc < 2):
+        raise ValueError(
+            "--cluster-seed-mode pvalue requires at least two treatment and two control replicates"
+        )
+
+    supplied = getattr(args, "_explicit_options", set())
+    automatic = not any(
+        flag in supplied
+        for flag in (
+            "--cluster-seed-mode",
+            "--cluster-seed-gate-mode",
+            "--stage1-gate-mode",
+        )
+    )
+    if announce and automatic:
+        print("[cutn-suite] Automatic clustering defaults selected:", file=sys.stderr)
+        if both_three:
+            print(
+                "[cutn-suite] Treatment and control each have at least 3 replicates.",
+                file=sys.stderr,
+            )
+            print(
+                f"[cutn-suite] Seed rule (S): raw p < {args.cluster_seed_p_value:g} AND mean treatment > mean control.",
+                file=sys.stderr,
+            )
+            print(
+                "[cutn-suite] Member rule (G): all treatment replicates > all control replicates.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "[cutn-suite] One or both groups have fewer than 3 replicates.",
+                file=sys.stderr,
+            )
+            print(
+                "[cutn-suite] Seed rule (S): all treatment replicates > all control replicates.",
+                file=sys.stderr,
+            )
+            print(
+                "[cutn-suite] Member rule (G): all treatment replicates > all control replicates.",
+                file=sys.stderr,
+            )
+            print(
+                "[cutn-suite] Peak p-values are not used because replicate counts are insufficient for the default statistical seed rule.",
+                file=sys.stderr,
+            )
+    elif announce:
+        seed_text = (
+            f"raw p < {args.cluster_seed_p_value:g} + {seed_gate} gate"
+            if seed_mode == "pvalue" else f"{seed_gate} gate"
         )
         print(
-            "WARNING: Stage 1 has fewer than three biological replicates in at "
-            "least one group; Welch p-values and FDR are exploratory. Peak "
-            f"selection uses the {args.stage1_gate_mode} gate ({gate_description}).",
+            f"[cutn-suite] Clustering rules: S={seed_text}; G={member_gate} gate.",
             file=sys.stderr,
         )
+    return {
+        "seed_mode": seed_mode,
+        "seed_gate_mode": seed_gate,
+        "member_gate_mode": member_gate,
+        "compute_pvalues": compute_pvalues,
+    }
 
 
 def _run_stage1_reuse(
@@ -1709,7 +1755,7 @@ def _run_stage1_reuse(
 
     scaled_dir = outdir / "02_mean_scaled_tracks"
     peaks_dir = outdir / "03_peak_calls"
-    fdr_dir = outdir / "04_peak_fdr"
+    fdr_dir = outdir / "04_peak_statistics"
     aggregate_dir = outdir / "05_cluster_aggregate"
     setup_dir = outdir / "00_setup"
     for directory in (scaled_dir, peaks_dir, fdr_dir, aggregate_dir, setup_dir):
@@ -1767,18 +1813,21 @@ def _run_stage1_reuse(
     reporter.stage(
         f"Retesting {condition_name} treatment candidates across retained coverage replicates"
     )
-    _warn_small_replicate_groups(args, target_scaled_coverage, control_scaled_coverage)
+    cluster_rules = _resolve_cluster_rules(
+        args, target_scaled_coverage, control_scaled_coverage
+    )
     outputs = analyze_cutn_replicate_peaks(
         target_peaks,
         output_dir=fdr_dir,
         target_replicate_bigwigs=target_scaled_coverage,
         control_replicate_bigwigs=control_scaled_coverage,
         target_mean_bigwig=mean_target_coverage,
-        peak_pvalue=args.stage1_p_value,
-        peak_fdr=args.peak_fdr,
         cluster_seed_pvalue=args.cluster_seed_p_value,
-        cluster_fdr=args.cluster_fdr,
-        gate_mode=args.stage1_gate_mode,
+        seed_mode=str(cluster_rules["seed_mode"]),
+        seed_gate_mode=str(cluster_rules["seed_gate_mode"]),
+        member_gate_mode=str(cluster_rules["member_gate_mode"]),
+        compute_pvalues=bool(cluster_rules["compute_pvalues"]),
+        coverage_statistic=args.stage1_coverage_statistic,
         cluster_member_mode=args.cluster_member_mode,
         cluster_max_non_member_gap=args.cluster_max_non_member_gap,
         max_cluster_gap=args.max_cluster_gap,
@@ -1823,20 +1872,16 @@ def _run_stage1_reuse(
             "peak_max_neg_run": args.peak_max_neg_run,
             "peak_smooth_window": args.peak_smooth_window,
             "peak_smooth_order": args.peak_smooth_order,
-            "stage1_p_value": args.stage1_p_value,
-            "peak_fdr": args.peak_fdr,
             "cluster_seed_p_value": args.cluster_seed_p_value,
+            "cluster_seed_mode": str(cluster_rules["seed_mode"]),
+            "cluster_seed_gate_mode": str(cluster_rules["seed_gate_mode"]),
+            "stage1_gate_mode": str(cluster_rules["member_gate_mode"]),
+            "stage1_coverage_statistic": args.stage1_coverage_statistic,
             "cluster_max_non_member_gap": args.cluster_max_non_member_gap,
             "max_cluster_gap": args.max_cluster_gap,
             "minimum_cluster_members": args.min_cluster_members,
-            "cluster_fdr": args.cluster_fdr,
-            "stage1_gate_mode": args.stage1_gate_mode,
             "cluster_member_mode": args.cluster_member_mode,
-            "stage1_selection": (
-                "mean_treatment_exceeds_mean_control"
-                if args.stage1_gate_mode == "mean"
-                else "all_treatments_exceed_all_controls"
-            ),
+            "stage1_statistics": ("one_sided_welch_raw_p" if cluster_rules["compute_pvalues"] else "gate_only"),
             "treatment_replicates": treatment_records,
             "control_replicates": control_records,
             "condition_mean_treatment_score": str(Path(mean_target).resolve()),
@@ -1876,7 +1921,10 @@ def _run_stage1_reuse(
         handle.write(f"peak_max_neg_run\t{args.peak_max_neg_run}\n")
         handle.write(f"peak_smooth_window\t{args.peak_smooth_window}\n")
         handle.write(f"peak_smooth_order\t{args.peak_smooth_order}\n")
-        handle.write(f"stage1_gate_mode\t{args.stage1_gate_mode}\n")
+        handle.write(f"cluster_seed_mode\t{cluster_rules['seed_mode']}\n")
+        handle.write(f"cluster_seed_gate_mode\t{cluster_rules['seed_gate_mode']}\n")
+        handle.write(f"stage1_gate_mode\t{cluster_rules['member_gate_mode']}\n")
+        handle.write(f"stage1_coverage_statistic\t{args.stage1_coverage_statistic}\n")
         handle.write(f"cluster_member_mode\t{args.cluster_member_mode}\n")
         handle.write(f"cluster_seed_p_value\t{args.cluster_seed_p_value}\n")
         handle.write(f"cluster_max_non_member_gap\t{args.cluster_max_non_member_gap}\n")
@@ -1954,11 +2002,11 @@ def _write_run_manifest(
             "peak_max_neg_run": args.peak_max_neg_run,
             "peak_smooth_window": args.peak_smooth_window,
             "peak_smooth_order": args.peak_smooth_order,
-            "stage1_p_value": args.stage1_p_value,
-            "peak_fdr": args.peak_fdr,
-            "cluster_fdr": args.cluster_fdr,
             "cluster_seed_p_value": args.cluster_seed_p_value,
+            "cluster_seed_mode": args.cluster_seed_mode,
+            "cluster_seed_gate_mode": args.cluster_seed_gate_mode,
             "stage1_gate_mode": args.stage1_gate_mode,
+            "stage1_coverage_statistic": args.stage1_coverage_statistic,
             "cluster_member_mode": args.cluster_member_mode,
             "cluster_max_non_member_gap": args.cluster_max_non_member_gap,
             "max_cluster_gap": args.max_cluster_gap,
@@ -2103,7 +2151,7 @@ def run(args: argparse.Namespace) -> int:
             f"{args.coverage_frag_upper}"
         )
         print(
-            f"stages\tstage1-treatment-candidates-{args.stage1_gate_mode}-gate"
+            "stages\tstage1-treatment-candidates-and-seeded-clusters"
             + (",stage2-log2-moderated-four-group-interaction-bh" if has_second else "")
         )
         return 0

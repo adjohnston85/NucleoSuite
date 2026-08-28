@@ -89,6 +89,39 @@ def _read_peak_rows(
     return rows
 
 
+def empirical_peak_pvalues(
+    sample_scores: Sequence[float] | np.ndarray,
+    randomized_score_sets: Sequence[Sequence[float] | np.ndarray],
+) -> np.ndarray:
+    """Return pooled empirical upper-tail p-values for observed peak scores.
+
+    The randomized callsets are pooled as positional-null peak scores. For an
+    observed score ``s``, the p-value is ``(1 + R(score >= s)) / (1 + N_R)``.
+    The +1 pseudocount prevents a zero p-value when an observed score exceeds
+    every randomized peak.
+    """
+
+    observed = np.asarray(sample_scores, dtype=np.float64)
+    if observed.ndim != 1 or observed.size == 0:
+        raise ValueError("sample_scores must be a non-empty one-dimensional array")
+    if not np.all(np.isfinite(observed)) or np.any(observed < 0):
+        raise ValueError("sample_scores must contain finite non-negative values")
+    if not randomized_score_sets:
+        raise ValueError("At least one randomized peak score set is required")
+    random_arrays = [np.asarray(values, dtype=np.float64) for values in randomized_score_sets]
+    for values in random_arrays:
+        if values.ndim != 1:
+            raise ValueError("Randomized peak scores must be one-dimensional")
+        if not np.all(np.isfinite(values)) or np.any(values < 0):
+            raise ValueError("Randomized peak scores must be finite and non-negative")
+    pooled = np.concatenate(random_arrays) if random_arrays else np.empty(0, dtype=np.float64)
+    if pooled.size == 0:
+        return np.ones(observed.size, dtype=np.float64)
+    pooled.sort()
+    counts = pooled.size - np.searchsorted(pooled, observed, side="left")
+    return (1.0 + counts.astype(np.float64)) / (1.0 + float(pooled.size))
+
+
 def empirical_peak_qvalues(
     sample_scores: Sequence[float] | np.ndarray,
     randomized_score_sets: Sequence[Sequence[float] | np.ndarray],
@@ -159,8 +192,8 @@ def _open_output(path: Path) -> TextIO:
 
 def _default_annotated_path(sample_path: Path, output_prefix: str | Path | None) -> Path:
     if output_prefix is not None:
-        return Path(f"{output_prefix}_pns_peak_fdr.bed")
-    return sample_path.with_name(f"{_strip_bed_suffix(sample_path)}_pns_peak_fdr.bed")
+        return Path(f"{output_prefix}_empirical_peak_fdr.bed")
+    return sample_path.with_name(f"{_strip_bed_suffix(sample_path)}_empirical_peak_fdr.bed")
 
 
 def annotate_peak_fdr(
@@ -172,7 +205,7 @@ def annotate_peak_fdr(
     output_prefix: str | Path | None = None,
     output_path: str | Path | None = None,
 ) -> PeakFdrResult:
-    """Append empirical FDR to every observed BED record and optionally filter."""
+    """Append empirical p-value and FDR to every observed BED record and optionally filter."""
 
     if fdr_threshold is not None and (
         not math.isfinite(fdr_threshold) or not 0.0 <= fdr_threshold <= 1.0
@@ -181,7 +214,7 @@ def annotate_peak_fdr(
     if not randomized_peaks:
         raise ValueError("At least one randomized peak BED is required")
 
-    reporter = ProgressReporter("pns-peak-fdr")
+    reporter = ProgressReporter("empirical-peak-fdr")
     reporter.stage("Reading observed peaks")
     observed_rows = _read_peak_rows(sample_peaks, score_column, allow_empty=True)
     random_rows: list[list[PeakRow]] = []
@@ -190,21 +223,26 @@ def annotate_peak_fdr(
         random_rows.append(_read_peak_rows(path, score_column, allow_empty=True))
 
     if observed_rows:
+        observed_scores = [row.score for row in observed_rows]
+        randomized_scores = [[row.score for row in rows] for rows in random_rows]
+        pvalues = empirical_peak_pvalues(observed_scores, randomized_scores)
         qvalues, _sample_counts, _mean_random_counts = empirical_peak_qvalues(
-            [row.score for row in observed_rows],
-            [[row.score for row in rows] for rows in random_rows],
+            observed_scores, randomized_scores
         )
     else:
+        pvalues = np.empty(0, dtype=np.float64)
         qvalues = np.empty(0, dtype=np.float64)
     annotated = (
         Path(output_path)
         if output_path is not None
         else _default_annotated_path(Path(sample_peaks), output_prefix)
     )
-    reporter.stage("Writing observed peaks with empirical FDR")
+    reporter.stage("Writing observed peaks with empirical p-values and FDR")
     with _open_output(annotated) as handle:
-        for row, qvalue in zip(observed_rows, qvalues):
-            handle.write("\t".join((*row.fields, f"{qvalue:.12g}")) + "\n")
+        for row, pvalue, qvalue in zip(observed_rows, pvalues, qvalues):
+            handle.write(
+                "\t".join((*row.fields, f"{pvalue:.12g}", f"{qvalue:.12g}")) + "\n"
+            )
 
     significant_path: Path | None = None
     significant_count: int | None = None
@@ -219,9 +257,11 @@ def annotate_peak_fdr(
             f"{base}_fdr{compact_parameter(fdr_threshold)}_significant.bed"
         )
         with _open_output(significant_path) as handle:
-            for row, qvalue in zip(observed_rows, qvalues):
+            for row, pvalue, qvalue in zip(observed_rows, pvalues, qvalues):
                 if qvalue <= fdr_threshold:
-                    handle.write("\t".join((*row.fields, f"{qvalue:.12g}")) + "\n")
+                    handle.write(
+                        "\t".join((*row.fields, f"{pvalue:.12g}", f"{qvalue:.12g}")) + "\n"
+                    )
 
     summary_path = annotated.with_name(
         f"{_strip_bed_suffix(annotated)}_summary.tsv"
@@ -255,10 +295,10 @@ def annotate_peak_fdr(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="nucleosuite pns-peak-fdr",
+        prog="nucleosuite empirical-peak-fdr",
         description=(
-            "Assign empirical FDR values to observed PNS peaks using one or more "
-            "fragment-randomized PNS peak callsets as positional null controls."
+            "Assign empirical p-values and FDR values to observed peaks using one or more "
+            "fragment-randomized peak callsets as positional null controls."
         ),
     )
     parser.add_argument("sample_peaks", help="Observed sample peak BED/BED.gz/bigBed.")
@@ -273,8 +313,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--fdr", type=float,
         help=(
-            "Optional FDR cutoff. Every peak is always written with its FDR; when "
-            "set, an additional filtered BED is written."
+            "Optional FDR cutoff. Every peak is always written with its empirical "
+            "p-value and FDR; when set, an additional filtered BED is written."
         ),
     )
     parser.add_argument(

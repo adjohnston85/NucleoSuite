@@ -9,7 +9,7 @@ Use [`fragments`](commands/fragments.md) if you first want an explicit fragment 
 For nucleosome-oriented signal:
 
 - [`nuc-score`](commands/nuc-score.md) — score positions with the default length-adaptive sinusoidal kernel (SNS), endpoint probability triangles (PNS), a balanced central boxcar (BNS), or a centred unit-mass triangle (TNS).
-- [`wps`](commands/wps.md) — score whether fragments protect a mode-sized window or terminate inside it; the mode is estimated automatically unless fixed explicitly.
+- [`wps`](commands/wps.md) — calculate L-WPS with a 120 bp protection window and 120–180 bp fragments by default.
 - [`dyads`](commands/dyads.md) — place signal at fragment centres.
 - [`coverage`](commands/coverage.md) — count how many fragments cover each base.
 - [`fragment-ends`](commands/fragment-ends.md) — count fragment starts and ends.
@@ -19,7 +19,7 @@ For a coordinated analysis with standard defaults, use [`cfdna-suite`](commands/
 For a CUT&RUN or CUT&Tag treatment plus control, use [`cutn-suite`](commands/cutn-suite.md). It uses SNS for nucleosome-aware peak discovery by default, measures target/control support from coverage, and can compare two completed conditions. PNS, BNS and TNS remain selectable alternatives.
 
 
-Use [`cutn-compare`](commands/cutn-compare.md) when two conditions already have completed Stage 1 manifests. It compares overlap-connected cluster loci from saved scaled-coverage BigWigs, produces matched cluster-centred aggregates using the saved Stage 1 scoring method, and does not read the BAMs again.
+Use [`cutn-compare`](commands/cutn-compare.md) when two conditions already have completed Stage 1 manifests. It compares overlap-connected cluster loci using the saved raw coverage tracks, produces matched cluster-centred aggregates using the saved Stage 1 scoring method, and does not read the BAMs again.
 
 ## I already have nucleosome or other peak calls
 
@@ -27,7 +27,7 @@ Use [`mean-scale`](commands/mean-scale.md) when BigWig signal or BED-family scor
 
 Use [`filter-peaks`](commands/filter-peaks.md) to create a reusable peak subset by score, score percentile, interval length, BigWig coverage, or combinations of these filters. Use [`peak-score-frequency`](commands/peak-score-frequency.md) to compare peak-score distributions and [`peak-states`](commands/peak-states.md) to measure how peaks are distributed across chromatin states.
 
-Use [`pns-peak-fdr`](commands/pns-peak-fdr.md) when an observed PNS peak BED and one or more identically processed fragment-randomized peak BEDs are available. It preserves every observed BED field and appends empirical FDR. An optional `--fdr` cutoff adds a filtered BED without replacing the complete annotated output.
+Use [`empirical-peak-fdr`](commands/empirical-peak-fdr.md) when an observed peak BED and one or more identically processed fragment-randomized peak BEDs are available. It preserves every observed BED field and appends empirical p-value and FDR. An optional `--fdr` cutoff adds a filtered BED without replacing the complete annotated output.
 
 Use [`compare-positions`](commands/compare-positions.md) when one main nucleosome callset should be compared with one or more other callsets using one-to-one positional matching, main-score percentile groups, and optional within-percentile statistics.
 

@@ -1119,7 +1119,7 @@ queue_memory_step() {
 
 run_step "00_cli_registry" "$SETUP_DIR/${SUPPORT_PREFIX}nucleosuite_version.txt" bash -c '
 set -euo pipefail; bin="$1"; out="$2"; "$bin" --version | tee "$out"
-for cmd in tracks nuc-score coverage dyads fragment-ends dinuc-profile ww-types call-peaks pns-peak-fdr fragments randomize-fragments merge-bams fragment-lengths fragment-heatmap gene-sets gene-expression tss-expression-quintiles aggregate dac nrl plot positive-runs peak-score-frequency distances region-extract resources validate-inputs mnase-suite cutn-suite cutn-compare; do "$bin" "$cmd" --help >/dev/null; done
+for cmd in tracks nuc-score coverage dyads fragment-ends dinuc-profile ww-types call-peaks empirical-peak-fdr fragments randomize-fragments merge-bams fragment-lengths fragment-heatmap gene-sets gene-expression tss-expression-quintiles aggregate dac nrl plot positive-runs peak-score-frequency distances region-extract resources validate-inputs mnase-suite cutn-suite cutn-compare; do "$bin" "$cmd" --help >/dev/null; done
 ' _ "$NUCLEOSUITE_BIN" "$SETUP_DIR/${SUPPORT_PREFIX}nucleosuite_version.txt"
 
 run_step "00_python_dependencies" "$SETUP_DIR/${SUPPORT_PREFIX}python_dependencies.txt" "$PYTHON_BIN" - "$SETUP_DIR/${SUPPORT_PREFIX}python_dependencies.txt" <<'PY'

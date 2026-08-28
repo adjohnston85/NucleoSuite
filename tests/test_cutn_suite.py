@@ -2,9 +2,10 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-import pyBigWig
 import numpy as np
 import pytest
+
+pyBigWig = pytest.importorskip("pyBigWig")
 
 from nucleosuite.cutn_compare import (
     _moderated_interaction_statistics,
@@ -14,13 +15,8 @@ from nucleosuite.cutn_aggregate import run_cluster_aggregate
 from nucleosuite.cutn_peaks import (
     CompetitivePeak,
     ReplicatePeakStatistics,
-    analyze_cutn_peaks,
     analyze_cutn_replicate_peaks,
-    assign_competition_qvalues,
     cluster_seeded_gate_peaks,
-    compete_peaks,
-    compete_peaks_all_controls,
-    compete_peaks_with_bigwigs,
 )
 from nucleosuite.cutn_suite import (
     _estimate_modes,
@@ -102,10 +98,11 @@ def test_cutn_suite_defaults_to_sns_auto_mode_scoring_flank_and_coverage_range(
     assert args.mode_strategy == "pooled"
     assert args.bam_mode == "replicates"
     assert args.mode_histogram_smoothing == "none"
-    assert args.peak_fdr is None
-    assert args.cluster_fdr is None
     assert args.cluster_seed_p_value == 0.05
-    assert args.stage1_gate_mode == "all-controls"
+    assert args.cluster_seed_mode == "auto"
+    assert args.cluster_seed_gate_mode == "auto"
+    assert args.stage1_gate_mode == "auto"
+    assert args.stage1_coverage_statistic == "mean"
     assert args.cluster_max_non_member_gap == 1
     assert args.min_cluster_members == 2
     assert args.cluster_aggregate_nrl_resolution == 130
@@ -387,40 +384,8 @@ def test_cutn_suite_prefers_existing_serial_outputs(tmp_path: Path):
     assert located == direct
 
 
-def test_target_control_peak_competition_uses_control_for_ties():
-    target, control = compete_peaks(
-        [_row(100, 8), _row(300, 10, 2)],
-        [_row(102, 8), _row(700, 9, 2)],
-        match_distance=84,
-    )
-    assert target[0].winner is False
-    assert control[0].winner is True
-    assert target[1].winner is True
-    assert control[1].winner is True
-    annotated, _ = assign_competition_qvalues(target, control)
-    assert annotated[0].qvalue == 1.0
-    assert 0 <= annotated[1].qvalue <= 1
 
 
-def test_cutn_peak_outputs_preserve_target_bed_and_append_fdr(tmp_path: Path):
-    target = tmp_path / "target.bed"
-    control = tmp_path / "control.bed"
-    target.write_text(
-        "chr1\t100\t180\tt1\t20\t.\t140\t141\n"
-        "chr1\t280\t360\tt2\t18\t.\t320\t321\n",
-        encoding="utf-8",
-    )
-    control.write_text(
-        "chr1\t500\t580\tc1\t5\t.\t540\t541\n",
-        encoding="utf-8",
-    )
-    outputs = analyze_cutn_peaks(
-        target, control, output_dir=tmp_path / "out", peak_fdr=1.0, cluster_fdr=1.0
-    )
-    rows = outputs["annotated_peaks"].read_text().splitlines()
-    assert len(rows) == 2
-    assert all(len(row.split("\t")) == 9 for row in rows)
-    assert outputs["cluster_table"].is_file()
 
 
 def _write_bigwig(path: Path, values: list[float]) -> None:
@@ -430,117 +395,15 @@ def _write_bigwig(path: Path, values: list[float]) -> None:
     handle.close()
 
 
-def test_stage1_uses_control_bigwig_max_inside_target_interval(tmp_path: Path):
-    target_bw = tmp_path / "target.bw"
-    control_bw = tmp_path / "control.bw"
-    target_values = [0.0] * 300
-    control_values = [0.0] * 300
-    target_values[100:180] = [8.0] * 80
-    control_values[150] = 10.0
-    _write_bigwig(target_bw, target_values)
-    _write_bigwig(control_bw, control_values)
-    target, _control = compete_peaks_with_bigwigs(
-        [_row(100, 8.0)],
-        [],
-        target_bigwig=target_bw,
-        control_bigwig=control_bw,
-    )
-    assert target[0].winner is False
-    assert target[0].matched_score == 10.0
-    assert target[0].competition_score == 0.0
 
 
-def test_stage1_bed_score_is_scaled_coverage_max(tmp_path: Path):
-    target_bed = tmp_path / "target.bed"
-    control_bed = tmp_path / "control.bed"
-    target_bed.write_text(
-        "chr1\t100\t180\tt1\t8\t.\t140\t141\n", encoding="utf-8"
-    )
-    control_bed.write_text("", encoding="utf-8")
-    target_bw = tmp_path / "target_coverage_scaled.bw"
-    control_bw = tmp_path / "control_coverage_scaled.bw"
-    target_values = [0.0] * 300
-    control_values = [0.0] * 300
-    target_values[150] = 275.0
-    control_values[150] = 25.0
-    _write_bigwig(target_bw, target_values)
-    _write_bigwig(control_bw, control_values)
-    outputs = analyze_cutn_peaks(
-        target_bed,
-        control_bed,
-        output_dir=tmp_path / "out",
-        peak_fdr=1.0,
-        cluster_fdr=1.0,
-        target_bigwig=target_bw,
-        control_bigwig=control_bw,
-    )
-    fields = outputs["annotated_peaks"].read_text().strip().split("\t")
-    assert fields[4] == "275"
-    assert len(fields) == 9
 
 
-def test_stage1_all_controls_requires_every_treatment_to_exceed_every_control(
-    tmp_path: Path,
-):
-    treatment_paths = [tmp_path / "treatment1.bw", tmp_path / "treatment2.bw"]
-    control_paths = [tmp_path / "control1.bw", tmp_path / "control2.bw"]
-    treatment_values = [[0.0] * 300 for _ in treatment_paths]
-    control_values = [[0.0] * 300 for _ in control_paths]
-    treatment_values[0][100:180] = [140.0] * 80
-    treatment_values[1][100:180] = [90.0] * 80
-    control_values[0][100:180] = [80.0] * 80
-    control_values[1][100:180] = [100.0] * 80
-    for path, values in zip(treatment_paths, treatment_values):
-        _write_bigwig(path, values)
-    for path, values in zip(control_paths, control_values):
-        _write_bigwig(path, values)
-    treatment_mean = tmp_path / "treatment_mean.bw"
-    control_mean = tmp_path / "control_mean.bw"
-    _write_bigwig(treatment_mean, [115.0 if 100 <= i < 180 else 0.0 for i in range(300)])
-    _write_bigwig(control_mean, [90.0 if 100 <= i < 180 else 0.0 for i in range(300)])
-
-    target, _control = compete_peaks_all_controls(
-        [_row(100, 8.0)],
-        [],
-        target_bigwigs=treatment_paths,
-        control_bigwigs=control_paths,
-        target_mean_bigwig=treatment_mean,
-        control_mean_bigwig=control_mean,
-    )
-
-    assert target[0].winner is False
-    assert target[0].signal_score == 115.0
-    assert target[0].matched_score == 100.0
-    assert target[0].competition_score == 0.0
-    assert target[0].treatment_replicate_scores == (140.0, 90.0)
-    assert target[0].control_replicate_scores == (80.0, 100.0)
 
 
-def test_stage1_all_controls_accepts_peak_when_minimum_treatment_exceeds_maximum_control(
-    tmp_path: Path,
-):
-    paths = [tmp_path / f"track{index}.bw" for index in range(6)]
-    scores = [140.0, 110.0, 80.0, 100.0, 125.0, 90.0]
-    for path, score in zip(paths, scores):
-        _write_bigwig(
-            path,
-            [score if 100 <= index < 180 else 0.0 for index in range(300)],
-        )
-
-    target, _control = compete_peaks_all_controls(
-        [_row(100, 8.0)],
-        [],
-        target_bigwigs=paths[:2],
-        control_bigwigs=paths[2:4],
-        target_mean_bigwig=paths[4],
-        control_mean_bigwig=paths[5],
-    )
-
-    assert target[0].winner is True
-    assert target[0].competition_score == 10.0
 
 
-def test_stage1_replicate_statistics_calls_fdr_without_control_peaks(tmp_path: Path):
+def test_stage1_replicate_statistics_report_raw_p_without_control_peak_calls(tmp_path: Path):
     target_bed = tmp_path / "target_candidates.bed"
     target_bed.write_text(
         "chr1\t100\t180\tpeak1\t8\t.\t140\t141\n", encoding="utf-8"
@@ -569,8 +432,10 @@ def test_stage1_replicate_statistics_calls_fdr_without_control_peaks(tmp_path: P
         target_replicate_bigwigs=treatment_paths,
         control_replicate_bigwigs=control_paths,
         target_mean_bigwig=mean_path,
-        peak_fdr=0.05,
-        cluster_fdr=0.05,
+        seed_mode="pvalue",
+        seed_gate_mode="mean",
+        member_gate_mode="all-controls",
+        compute_pvalues=True,
         minimum_cluster_members=1,
     )
 
@@ -578,20 +443,24 @@ def test_stage1_replicate_statistics_calls_fdr_without_control_peaks(tmp_path: P
     significant = outputs["significant_peaks"].read_text().strip().split("\t")
     statistics = outputs["competition_table"].read_text().splitlines()
     assert annotated[4] == "120"
-    assert len(annotated) == 10
-    assert annotated[-2:] == ["0", "0"]
+    assert len(annotated) == 9
+    assert annotated[-1] == "0"
     assert significant == annotated
     seed = outputs["seed_peaks"].read_text().strip().split("\t")
     assert seed == annotated
-    assert outputs["annotated_peaks"].name == "target_peaks_replicate_statistics_gate_all-controls.bed"
-    assert outputs["seed_peaks"].name == "target_seed_peaks_gate_all-controls_seed_p0.05.bed"
-    assert outputs["competition_table"].name == "target_peak_replicate_statistics_gate_all-controls.tsv"
-    assert "treatment_replicate_maxima" in statistics[0]
-    assert "control_replicate_maxima" in statistics[0]
-    assert statistics[1].split("\t")[-3:] == ["true", "0", "0"]
+    assert outputs["annotated_peaks"].name == "target_peaks_replicate_statistics.bed"
+    assert outputs["seed_peaks"].name == "target_seed_peaks_S-pvalue-mean.bed"
+    assert outputs["competition_table"].name == "target_peak_replicate_statistics.tsv"
+    assert "treatment_replicate_means" in statistics[0]
+    assert "control_replicate_means" in statistics[0]
+    header = statistics[0].split("\t")
+    row = statistics[1].split("\t")
+    assert row[header.index("is_seed")] == "true"
+    assert row[header.index("is_gated_member")] == "true"
+    assert row[header.index("p_value")] == "0"
 
 
-def test_stage1_single_replicate_reports_unavailable_fdr(tmp_path: Path):
+def test_stage1_single_replicate_can_use_gate_only_seeding(tmp_path: Path):
     target_bed = tmp_path / "target_candidates.bed"
     target_bed.write_text(
         "chr1\t100\t180\tpeak1\t8\t.\t140\t141\n", encoding="utf-8"
@@ -611,13 +480,17 @@ def test_stage1_single_replicate_reports_unavailable_fdr(tmp_path: Path):
         target_replicate_bigwigs=[treatment],
         control_replicate_bigwigs=[control],
         target_mean_bigwig=mean_path,
+        seed_mode="gated",
+        seed_gate_mode="all-controls",
+        member_gate_mode="all-controls",
+        compute_pvalues=False,
         minimum_cluster_members=1,
     )
 
-    assert outputs["annotated_peaks"].read_text().strip().endswith("\t.\t.")
-    assert outputs["significant_peaks"].read_text().strip().endswith("\t.\t.")
-    assert outputs["seed_peaks"].read_text() == ""
-    assert outputs["significant_clusters"].read_text() == ""
+    assert outputs["annotated_peaks"].read_text().strip().endswith("\t.")
+    assert outputs["selected_peaks"].read_text().strip().endswith("\t.")
+    assert outputs["seed_peaks"].read_text().strip().endswith("\t.")
+    assert outputs["selected_clusters"].read_text().strip()
 
 
 def test_cluster_aggregate_writes_combined_heatmap_profiles_and_directional_nrl(
@@ -645,15 +518,15 @@ def test_cluster_aggregate_writes_combined_heatmap_profiles_and_directional_nrl(
     )
 
     outputs = run_cluster_aggregate(
-        mean_scaled_pns=paths[2],
-        replicate_scaled_pns=paths[:2],
+        mean_scaled_score=paths[2],
+        replicate_scaled_scores=paths[:2],
         anchor_bed=anchors,
         output_dir=tmp_path / "aggregate",
         label="treatment",
         window_half=300,
         maximum_heatmap_rows=10,
         bootstrap_replicates=5,
-        nrl_peak_resolution=140,
+        nrl_peak_resolution=130,
         nrl_min_order=0,
         nrl_max_order=3,
     )
@@ -709,7 +582,7 @@ def test_stage1_clusters_use_p_seeds_and_all_gated_members(tmp_path: Path):
     statistics = outputs["competition_table"].read_text().splitlines()
     header = statistics[0].split("\t")
     rows = [line.split("\t") for line in statistics[1:]]
-    assert all(row[header.index("selected_for_stage2")] == "true" for row in rows)
+    assert all(row[header.index("is_gated_member")] == "true" for row in rows)
     assert float(rows[0][header.index("p_value")]) < 0.05
     assert float(rows[1][header.index("p_value")]) > 0.05
     assert float(rows[2][header.index("p_value")]) < 0.05
