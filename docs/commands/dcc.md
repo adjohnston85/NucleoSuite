@@ -79,6 +79,8 @@ Use `--signed-lags` when upstream/downstream direction matters.
 
 Without `--signed-lags`, NucleoSuite collapses `+d` and `−d` into one absolute distance. It combines the raw products and their opportunity counts **before** calculating the normalized value. This prevents unequal numbers of valid +d and −d comparisons from being weighted incorrectly.
 
+For example, 3 products at +10 bp and none at −10 bp, with 630 opportunities in each direction, give a signed value of `3/630` at +10 bp but an absolute-distance value of `3/1260` at 10 bp. The [worked example](../ALGORITHMS.md#signed-and-absolute-distances) shows why the normalized height can change when direction is combined.
+
 ## Normalization
 
 The default DCC value divides the raw A×B product sum by the number of valid A/B position pairs at that lag. `--no-normalize-dcc` selects the raw product sum.

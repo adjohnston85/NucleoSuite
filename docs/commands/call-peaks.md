@@ -15,7 +15,7 @@ Use it to change calling parameters, call a previously combined signal, or run t
 --peak-caller wps
 ```
 
-The selected caller determines how the input signal is segmented and scored. Match `pns` to an PNS signal and `wps` to the WPS-family signal being evaluated.
+The selected caller determines how the input signal is segmented and scored. Match `pns` to a PNS signal and `wps` to the WPS-family signal being evaluated.
 
 See [PNS peak calling](../ALGORITHMS.md#pns-peak-calling) and [WPS peak calling](../ALGORITHMS.md#wps-peak-calling) for the exact definitions.
 

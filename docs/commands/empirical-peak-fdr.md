@@ -30,6 +30,8 @@ nucleosuite empirical-peak-fdr \
 
 For every observed peak, the command reports a pooled empirical upper-tail p-value from randomized peak scores and a monotonic empirical FDR/q-value based on observed-versus-randomized score-threshold counts.
 
+The p-value measures how unusual the score is among randomized peaks. The q-value estimates the false-discovery fraction among peaks retained at a score threshold, after monotonic adjustment. For example, an estimated FDR of 0.05 describes the retained set; it does not assign each peak a 5% chance of being false. See the worked numerical example linked below.
+
 The original observed BED fields are preserved. Two fields are appended:
 
 1. `empirical_p_value`

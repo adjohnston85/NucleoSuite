@@ -151,7 +151,7 @@ def _write_mode_report(
         handle.write(
             "sample\tmode\tbootstrap_ci_low\tbootstrap_ci_high\t"
             "sampled_fragments\tmode_search_fragments\tmode_search_lower\t"
-            "mode_search_upper\thistogram_smoothing\tconverged\tcheckpoints\t"
+            "mode_search_upper\tconverged\tcheckpoints\t"
             "seed\tmode_source\thistogram_length_bp_count\n"
         )
         for label, estimate, analysis_mode, seed in (
@@ -163,7 +163,7 @@ def _write_mode_report(
                 if label != "pooled":
                     handle.write(
                         f"{label}\t{analysis_mode}\t\t\t\t\t\t\t"
-                        f"not_applicable\t\t\t{seed}\t{mode_source}\t\n"
+                        f"\t\t{seed}\t{mode_source}\t\n"
                     )
                 continue
             histogram = ";".join(
@@ -174,7 +174,7 @@ def _write_mode_report(
                 f"{label}\t{estimate.mode}\t{estimate.ci_low:.6g}\t"
                 f"{estimate.ci_high:.6g}\t{estimate.sampled_fragments}\t"
                 f"{estimate.mode_search_fragments}\t{estimate.search_lower}\t"
-                f"{estimate.search_upper}\t{estimate.histogram_smoothing}\t"
+                f"{estimate.search_upper}\t"
                 f"{str(estimate.converged).lower()}\t"
                 f"{estimate.checkpoints}\t{seed}\t{mode_source}\t{histogram}\n"
             )
@@ -343,16 +343,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mode-max-change", type=int, default=1, help="Maximum mode range across stable checkpoints (default: 1 bp).")
     parser.add_argument("--mode-max-ci-width", type=float, default=4.0, help="Maximum bootstrap 95%% interval width (default: 4 bp).")
     parser.add_argument("--mode-block-bp", type=int, default=1_000_000, help="Random genomic-block size (default: 1000000 bp).")
-    parser.add_argument(
-        "--mode-histogram-smoothing",
-        choices=("none", "binomial"),
-        default="none",
-        help=(
-            "Histogram processing for automatic mode estimation: none uses raw "
-            "integer counts; binomial explicitly applies the optional 1,4,6,4,1 "
-            "kernel (default: none)."
-        ),
-    )
     parser.add_argument("--seed", type=int, default=12345, help="Random seed (default: 12345).")
     parser.add_argument("--blacklist-bed", help="BED blacklist applied to every BAM group.")
     parser.add_argument("-c", "--contigs", nargs="+", default=["autosomes"], help="Contigs analysed in every sample (default: autosomes).")
@@ -613,7 +603,6 @@ def _estimate_modes(
         max_duplicates=args.max_duplicates,
         dedup_scope=args.dedup_scope,
         contig_tokens=args.contigs,
-        histogram_smoothing=args.mode_histogram_smoothing,
     )
     estimates: list[tuple[ModeEstimate, ModeEstimate, ModeEstimate]] = []
     for index, (treatment_bams, control_bams) in enumerate(conditions):
@@ -640,7 +629,6 @@ def _estimate_modes(
             control,
             bootstrap_replicates=args.mode_bootstrap,
             seed=args.seed + index * 10 + 2,
-            histogram_smoothing=args.mode_histogram_smoothing,
         )
         reporter.stage(
             mode_estimate_message(
@@ -662,19 +650,16 @@ def _estimate_modes(
             estimates[0][0], estimates[1][0],
             bootstrap_replicates=args.mode_bootstrap,
             seed=args.seed + 100,
-            histogram_smoothing=args.mode_histogram_smoothing,
         )
         control_pooled = pooled_mode_estimate(
             estimates[0][1], estimates[1][1],
             bootstrap_replicates=args.mode_bootstrap,
             seed=args.seed + 101,
-            histogram_smoothing=args.mode_histogram_smoothing,
         )
         all_pooled = pooled_mode_estimate(
             estimates[0][2], estimates[1][2],
             bootstrap_replicates=args.mode_bootstrap,
             seed=args.seed + 102,
-            histogram_smoothing=args.mode_histogram_smoothing,
         )
     if args.mode_strategy == "pooled":
         target_mode = control_mode = all_pooled.mode
@@ -1059,7 +1044,6 @@ def _run_stage1(
         "score_track": score_track,
         "positive_track": positive_track,
         "mode_source": mode_source,
-        "mode_histogram_smoothing": args.mode_histogram_smoothing,
         "mode_estimation_report": str(mode_report.resolve()),
         "target_mode": target_mode,
         "control_mode": control_mode,
@@ -1129,7 +1113,6 @@ def _run_stage1(
         handle.write(f"bam_mode\t{args.bam_mode}\n")
         handle.write(f"scoring_method\t{args.scoring_method}\n")
         handle.write(f"mode_source\t{mode_source}\n")
-        handle.write(f"mode_histogram_smoothing\t{args.mode_histogram_smoothing}\n")
         handle.write(f"mode_estimation_report\t{mode_report}\n")
         handle.write(f"target_analysis_mode\t{target_mode}\n")
         handle.write(f"control_analysis_mode\t{control_mode}\n")
@@ -1509,9 +1492,6 @@ def _inherit_rerun_parameters(args: argparse.Namespace, manifest: dict[str, obje
     args.blacklist_bed = manifest.get("blacklist_bed")
     args.max_duplicates = int(manifest.get("max_duplicates", 1))
     args.dedup_scope = str(manifest.get("dedup_scope") or "all_bams")
-    args.mode_histogram_smoothing = str(
-        manifest.get("mode_histogram_smoothing") or "none"
-    )
     return changed
 
 
@@ -1524,7 +1504,7 @@ def _validate_rerun_immutable_options(args: argparse.Namespace) -> None:
         "--mode-search-upper", "--mode-min-fragments", "--mode-batch-fragments",
         "--mode-max-fragments", "--mode-bootstrap", "--mode-stable-checkpoints",
         "--mode-max-change", "--mode-max-ci-width", "--mode-block-bp",
-        "--mode-histogram-smoothing", "--seed", "--blacklist-bed", "--contigs", "-c",
+        "--seed", "--blacklist-bed", "--contigs", "-c",
         "--max-duplicates", "--dedup-scope",
     }
     supplied = getattr(args, "_explicit_options", set())
@@ -2120,7 +2100,6 @@ def run(args: argparse.Namespace) -> int:
     if args.dry_run:
         print(f"score_type\t{args.scoring_method}")
         print(f"mode\t{args.mode}")
-        print(f"mode_histogram_smoothing\t{args.mode_histogram_smoothing}")
         print(f"bam_mode\t{args.bam_mode}")
         print(f"conditions\t{2 if has_second else 1}")
         print(
@@ -2207,7 +2186,6 @@ def run(args: argparse.Namespace) -> int:
         handle.write(f"comparison_manifest\t{comparison_manifest}\n")
         handle.write(f"bam_mode\t{args.bam_mode}\n")
         handle.write(f"scoring_method\t{args.scoring_method}\n")
-        handle.write(f"mode_histogram_smoothing\t{args.mode_histogram_smoothing}\n")
         handle.write(f"target_analysis_mode\t{target_mode}\n")
         handle.write(f"control_analysis_mode\t{control_mode}\n")
     run_manifest = _write_run_manifest(

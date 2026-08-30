@@ -171,7 +171,7 @@ The default label content is the **x-axis value**.
 
 ### DAC and NRL defaults
 
-DAC plots do not detect or label peaks by default. They show the raw DAC profile only. Enable DAC peak labels with:
+DAC plots do not detect or label peaks by default. They show the unsmoothed `DAC Value` column. This column is opportunity-normalized by default; it contains raw pair-product sums only when DAC was calculated with `--no-normalize-dac`. Smoothing and normalization are separate choices. Enable DAC peak labels with:
 
 ```bash
 --plot-label-points peaks

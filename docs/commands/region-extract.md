@@ -6,7 +6,7 @@
 
 ## Why use it
 
-Use this command to retain each region's values for downstream statistics, modelling, or inspection. [`aggregate`](aggregate.md) produces a centred heatmap and mean profile across the regions.
+Use this command to retain each region's values for downstream statistics, modelling, or inspection. [`aggregate`](aggregate.md) produces a mean profile across the regions, with an individual-region heatmap available through `--write-detail-tables`.
 
 ## Basic usage
 
@@ -20,6 +20,12 @@ nucleosuite region-extract \
 ```
 
 Multiple named signal tracks can be supplied with repeated `--signal-track NAME=BIGWIG` options.
+
+## Region centres and peak positions
+
+The input region's midpoint is the reference for upstream/downstream distances. Supplied peak files use an absolute centre from BED column 7 when it is present and numeric, falling back to the peak interval midpoint otherwise. `--peak-center-column` selects another one-based column; `--peak-center-column 0` always uses the peak midpoint.
+
+`--peak-flank-bp` sets how far on either side of the input region centre to search for peaks. It does not change the region's per-base signal vector.
 
 ## Use bundled CTCF regions
 

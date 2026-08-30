@@ -39,6 +39,8 @@ For each retained run, NucleoSuite reports:
 
 Count/distribution tables and plots summarize those runs.
 
+For a three-base run with values `[2,4,6]`, the length is 3 bp, maximum is 6, mean is 4, and summed signal area is 12 score·bp. The sum grows with run length; the mean describes average signal per base.
+
 ## Relation to peak calling
 
 A positive run uses only the threshold and interval boundaries. PNS and WPS peak callers apply their signal-specific region, median, and cutoff rules.

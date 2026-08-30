@@ -2,6 +2,10 @@
 
 NucleoSuite is a command-line toolkit that converts paired-end alignments or fragment intervals into nucleosome-positioning signals, cfDNA and MNase-seq fragmentomic analyses, matched CUT&RUN/CUT&Tag analyses, peak calls, chromatin-state profiles, sequence profiles, spacing measurements, and coordinated workflows.
 
+![Example NucleoSuite coverage, positioning, nucleosome, breakpoint, dyad, and fragment-end tracks displayed in IGV](docs/images/PNS_example_tracks_BH01.png)
+
+*Example genomic tracks from the BH01 plasma cfDNA sample from Snyder et al. (2016), displayed in Integrative Genomics Viewer (IGV): coverage, positioning scores, nucleosome and breakpoint calls, fragment dyads, and fragment ends.*
+
 ```bash
 nucleosuite COMMAND [options]
 ```

@@ -38,6 +38,19 @@ Min-max modes rescale a row or column to 0–1. Use these when relative shape ma
 
 The exact formulas for all transformations are in [Fragment-length counts and heatmap transformations](../ALGORITHMS.md#fragment-length-counts-and-heatmap-transformations).
 
+### Worked example
+
+Suppose only two fragment lengths are selected. Profile A has counts `[40,60]` at lengths 145 and 167 bp; profile B has `[80,20]`.
+
+| Representation | A: 145 bp | A: 167 bp | B: 145 bp | B: 167 bp |
+|---|---:|---:|---:|---:|
+| Raw counts | 40 | 60 | 80 | 20 |
+| `profile-percent` | 40% | 60% | 80% | 20% |
+| `fragment-percent` | 33.33% | 75% | 66.67% | 25% |
+| `fragment-zscore` | −1 | +1 | +1 | −1 |
+
+Profile percentages compare the distribution within each profile. Fragment percentages compare profiles at one length: A supplies `40 / (40 + 80) = 33.33%` of the 145 bp fragments. Z-scores compare profile percentages with their across-profile mean and population standard deviation; they are neither percentages nor significance tests. All these calculations use the selected fragment-length range. An empty row/column, or a z-score column with no variation, is reported as zero.
+
 ## Optional downsampling
 
 Downsampling is applied to raw integer counts before normalization. Use it when profiles have very different total fragment counts and you want to compare equal-sized random samples.

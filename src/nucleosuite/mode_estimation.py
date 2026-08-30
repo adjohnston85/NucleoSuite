@@ -14,10 +14,6 @@ from nucleosuite.core.fragments import is_softclipped_or_padded
 from nucleosuite.core.fragment_inputs import BamFragmentSource
 
 
-_SMOOTH_KERNEL = np.asarray([1.0, 4.0, 6.0, 4.0, 1.0], dtype=np.float64)
-_SMOOTH_KERNEL /= np.sum(_SMOOTH_KERNEL)
-
-
 @dataclass(frozen=True)
 class ModeEstimate:
     mode: int
@@ -30,7 +26,6 @@ class ModeEstimate:
     histogram: tuple[int, ...]
     search_lower: int
     search_upper: int
-    histogram_smoothing: str = "none"
 
 
 def mode_estimate_message(label: str, estimate: ModeEstimate) -> str:
@@ -42,7 +37,6 @@ def mode_estimate_message(label: str, estimate: ModeEstimate) -> str:
         f"{estimate.sampled_fragments:,} accepted fragments sampled; "
         f"{estimate.mode_search_fragments:,} within "
         f"{estimate.search_lower}-{estimate.search_upper} bp; "
-        f"smoothing={estimate.histogram_smoothing}; "
         f"converged={str(estimate.converged).lower()})"
     )
 
@@ -65,7 +59,6 @@ def write_single_mode_report(
         handle.write(f"resolved_mode_bp\t{resolved_mode}\n")
         handle.write(f"seed\t{seed}\n")
         if estimate is None:
-            handle.write("histogram_smoothing\tnot_applicable\n")
             return output
         handle.write(f"bootstrap_ci_low_bp\t{estimate.ci_low:.12g}\n")
         handle.write(f"bootstrap_ci_high_bp\t{estimate.ci_high:.12g}\n")
@@ -75,7 +68,6 @@ def write_single_mode_report(
         )
         handle.write(f"mode_search_lower_bp\t{estimate.search_lower}\n")
         handle.write(f"mode_search_upper_bp\t{estimate.search_upper}\n")
-        handle.write(f"histogram_smoothing\t{estimate.histogram_smoothing}\n")
         handle.write(f"converged\t{str(estimate.converged).lower()}\n")
         handle.write(f"checkpoints\t{estimate.checkpoints}\n")
         histogram = ";".join(
@@ -86,32 +78,12 @@ def write_single_mode_report(
     return output
 
 
-def _smooth_histogram(counts: np.ndarray) -> np.ndarray:
-    return np.convolve(np.asarray(counts, dtype=np.float64), _SMOOTH_KERNEL, mode="same")
-
-
-def _validate_histogram_smoothing(value: str) -> str:
-    smoothing = str(value).strip().lower()
-    if smoothing not in {"none", "binomial"}:
-        raise ValueError("Histogram smoothing must be 'none' or 'binomial'")
-    return smoothing
-
-
-def _point_mode(counts: np.ndarray, lower: int, *, smoothing: str = "none") -> int:
-    if counts.size == 0 or float(np.sum(counts)) <= 0:
+def _point_mode(counts: np.ndarray, lower: int) -> int:
+    """Return the lowest integer length with the largest observed count."""
+    if counts.size == 0 or int(np.sum(counts)) <= 0:
         raise ValueError("No fragments occurred in the requested mode-search range")
-    smoothing = _validate_histogram_smoothing(smoothing)
-    evaluated = (
-        _smooth_histogram(counts)
-        if smoothing == "binomial"
-        else np.asarray(counts, dtype=np.float64)
-    )
-    maximum = float(np.max(evaluated))
-    candidates = np.flatnonzero(
-        np.isclose(evaluated, maximum, rtol=0.0, atol=1e-12)
-    )
-    # Stable lower-coordinate tie breaking avoids random one-base changes on a plateau.
-    return int(lower + int(candidates[0]))
+    # argmax selects the first maximum, giving stable lower-length tie breaking.
+    return int(lower + int(np.argmax(counts)))
 
 
 def bootstrap_histogram_mode(
@@ -120,7 +92,6 @@ def bootstrap_histogram_mode(
     lower: int,
     replicates: int = 200,
     seed: int = 12345,
-    histogram_smoothing: str = "none",
 ) -> tuple[int, float, float, np.ndarray]:
     """Estimate an integer mode and percentile bootstrap interval."""
 
@@ -135,14 +106,13 @@ def bootstrap_histogram_mode(
     if replicates < 1:
         raise ValueError("Bootstrap replicates must be at least 1")
 
-    smoothing = _validate_histogram_smoothing(histogram_smoothing)
-    point = _point_mode(values, lower, smoothing=smoothing)
+    point = _point_mode(values, lower)
     probabilities = values.astype(np.float64) / float(total)
     rng = np.random.default_rng(seed)
     modes = np.empty(replicates, dtype=np.int64)
     for index in range(replicates):
         draw = rng.multinomial(total, probabilities)
-        modes[index] = _point_mode(draw, lower, smoothing=smoothing)
+        modes[index] = _point_mode(draw, lower)
     ci_low, ci_high = np.percentile(modes, [2.5, 97.5])
     return point, float(ci_low), float(ci_high), modes
 
@@ -154,7 +124,6 @@ def estimate_mode_from_lengths(
     search_upper: int = 250,
     bootstrap_replicates: int = 200,
     seed: int = 12345,
-    histogram_smoothing: str = "none",
 ) -> ModeEstimate:
     """Estimate one mode from an already sampled fragment-length collection."""
 
@@ -171,7 +140,6 @@ def estimate_mode_from_lengths(
         lower=search_lower,
         replicates=bootstrap_replicates,
         seed=seed,
-        histogram_smoothing=histogram_smoothing,
     )
     return ModeEstimate(
         mode=mode,
@@ -184,7 +152,6 @@ def estimate_mode_from_lengths(
         histogram=tuple(int(value) for value in counts),
         search_lower=search_lower,
         search_upper=search_upper,
-        histogram_smoothing=_validate_histogram_smoothing(histogram_smoothing),
     )
 
 
@@ -212,7 +179,6 @@ def estimate_bam_fragment_mode(
     bootstrap_replicates: int = 200,
     block_bp: int = 1_000_000,
     seed: int = 12345,
-    histogram_smoothing: str = "none",
     blacklist_bed: str | Path | None = None,
     max_duplicates: int = 1,
     dedup_scope: str = "all_bams",
@@ -235,7 +201,6 @@ def estimate_bam_fragment_mode(
     if dedup_scope not in {"all_bams", "per_bam"}:
         raise ValueError("dedup_scope must be 'all_bams' or 'per_bam'")
 
-    smoothing = _validate_histogram_smoothing(histogram_smoothing)
     paths = [Path(path) for path in bam_paths]
     for path in paths:
         if not path.is_file():
@@ -336,7 +301,6 @@ def estimate_bam_fragment_mode(
                             lower=search_lower,
                             replicates=bootstrap_replicates,
                             seed=seed + len(checkpoint_modes),
-                            histogram_smoothing=smoothing,
                         )
                         checkpoint_modes.append(point)
                         latest_ci = (low, high)
@@ -361,7 +325,6 @@ def estimate_bam_fragment_mode(
             lower=search_lower,
             replicates=bootstrap_replicates,
             seed=seed + 100_000,
-            histogram_smoothing=smoothing,
         )
         if not checkpoint_modes:
             checkpoint_modes.append(final_mode)
@@ -377,7 +340,6 @@ def estimate_bam_fragment_mode(
             histogram=tuple(int(value) for value in search_counts),
             search_lower=search_lower,
             search_upper=search_upper,
-            histogram_smoothing=smoothing,
         )
     finally:
         source.close()
@@ -399,7 +361,6 @@ def estimate_fragment_file_mode(
     bootstrap_replicates: int = 200,
     block_bp: int = 1_000_000,
     seed: int = 12345,
-    histogram_smoothing: str = "none",
     blacklist_bed: str | Path | None = None,
     max_duplicates: int = 1,
     dedup_scope: str = "all_bams",
@@ -424,7 +385,6 @@ def estimate_fragment_file_mode(
         raise ValueError("Mode-sampling counts and block size must be positive")
     if maximum_fragments < minimum_fragments:
         raise ValueError("maximum_fragments must be at least minimum_fragments")
-    smoothing = _validate_histogram_smoothing(histogram_smoothing)
 
     from nucleosuite.core.fragment_inputs import open_fragment_source
     from nucleosuite.core.regions import build_processing_regions, expand_contig_tokens
@@ -492,7 +452,6 @@ def estimate_fragment_file_mode(
                         lower=search_lower,
                         replicates=bootstrap_replicates,
                         seed=seed + len(checkpoint_modes),
-                        histogram_smoothing=smoothing,
                     )
                     checkpoint_modes.append(point)
                     last_checkpoint = sampled_fragments
@@ -514,7 +473,6 @@ def estimate_fragment_file_mode(
             lower=search_lower,
             replicates=bootstrap_replicates,
             seed=seed + 100_000,
-            histogram_smoothing=smoothing,
         )
         if not checkpoint_modes:
             checkpoint_modes.append(mode)
@@ -529,7 +487,6 @@ def estimate_fragment_file_mode(
             histogram=tuple(int(value) for value in search_counts),
             search_lower=search_lower,
             search_upper=search_upper,
-            histogram_smoothing=smoothing,
         )
     finally:
         if source is not None:
@@ -544,7 +501,6 @@ def pooled_mode_estimate(
     *,
     bootstrap_replicates: int = 200,
     seed: int = 12345,
-    histogram_smoothing: str | None = None,
 ) -> ModeEstimate:
     """Return an equal-sample-weighted pooled mode from two mode histograms."""
 
@@ -553,13 +509,6 @@ def pooled_mode_estimate(
         control.search_upper,
     ):
         raise ValueError("Target and control mode-search ranges differ")
-    smoothing = _validate_histogram_smoothing(
-        target.histogram_smoothing
-        if histogram_smoothing is None
-        else histogram_smoothing
-    )
-    if histogram_smoothing is None and target.histogram_smoothing != control.histogram_smoothing:
-        raise ValueError("Target and control histogram-smoothing methods differ")
     left = np.asarray(target.histogram, dtype=np.float64)
     right = np.asarray(control.histogram, dtype=np.float64)
     if np.sum(left) <= 0 or np.sum(right) <= 0:
@@ -574,7 +523,6 @@ def pooled_mode_estimate(
         lower=target.search_lower,
         replicates=bootstrap_replicates,
         seed=seed,
-        histogram_smoothing=smoothing,
     )
     return ModeEstimate(
         mode=mode,
@@ -587,5 +535,4 @@ def pooled_mode_estimate(
         histogram=tuple(int(value) for value in pooled_counts),
         search_lower=target.search_lower,
         search_upper=target.search_upper,
-        histogram_smoothing=smoothing,
     )

@@ -67,6 +67,8 @@ nucleosuite gene-expression \
 
 At each period, NucleoSuite correlates per-gene spectral intensity with expression. The default ranking score averages intensities at **193, 196, and 199 bp** and ranks expression profiles by their correlation with that combined periodic signal. Change those periods with `--fft-ranking-periods` when another period range is biologically relevant.
 
+Period describes a repeat distance; spectral intensity describes the strength of that repeating component. A positive correlation at 185 bp means higher-expression genes tend to have stronger 185 bp periodic signal. In the separate spacing analysis, a positive correlation means higher-expression genes tend to have larger median interpeak distances.
+
 ## Run both analyses together
 
 ```bash

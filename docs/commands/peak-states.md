@@ -47,6 +47,17 @@ Enrichment compares a state's fraction of assigned peaks with its fraction of th
 
 Coverage adjustment separates peak abundance from enrichment relative to annotated state coverage.
 
+Here, coverage means the genomic span of the state annotation, not sequencing-read coverage. For example, suppose 100 peaks are retained, 80 are assigned to any state, and 20 are assigned to a state covering 1 Mb out of 10 Mb of summed state annotations:
+
+| Measurement for this state | Calculation | Result |
+|---|---|---:|
+| Percentage of assigned peaks | 20 / 80 × 100 | 25% |
+| Percentage of all retained peaks | 20 / 100 × 100 | 20% |
+| Density | 20 peaks / 1 Mb | 20 peaks/Mb |
+| Coverage-adjusted enrichment | (20 / 80) / (1 / 10) | 2.5 |
+
+The enrichment is descriptive; a value of 2.5 is not itself a statistical significance test.
+
 ## Cumulative score thresholds
 
 A score percentile threshold shows how state composition changes as progressively higher-scoring peaks are retained.

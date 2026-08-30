@@ -119,7 +119,9 @@ Use both:
 
 to retain peaks whose BigWig value is at least the selected threshold.
 
-By default, coverage is sampled at the BED interval midpoint. If the peak file contains an explicit genomic summit or representative position, provide its one-based BED column number with:
+By default, coverage is sampled at the BED interval midpoint.
+
+This filter reads one BigWig value per peak; it does not calculate interval mean, maximum, or summed coverage. For example, a peak covering values `[20,40,60]` is evaluated using its midpoint value 40. The separate `cutn-suite` Stage 1 measurement instead averages the complete interval by default. If the peak file contains an explicit genomic summit or representative position, provide its one-based BED column number with:
 
 ```bash
 --coverage-position-column COLUMN

@@ -97,7 +97,6 @@ def test_cutn_suite_defaults_to_pns_auto_mode_scoring_flank_and_coverage_range(
     assert (args.coverage_frag_lower, args.coverage_frag_upper) == (1, 1000)
     assert args.mode_strategy == "pooled"
     assert args.bam_mode == "replicates"
-    assert args.mode_histogram_smoothing == "none"
     assert args.cluster_seed_p_value == 0.05
     assert args.cluster_seed_mode == "auto"
     assert args.cluster_seed_gate_mode == "auto"
@@ -286,13 +285,13 @@ def test_cutn_auto_mode_prints_treatment_control_and_pooled_estimates(
         ]
     )
     treatment = ModeEstimate(
-        153, 152, 154, 1000, 900, True, 3, (1, 8, 1), 152, 154, "none"
+        153, 152, 154, 1000, 900, True, 3, (1, 8, 1), 152, 154
     )
     control_estimate = ModeEstimate(
-        151, 150, 152, 1000, 900, True, 3, (1, 8, 1), 150, 152, "none"
+        151, 150, 152, 1000, 900, True, 3, (1, 8, 1), 150, 152
     )
     pooled = ModeEstimate(
-        152, 151, 153, 2000, 900, True, 3, (1, 8, 1), 151, 153, "none"
+        152, 151, 153, 2000, 900, True, 3, (1, 8, 1), 151, 153
     )
 
     with (
@@ -315,7 +314,6 @@ def test_cutn_auto_mode_prints_treatment_control_and_pooled_estimates(
     assert "Condition 1 treatment fragment mode: 153 bp" in output
     assert "Condition 1 control fragment mode: 151 bp" in output
     assert "Condition 1 pooled fragment mode: 152 bp" in output
-    assert "smoothing=none" in output
 
 
 def test_explicit_cutn_mode_does_not_validate_unused_auto_search_bounds(tmp_path: Path):

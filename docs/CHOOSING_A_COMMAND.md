@@ -19,7 +19,7 @@ For a coordinated analysis with standard defaults, use [`cfdna-suite`](commands/
 For a CUT&RUN or CUT&Tag treatment plus control, use [`cutn-suite`](commands/cutn-suite.md). It uses PNS for nucleosome-aware peak discovery by default, measures target/control support from coverage, and can compare two completed conditions. 
 
 
-Use [`cutn-compare`](commands/cutn-compare.md) when two conditions already have completed Stage 1 manifests. It compares overlap-connected cluster loci using the saved raw coverage tracks, produces matched cluster-centred aggregates using the saved Stage 1 scoring method, and does not read the BAMs again.
+Use [`cutn-compare`](commands/cutn-compare.md) when two conditions already have completed Stage 1 manifests. It compares overlap-connected cluster loci using the saved raw coverage tracks, produces matched cluster-centred PNS aggregates, and does not read the BAMs again.
 
 ## I already have nucleosome or other peak calls
 
@@ -43,7 +43,7 @@ Use [`nrl`](commands/nrl.md) on a DAC or DCC distance profile when you want one 
 
 ## I want signal around genomic features
 
-Use [`aggregate`](commands/aggregate.md) for a heatmap and average profile around reference sites. Use [`region-extract`](commands/region-extract.md) to export the signal vector for every region.
+Use [`aggregate`](commands/aggregate.md) for the average profile around reference sites; add `--write-detail-tables` for an individual-region heatmap and matrix. Use [`region-extract`](commands/region-extract.md) to export the signal vector for every region.
 
 A bundled resource can be passed directly. For example, to aggregate signal around the bundled GM12878 CTCF sites:
 

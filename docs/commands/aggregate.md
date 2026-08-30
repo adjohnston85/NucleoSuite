@@ -18,7 +18,11 @@ Each accepted BED feature defines an aggregation centre. NucleoSuite extracts Bi
 
 The complete aggregate profile is the mean of the valid signal values at each relative position. The exact handling of missing and blacklisted positions is described in [Regional aggregation](../ALGORITHMS.md#regional-aggregation).
 
-By default, `aggregate` also calls long-range peaks once across the complete negative-to-positive aggregate alignment. With the default 160 bp peak resolution, the complete profile is smoothed continuously across position 0 using 61 bp detection smoothing and 21 bp summit refinement. The resulting unified peak set is then divided by direction for two independent repeat-length regressions. The called peak nearest 0 within half the peak-calling resolution is assigned order 0 on both sides before regression filtering; remaining positive and negative peaks are ordered outward from it.
+For example, signals 4 and 8 from two regions give an aggregate value of 6 at that relative position. Each position is averaged across regions independently; the command does not first reduce each region to one mean.
+
+Without `--write-detail-tables`, each extracted window is added to per-position sums and valid-value counts and is then discarded. The final profile is calculated by dividing each sum by its count. Memory therefore depends mainly on the selected window width, not on the number of accepted regions.
+
+By default, `aggregate` also detects repeating peaks in the mean profile and estimates their spacing separately upstream and downstream of the reference point. Peak detection uses a broad smoothed curve to find the main peaks and a finer smoothed curve to locate their summits. The default 160 bp resolution gives 61 bp detection smoothing and 21 bp refinement smoothing; the table below shows how changing resolution changes these windows.
 
 Every default x-axis is labelled `Distance from reference-site centre (bp)`. `--axis-label` remains available for an explicit alternative.
 
@@ -95,7 +99,30 @@ The ordinary single-analysis overrides such as `--aggregate-output`, `--heatmap-
 
 ## Directional repeat length
 
-The peak caller always operates across the complete aggregate alignment. It is not run separately on the two sides, and smoothing is not interrupted at position 0. After peak calling, positive and negative peaks are selected for separate regressions. Negative positions are converted to their absolute distance from 0 and ordered outward, so both fitted slopes are positive repeat lengths.
+The reference point is position 0. With strand orientation enabled, negative coordinates are upstream and positive coordinates are downstream. NucleoSuite finds peaks in the full mean profile, then fits their spacing separately in each direction. Upstream positions are expressed as distances from 0: peaks at −185, −370, and −555 bp therefore enter the upstream fit at distances 185, 370, and 555 bp.
+
+`--nrl-peak-resolution` controls minimum peak separation and the two smoothing windows. The broad window starts at resolution / 2.5; the finer window starts at resolution / 6. Each target is rounded down to 11, 21, 31, 41 bp, and so on. A target below 11 bp means no smoothing.
+
+| Resolution | Broad detection window | Finer refinement window | Minimum retained peak separation |
+|---:|---:|---:|---:|
+| 120 bp | 41 bp | 11 bp | 120 bp |
+| 130 bp | 51 bp | 21 bp | 130 bp |
+| 160 bp | 61 bp | 21 bp | 160 bp |
+| 200 bp | 71 bp | 31 bp | 200 bp |
+
+Each broad peak is refined within half a resolution using the finer curve. Larger resolutions smooth more and retain more widely separated peaks; they do not force the fitted repeat length to equal the resolution. See [Aggregate directional repeat length](../ALGORITHMS.md#aggregate-directional-repeat-length) for the equations.
+
+The window and regression options affect different steps:
+
+| Setting | What it changes |
+|---|---|
+| `--window-half` | Signal extracted on each side of the reference point; 2500 gives positions −2500 through +2500. |
+| `--nrl-peak-resolution` | Smoothing widths and minimum peak separation. |
+| `--nrl-regression-min` / `--nrl-regression-max` | Absolute distances allowed in each fit, after peak calling. |
+| Regression order limits | Which outward peak numbers enter each fit. |
+| Regression exclusion bounds | Which signed positions are omitted from the fits, after peaks have been numbered. |
+
+Changing a regression filter leaves the extracted profile and called peaks unchanged.
 
 The called summit closest to 0 is treated as the shared order-0 peak when its absolute position is no greater than half `--nrl-peak-resolution` (±80 bp with the 160 bp default). This includes a central peak whose refined summit is slightly offset from exactly 0. If no called peak lies in that central interval, neither regression has an order-0 candidate.
 
@@ -148,9 +175,11 @@ The state label or other annotation columns are **not** used to divide the aggre
 
 ## Heatmap rows versus the complete aggregate
 
-The complete aggregate profile uses **all accepted regions**. `--max-heatmap-rows` limits only the plotted heatmap and its plotted-row mean.
+The complete aggregate profile uses **all accepted regions**. Individual rows are retained only with `--write-detail-tables`. `--max-heatmap-rows` limits the plotted heatmap and its plotted-row mean without changing the complete aggregate.
 
 `--subsample-mode` and `--seed` control how the plotted subset is selected. In category mode these limits are applied independently to each category.
+
+If `--write-detail-tables` is used without `--max-heatmap-rows`, every accepted row is retained. Memory then grows with both the number of regions and the window width. For large BED files, set an explicit row limit unless the complete individual-region matrix is required.
 
 ## Missing signal and sparse tracks
 
@@ -200,7 +229,7 @@ nucleosuite aggregate \
   --output-prefix sample
 ```
 
-The combined profile is calculated from the per-position sums and valid-row counts across all selected contigs. In category mode this same multicontig process is run independently for each category before the category profiles are overlaid.
+Each worker writes compact per-position sums and valid-value counts. The combined profile adds those totals across selected contigs and divides the combined sums by the combined counts. It does not load individual-region matrices unless `--write-detail-tables` is requested. In category mode this same multicontig process is run independently for each category before the category profiles are overlaid.
 
 ## Blacklist handling
 

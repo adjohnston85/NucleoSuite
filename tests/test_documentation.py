@@ -101,6 +101,7 @@ def test_algorithm_figure_assets_exist_and_are_linked() -> None:
         "pns_length_adaptation_mode167.png",
         "wps_kernels_120_167_180_multiplot.png",
         "dac_periodicity_example.png",
+        "dcc_shift_example.png",
     ]
     missing: list[str] = []
     for filename in figures:
@@ -154,6 +155,12 @@ def test_main_readme_links_every_primary_command() -> None:
         if f"(docs/commands/{command}.md)" not in readme
     ]
     assert not missing, f"Primary commands missing from README.md: {missing}"
+
+
+def test_readme_track_overview_image_is_present() -> None:
+    image = "docs/images/PNS_example_tracks_BH01.png"
+    assert (ROOT / image).is_file()
+    assert f"]({image})" in (ROOT / "README.md").read_text()
 
 
 def test_command_pages_have_matching_heading_and_back_link() -> None:

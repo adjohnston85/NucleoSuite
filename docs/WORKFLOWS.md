@@ -59,7 +59,7 @@ flowchart LR
     E --> F[Nearest-neighbour spacing profile]
 ```
 
-PNS assigns +100/−100 mass to each complete sinusoidal kernel and retains native genomic scores. The detailed geometry and explanatory plots are in [Algorithms](ALGORITHMS.md#probabilistic-nucleosome-scoring).
+PNS assigns +100/−100 mass to each complete sinusoidal kernel, giving total absolute mass 200, and retains native genomic scores. The detailed geometry and explanatory plots are in [Algorithms](ALGORITHMS.md#probabilistic-nucleosome-scoring).
 
 For example:
 
@@ -92,7 +92,7 @@ flowchart TB
 
 [`cutn-suite`](commands/cutn-suite.md) uses PNS discovery over the resolved mode ±30 bp (`--frag-mode-padding 30`) while broad coverage uses 1–1,000 bp fragments. Both ranges are generated together by `tracks` in one fragment pass. Native PNS replicate tracks are averaged directly; PNS and `posPNS` BigWigs are retained without score normalization. Sequencing depth can affect PNS amplitude. Coverage is independently scaled to a non-zero mean of 100 for Stage 1 measurement.
 
-The default replicate statistic is mean coverage across each treatment-defined peak; `--stage1-coverage-statistic max` selects the maximum. With at least three replicates in each group, the automatic seed rule uses one-sided raw p-values plus mean treatment > mean control. With fewer replicates it uses the all-versus-all gate for seeds. Members extend seeded clusters subject to the selected gate, the non-member-gap allowance and the maximum interpeak distance. See the [CUT&RUN/CUT&Tag command guide](commands/cutn-suite.md) for all replicate-aware rules and alternatives.
+The default replicate statistic is mean coverage across each treatment-defined peak; `--stage1-coverage-statistic max` selects the maximum. With at least three replicates in each group, the automatic seed rule uses one-sided raw p-values plus mean treatment > mean control. With fewer replicates, a seed requires every treatment replicate to exceed every control replicate. Members extend seeded clusters subject to the selected gate, the non-member-gap allowance and the maximum interpeak distance. See the [CUT&RUN/CUT&Tag command guide](commands/cutn-suite.md) for all replicate-aware rules and the [S/G examples](ALGORITHMS.md#sg-clustering-examples) for how seeds, gated members, and intervening peaks form clusters.
 
 Treatment and control groups can differ in size; `--bam-mode merged` pools each group. Stage 2 reads saved tracks and manifests without revisiting BAMs. Use an explicit mode to bypass estimation:
 
@@ -265,6 +265,8 @@ nucleosuite nrl sample_dac.tsv \
 ```
 
 See [Distance autocorrelation](ALGORITHMS.md#distance-autocorrelation) for a worked 185 bp example and figure.
+
+At resolution 160 bp, NRL uses 61 bp smoothing to find broad peaks, 21 bp smoothing to refine their summits, and a minimum peak separation of 160 bp. The fitted repeat length still comes from the observed peak spacing. The [resolution table](commands/nrl.md#how-it-works) shows how another resolution changes these settings.
 
 ## Compare two positional signals with DCC
 

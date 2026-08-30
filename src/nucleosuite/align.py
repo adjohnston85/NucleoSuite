@@ -45,6 +45,7 @@ class AlignmentConfig:
     plotted_mean_output: Path | None = None
     mean_plot_output: Path | None = None
     summary_output: Path | None = None
+    accumulator_output: Path | None = None
     write_detail_tables: bool = False
     window_half: int = 2500
     chrom_col: int = 1
@@ -680,6 +681,31 @@ def write_profile(values: np.ndarray, path: Path, x_values: np.ndarray | None = 
         output.write("relative_position\tscore\n")
         for position, score in zip(x_values, values):
             output.write(f"{int(position)}\t{float(score):.6f}\n")
+
+
+def write_aggregate_accumulator(
+    path: Path,
+    running_sum: np.ndarray,
+    running_count: np.ndarray,
+    valid_total: int,
+) -> None:
+    """Write compact per-position totals for exact multicontig recombination."""
+
+    import gzip
+
+    centre = running_sum.size // 2
+    x_values = np.arange(-centre, -centre + running_sum.size)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    opener = gzip.open if str(path).lower().endswith(".gz") else open
+    with opener(path, "wt", encoding="utf-8") as output:
+        output.write(
+            "relative_position\tsignal_sum\tvalid_count\taccepted_regions\n"
+        )
+        for position, total, count in zip(x_values, running_sum, running_count):
+            output.write(
+                f"{int(position)}\t{float(total):.17g}\t{int(count)}"
+                f"\t{valid_total}\n"
+            )
 
 
 def _outward_peak(peak: Peak) -> Peak:
@@ -1374,6 +1400,23 @@ def plot_outputs(
         out=np.full(matrix.shape[1], np.nan, dtype=float),
         where=finite_counts > 0,
     )
+    plot_mean_profile(mean_profile, x_values, config, paths)
+    return mean_profile
+
+
+def plot_mean_profile(
+    mean_profile: np.ndarray,
+    x_values: np.ndarray,
+    config: AlignmentConfig,
+    paths: dict[str, Path],
+) -> None:
+    """Plot a supplied mean without requiring an individual-region matrix."""
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from nucleosuite.plotting import save_figure
+
     figure, axis = plt.subplots(figsize=(15, 5))
     axis.plot(x_values, mean_profile, color="black", linewidth=1.5, marker="o", markersize=1.6, markeredgewidth=0)
     from nucleosuite.plotting import apply_base_pair_x_axis
@@ -1391,7 +1434,6 @@ def plot_outputs(
         extra={"source_table": str(paths["plotted_mean"]), "detected_plot_type": "aggregate-profile"},
     )
     plt.close(figure)
-    return mean_profile
 
 
 def run_alignment(
@@ -1585,10 +1627,11 @@ def run_alignment(
                 assert running_count is not None
                 running_count[finite] += 1
                 stats.valid_total += 1
-                add_heatmap_row(
-                    selected_rows, row, stats.valid_total,
-                    config.max_heatmap_rows, config.subsample_mode, sample_rng
-                )
+                if config.write_detail_tables:
+                    add_heatmap_row(
+                        selected_rows, row, stats.valid_total,
+                        config.max_heatmap_rows, config.subsample_mode, sample_rng
+                    )
                 if config.stop_after_valid is not None and stats.valid_total >= config.stop_after_valid:
                     stats.stopped_after_valid_limit = 1
                     break
@@ -1596,13 +1639,17 @@ def run_alignment(
     if running_sum is None or stats.valid_total == 0:
         write_summary(outputs["summary"], config, stats, outputs)
         raise RuntimeError(no_valid_regions_message(stats, config))
-    if not selected_rows:
-        raise RuntimeError("No vectors were retained for plotting")
-
     assert running_count is not None
     if progress is not None:
         progress.stage(
-            f"Creating aggregate and heatmap from {stats.valid_total:,} valid regions"
+            f"Creating aggregate from {stats.valid_total:,} valid regions"
+        )
+    if config.accumulator_output is not None:
+        write_aggregate_accumulator(
+            Path(config.accumulator_output),
+            running_sum,
+            running_count,
+            stats.valid_total,
         )
     full_mean = np.divide(
         running_sum,
@@ -1610,8 +1657,6 @@ def run_alignment(
         out=np.full_like(running_sum, np.nan),
         where=running_count > 0,
     )
-    matrix = np.vstack(selected_rows)
-    stats.selected_for_plot = matrix.shape[0]
     write_profile(full_mean, outputs["aggregate"])
     if config.nrl:
         if progress is not None:
@@ -1631,19 +1676,35 @@ def run_alignment(
             exclusion_end=exclusion_end,
         )
         write_aggregate_nrl_outputs(nrl_result, config, outputs)
-    matrix, x_values = central_crop(matrix, config.breadth)
-    matrix, original_order, sort_scores = sort_matrix(matrix, config.sort_mode)
     if config.write_detail_tables:
+        if not selected_rows:
+            raise RuntimeError("No vectors were retained for heatmap output")
+        matrix = np.vstack(selected_rows)
+        stats.selected_for_plot = matrix.shape[0]
+        matrix, x_values = central_crop(matrix, config.breadth)
+        matrix, original_order, sort_scores = sort_matrix(matrix, config.sort_mode)
         write_heatmap_matrix(matrix, x_values, outputs["heatmap_matrix"])
         write_heatmap_row_metadata(
             outputs["row_metadata"], original_order, sort_scores, config.sort_mode
         )
-    plotted_mean = plot_outputs(matrix, x_values, config, outputs)
+        plotted_mean = plot_outputs(matrix, x_values, config, outputs)
+    else:
+        if config.breadth < 1.0:
+            cropped, x_values = central_crop(
+                full_mean[np.newaxis, :], config.breadth
+            )
+            plotted_mean = cropped[0]
+        else:
+            centre = full_mean.size // 2
+            x_values = np.arange(-centre, -centre + full_mean.size)
+            plotted_mean = full_mean
+        plot_mean_profile(plotted_mean, x_values, config, outputs)
     write_profile(plotted_mean, outputs["plotted_mean"], x_values)
     write_summary(outputs["summary"], config, stats, outputs)
 
     LOGGER.info("Valid vectors: %s", f"{stats.valid_total:,}")
-    LOGGER.info("Heatmap rows: %s", f"{stats.selected_for_plot:,}")
+    if config.write_detail_tables:
+        LOGGER.info("Heatmap rows: %s", f"{stats.selected_for_plot:,}")
     for name, path in outputs.items():
         LOGGER.info("%s: %s", name.replace("_", " ").title(), path)
     if progress is not None:

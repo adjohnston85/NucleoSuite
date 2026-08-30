@@ -47,7 +47,7 @@ For $R$ treatment replicates, the consensus score is
 \overline{PNS}(x)=\frac{1}{R}\sum_{r=1}^{R}PNS_r(x).
 ```
 
-PNS and `posPNS` values retain their native scale, including the per-fragment +100/−100 mass. No division by the positive-reference mean is applied. A deeper replicate can contribute larger score amplitudes to the average. With one treatment replicate, its native PNS track is used directly.
+PNS and `posPNS` values retain their native scale. Each signed PNS kernel has +100/−100 mass, giving total absolute mass 200. No division by the positive-reference mean is applied. A deeper replicate can contribute larger score amplitudes to the average. With one treatment replicate, its native PNS track is used directly.
 
 Peaks are called once from the consensus track. Control PNS tracks are retained for inspection; treatment/control statistical measurements use coverage.
 
@@ -70,6 +70,16 @@ P_i(R)=\frac{1}{|R|}\sum_{x\in R}Cov_{100,i}(x).
 ```
 
 Use `--stage1-coverage-statistic max` when the interval maximum is preferred. Column 5 of the complete treatment-peak BED is the corresponding statistic from the condition-mean treatment coverage track.
+
+For a three-base example with scaled coverage values 20, 40, and 60:
+
+| Statistic | Calculation | Value |
+|---|---|---:|
+| Mean, the default | (20 + 40 + 60) / 3 | 40 |
+| Maximum, explicit option | Highest value | 60 |
+| Sum, not the Stage 1 measurement | 20 + 40 + 60 | 120 |
+
+The same calculation is applied across every base of an actual candidate interval, independently for each replicate.
 
 ### 5. Choose S seeds and G cluster members
 
@@ -95,6 +105,8 @@ G = all treatment replicates > all control replicates
 
 The one-sided raw p-value uses Welch's test of treatment mean > control mean. The default threshold can be changed with `--cluster-seed-p-value`.
 
+For example, treatment replicate values `[80,120]` and control values `[90,100]` pass the mean gate because `100 > 95`. They fail the all-controls gate because the lowest treatment value, 80, does not exceed the highest control value, 100. These are gate results only; a seed configured to require a p-value must also pass its statistical threshold.
+
 The automatic rule is printed when the run starts. Explicit controls are available when another design is required:
 
 - `--cluster-seed-mode pvalue|gated` chooses whether S requires the raw p-value or only its gate;
@@ -111,11 +123,13 @@ One consecutive non-member can bridge included members by default (`--cluster-ma
 
 Cluster coordinates extend from the first included member to the last. The aggregate anchor is the discovery summit of the included member with the strongest condition-mean Stage 1 coverage measurement.
 
+See the [S/G clustering examples](../ALGORITHMS.md#sg-clustering-examples) for sequences that form a cluster, split into separate clusters, or fail the seed/member requirements.
+
 ### 7. Aggregate PNS around cluster anchors
 
 Native PNS replicate tracks are averaged directly for discovery and cluster-centred positioning. PNS and `posPNS` retain their native scale; sequencing depth can therefore affect their amplitudes. Broad-range coverage is independently scaled to a non-zero mean of 100 for Stage 1 treatment/control measurements, with mean coverage across each candidate interval used by default.
 
-Cluster-centred heatmaps and aggregate profiles use the selected discovery scorer. The default directional NRL peak resolution is **130 bp** and the default fitted orders are 0–3 on both sides.
+Cluster-centred heatmaps and aggregate profiles use PNS. The default directional NRL peak resolution is **130 bp** and the default fitted orders are 0–3 on both sides.
 
 ## Replicates and merged input
 
@@ -210,9 +224,9 @@ Every rerun writes its own `cutn_suite_run_manifest.json`. It records the source
 
 `--mode auto` visits indexed genomic blocks in seeded random order and samples fragments that pass the shared BAM, duplicate, contig, blacklist, and default 1–1,000 bp coverage filters. It counts the nucleosome-sized 120–250 bp subset in one-base histogram bins and bootstraps that raw histogram until its mode stabilizes or the maximum sample size is reached. Random block order avoids making the estimate depend on chromosome input order; restricting the modal search prevents abundant assay-specific short or very long fragments from defining nucleosome geometry. The resolved mode then sets the default discovery range to mode ±30 bp.
 
-Histogram smoothing is disabled by default. `--mode-histogram-smoothing binomial` explicitly enables the optional normalized `1,4,6,4,1` kernel. Smoothing remains opt-in because it can move or merge closely spaced modes.
+The mode is the integer length with the largest observed count; ties are resolved in favour of the lowest length.
 
-The treatment, control, and pooled estimates are printed as soon as each calculation finishes. `00_setup/*_fragment_mode_estimation.tsv` records the resolved mode, bootstrap interval, fragment counts, search bounds, smoothing method, stability result, and checkpoint count.
+The treatment, control, and pooled estimates are printed as soon as each calculation finishes. `00_setup/*_fragment_mode_estimation.tsv` records the resolved mode, bootstrap interval, fragment counts, search bounds, stability result, and checkpoint count.
 
 For example, a two-condition run reports lines of the form:
 
@@ -245,7 +259,7 @@ For Stage 1 analyses that will later be compared with `cutn-compare`, using the 
 A one-condition run writes:
 
 - `00_setup/`: mode and normalization reports;
-- `01_score_tracks/`: method-specific mode-centred score/positive-score BigWigs plus unscaled 1–1,000 bp coverage BigWigs generated in the same `tracks` pass;
+- `01_score_tracks/`: mode-centred PNS/`posPNS` BigWigs plus unscaled 1–1,000 bp coverage BigWigs generated in the same `tracks` pass;
 - `02_analysis_tracks/`: native condition-mean PNS and replicate/condition-mean coverage scaled to 100;
 - `03_peak_calls/`: treatment-defined nucleosome candidate peaks;
 - `04_peak_statistics/`: replicate statistics, annotated treatment peaks, seed/member classifications, and seeded clusters;

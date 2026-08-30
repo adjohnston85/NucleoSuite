@@ -24,11 +24,13 @@ For BAM-based workflows, generated contig names follow the BAM headers. Equivale
 
 For example, if nucleosome dyads occur at positions 1,000, 1,185, 1,370 and 1,555 bp, the dyads are separated by 185 bp. The DAC profile will show peaks at 185, 370 and 555 bp, corresponding to one, two and three nucleosome spacings. The spacing between successive DAC peaks can be used to estimate nucleosome repeat length.
 
+By default, the sum is divided by the number of eligible position pairs. This is a mean pair product, not a Pearson correlation: its values are not restricted to −1 to +1.
+
 ## DCC
 
 **Distance cross-correlation coefficient.** At signed lag $\ell$, DCC sums the products $A(x)B(x+\ell)$ for eligible position pairs. NucleoSuite defines lag as `position_B - position_A`.
 
-A DCC peak at 0 bp indicates that the signals tend to occur at the same positions. A peak at `+10 bp` indicates that the second signal is most strongly associated with positions 10 bp downstream of the first. DCC can compare dyads from different fragment-length classes or compare corresponding fragment-end signals.
+With `--signed-lags`, a DCC peak at 0 bp indicates that the signals tend to occur at the same positions, and a peak at `+10 bp` places the second signal 10 bp downstream of the first. Without this option, positive and negative lags are combined into absolute distances, so direction is not retained. DCC can compare dyads from different fragment-length classes or corresponding fragment-end signals. The default value is the pair-product sum divided by the number of eligible pairs; it is not a Pearson correlation and is not restricted to −1 to +1.
 
 ## Dinucleotide profile
 
@@ -66,7 +68,7 @@ Subtracting a vector's arithmetic mean from every value. PNS achieves zero total
 
 ## Mode estimation
 
-Estimation of the dominant accepted fragment length used to set PNS scoring geometry. `pns` and `cutn-suite` sample accepted fragments from seeded randomly ordered genomic blocks and bootstrap the raw integer length histogram until the mode stabilizes. Histogram smoothing is disabled by default and is available explicitly with `--mode-histogram-smoothing binomial`. `cutn-suite` uses an equal-weight pooled treatment/control mode by default. An integer `--mode` bypasses estimation.
+Estimation of the dominant accepted fragment length used to set PNS scoring geometry. `pns` and `cutn-suite` sample accepted fragments from seeded randomly ordered genomic blocks and bootstrap the raw integer length histogram until the mode stabilizes. `cutn-suite` uses an equal-weight pooled treatment/control mode by default. An integer `--mode` bypasses estimation.
 
 ## NRL
 
@@ -84,11 +86,11 @@ Adjustment for the number of position pairs that can contribute at each separati
 
 ## PNS
 
-**Probabilistic nucleosome score.** A length-adaptive sinusoidal contribution centred on each accepted fragment. Support width is $m+|L-m|$, so departure from the protected-DNA mode broadens the wave. Its positive distribution has 100-percent mass and its negative contribution has mass −100. Each complete kernel sums to zero; summed genomic scores retain their native scale.
+**Probabilistic nucleosome score.** A length-adaptive sinusoidal contribution centred on each accepted fragment. Support width is $m+|L-m|$, so departure from the protected-DNA mode broadens the wave. Its positive and negative positional distributions each have mass 100, with probability represented in percent. The signed kernel has +100 positive and −100 negative mass, giving total absolute mass 200. Each complete kernel sums to zero; summed genomic scores retain their native scale.
 
 ## `posPNS`
 
-The auxiliary non-negative PNS reference. Each complete signed fragment kernel is translated upward by its minimum before accumulation. The translated kernel preserves the waveform and is not renormalized. It differs from the positive lobe of the signed wave and is not the signal used for peak calling.
+The auxiliary non-negative PNS reference. The minimum of each complete signed fragment kernel is subtracted from every value, shifting that minimum to zero before accumulation. The translated kernel preserves the waveform and is not renormalized. It differs from the positive lobe of the signed wave and is not the signal used for peak calling.
 
 ## Positional offset
 

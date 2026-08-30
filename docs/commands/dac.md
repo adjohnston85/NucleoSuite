@@ -99,6 +99,6 @@ nucleosuite nrl sample_dac.tsv \
 
 ## Plot customization
 
-DAC plots show the raw DAC profile without peak detection or peak labels by default. To annotate DAC peaks, use `--plot-label-points peaks`. Peak calling then uses the same resolution-driven smoothing and refinement method as `nucleosuite nrl`; control it with `--peak-resolution` (default 160 bp). The raw DAC profile is retained in grey behind the local-maximum and detection-smoothed curves. See [Plot customization](../PLOTTING.md).
+DAC plots show the unsmoothed `DAC Value` column without peak detection or peak labels by default. This column is opportunity-normalized unless `--no-normalize-dac` was used. To annotate DAC peaks, use `--plot-label-points peaks`. Peak calling then uses the same resolution-driven smoothing and refinement method as `nucleosuite nrl`; control it with `--peak-resolution` (default 160 bp). The unsmoothed input profile remains visible in grey behind the local-maximum and detection-smoothed curves. See [Plot customization](../PLOTTING.md).
 
 [Back to the command reference](../COMMAND_REFERENCE.md)

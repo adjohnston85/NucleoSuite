@@ -66,12 +66,16 @@ Use `--bins N` for a fixed number of shared continuous bins or `--bin-width N` f
 
 ## Normalization
 
-`--normalization` can report:
+Normalization is calculated separately for each callset using the peaks inside the selected histogram range. Suppose a bin contains 20 of 100 plotted peaks and is 5 score units wide:
 
-- `count` — number of peaks in each bin;
-- `fraction` — fraction of peaks;
-- `percent` — percentage of peaks; or
-- `density` — frequency adjusted for continuous bin width.
+| `--normalization` | Meaning | Example |
+|---|---|---:|
+| `count` | Number of peaks in the bin | 20 |
+| `fraction` | Bin count / total plotted peaks | 0.20 |
+| `percent` | Fraction × 100 | 20% |
+| `density` | Fraction / bin width | 0.04 per score unit |
+
+Fractions sum to 1 and percentages sum to 100 across bins. For density, the sum of `height × bin width` is 1. Counts compare absolute numbers of peaks; fractions, percentages, and densities compare distribution shapes despite differences in callset size.
 
 ## Outputs
 

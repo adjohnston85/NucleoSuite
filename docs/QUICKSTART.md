@@ -28,12 +28,12 @@ nucleosuite pns \
   --out-prefix sample_pns
 ```
 
-The most commonly reused outputs are the PNS BigWig and nucleosome-region BED/bigBed. The protected-DNA mode is estimated automatically from the unsmoothed accepted-fragment histogram and printed during execution; use `--mode 167` to fix it explicitly. PNS uses a discrete sinusoidal kernel with +100 positive and −100 negative mass per complete fragment, with probability represented in percent. BigWigs retain the native sum of these contributions. See [`pns`](commands/pns.md) and [PNS in Algorithms](ALGORITHMS.md#probabilistic-nucleosome-scoring).
+The most commonly reused outputs are the PNS BigWig and nucleosome-region BED/bigBed. The protected-DNA mode is estimated automatically from the unsmoothed accepted-fragment histogram and printed during execution; use `--mode 167` to fix it explicitly. PNS uses a discrete sinusoidal kernel with +100 positive and −100 negative mass per complete fragment: total absolute mass 200, with probability represented in percent. BigWigs retain the native sum of these contributions. See [`pns`](commands/pns.md) and [PNS in Algorithms](ALGORITHMS.md#probabilistic-nucleosome-scoring).
 
 
 ### Filter nucleosome peaks by coverage
 
-When a coverage threshold should be applied during an PNS run:
+When a coverage threshold should be applied during a PNS run:
 
 ```bash
 nucleosuite pns \
@@ -154,7 +154,7 @@ nucleosuite aggregate \
   --output-prefix sample_ctcf
 ```
 
-This writes the average signal pattern and an individual-region heatmap.
+This writes the complete average signal pattern. Add `--write-detail-tables --max-heatmap-rows 5000` when an individual-region heatmap is also needed; adjust the row limit to suit the intended figure.
 
 ## 10. Calculate DAC from a dyad signal
 

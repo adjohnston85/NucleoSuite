@@ -51,8 +51,10 @@ def add_aggregate_parser(subparsers: argparse._SubParsersAction) -> argparse.Arg
         "--write-detail-tables", action="store_true",
         help=(
             "Write row-level heatmap outputs: the sorted heatmap matrix, heatmap-row "
-            "metadata, and the heatmap figure. These are omitted by default; aggregate "
-            "mean profiles, summaries, NRL outputs, and their figures are still written."
+            "metadata, and the heatmap figure. Retained rows use memory; combine this "
+            "option with --max-heatmap-rows for large region sets. These outputs are "
+            "omitted by default; aggregate mean profiles, summaries, NRL outputs, and "
+            "their figures are still written with bounded memory."
         ),
     )
     parser.add_argument("--window-half", type=int, default=2500, help="Bases extracted on each side of the aggregation centre.")
@@ -102,7 +104,7 @@ def add_aggregate_parser(subparsers: argparse._SubParsersAction) -> argparse.Arg
             "Use --no-nan-to-zero to reject windows containing missing values."
         ),
     )
-    parser.add_argument("--max-heatmap-rows", "--max-lines", dest="max_heatmap_rows", type=int, help="Maximum accepted rows included in the plotted/exported matrix; the complete aggregate still uses all accepted rows.")
+    parser.add_argument("--max-heatmap-rows", "--max-lines", dest="max_heatmap_rows", type=int, help="Maximum accepted rows retained for --write-detail-tables; the complete aggregate still uses all accepted rows. If omitted, every accepted row is retained when detail output is requested.")
     parser.add_argument("--subsample-mode", choices=["first", "random"], default="first", help="Choose the first rows or a reservoir sample when --max-heatmap-rows is set (default: first; use --seed for reproducible random sampling).")
     parser.add_argument("--stop-after-valid", type=int, help="Stop reading after this many accepted features; omit to scan the complete region BED.")
     parser.add_argument("--seed", type=int, help="Seed for random missing-strand orientation and random heatmap-row sampling.")

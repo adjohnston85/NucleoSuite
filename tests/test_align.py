@@ -294,3 +294,80 @@ def test_minus_strand_regions_are_reversed_into_feature_orientation(tmp_path, mo
     assert rows.shape == (2, 5)
     assert np.array_equal(rows[0], np.array([1, 2, 3, 4, 5], dtype=float))
     assert np.array_equal(rows[1], np.array([1, 2, 3, 4, 5], dtype=float))
+
+
+def test_default_aggregate_discards_rows_after_updating_complete_mean(
+    tmp_path, monkeypatch
+):
+    import csv
+    import sys
+    from types import SimpleNamespace
+    import nucleosuite.align as align
+
+    signal = np.arange(100, dtype=float)
+
+    class FakeBigWig:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def chroms(self):
+            return {"chr1": signal.size}
+
+        def values(self, chromosome, start, end, numpy=False):
+            return signal[start:end].copy()
+
+    monkeypatch.setitem(
+        sys.modules, "pyBigWig", SimpleNamespace(open=lambda path: FakeBigWig())
+    )
+    monkeypatch.setattr(
+        align,
+        "add_heatmap_row",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("mean-only aggregate retained a heatmap row")
+        ),
+    )
+    monkeypatch.setattr(
+        align,
+        "plot_outputs",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("mean-only aggregate attempted matrix plotting")
+        ),
+    )
+
+    bigwig = tmp_path / "signal.bw"
+    bigwig.touch()
+    regions = tmp_path / "regions.bed"
+    regions.write_text(
+        "chr1\t19\t20\tone\t0\t+\n"
+        "chr1\t39\t40\ttwo\t0\t+\n"
+        "chr1\t59\t60\tthree\t0\t+\n"
+    )
+    outputs = align.run_alignment(
+        AlignmentConfig(
+            bigwig=bigwig,
+            region_bed=regions,
+            output_dir=tmp_path / "out",
+            output_prefix="streamed",
+            window_half=1,
+            zero_thresh=0,
+            max_score=None,
+            nrl=False,
+        )
+    )
+
+    with outputs["aggregate"].open(encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    assert [float(row["score"]) for row in rows] == [38.0, 39.0, 40.0]
+    with outputs["summary"].open(encoding="utf-8") as handle:
+        summary = list(csv.DictReader(handle, delimiter="\t"))
+    statistics = {
+        row["key"]: row["value"]
+        for row in summary
+        if row["section"] == "statistics"
+    }
+    assert statistics["valid_total"] == "3"
+    assert statistics["selected_for_plot"] == "0"
+    assert "heatmap_matrix" not in outputs

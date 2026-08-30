@@ -85,7 +85,7 @@ def test_pospns_is_vertical_shift_of_complete_signed_wave_without_clipping_or_re
     assert np.allclose(shifted - signed, -signed.min())
     assert np.isclose(shifted.min(), 0.0)
     assert np.count_nonzero(shifted > 0) > np.count_nonzero(signed > 0)
-    assert not np.isclose(shifted.sum(), 1.0)
+    assert not np.isclose(shifted.sum(), 100.0)
 
 
 def test_pns_odd_support_has_one_central_maximum_and_even_support_two():

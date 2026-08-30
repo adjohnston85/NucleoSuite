@@ -2,7 +2,7 @@
 
 ## What this command does
 
-`pns` converts paired-end fragments into a probabilistic nucleosome score (PNS) and calls positive nucleosome regions and negative breakpoint peaks. Its length-adaptive sinusoidal kernels carry +100 positive and −100 negative mass, with positional probability represented in percent.
+`pns` converts paired-end fragments into a probabilistic nucleosome score (PNS) and calls positive nucleosome regions and negative breakpoint peaks. Its length-adaptive sinusoidal kernels carry +100 positive and −100 negative mass, giving total absolute mass 200 with positional probability represented in percent.
 
 ## Why use it
 
@@ -20,9 +20,9 @@ For fragment length $L$ and protected-DNA mode $m$, the scoring width is
 W(L,m)=m+|L-m|.
 ```
 
-For $L<m$, the wave extends $m-L$ bases beyond each fragment end. For $L\ge m$, it spans the fragment. An inverted cosine is sampled over that support and its positive and negative parts are separately normalized to +100 and −100. Every complete kernel sums to zero and has total absolute mass 200. Probability mass is expressed in percent; the peak height changes with width.
+For $L<m$, the wave extends $m-L$ bases beyond each fragment end. For $L\ge m$, it spans the fragment. An inverted cosine is sampled over that support and its positive and negative parts are separately normalized to +100 and −100. Every complete kernel sums to zero and has total absolute mass 200. Each side represents its own positional distribution with probability expressed in percent; the signed total is zero, while peak height changes with width.
 
-The `posPNS` reference is the whole signed kernel shifted upward by its minimum for each fragment. It retains the complete waveform and is not renormalized to mass 100. Genomic PNS and `posPNS` tracks are sums over fragments and retain their native values. Summed scores are not bounded by 100.
+The `posPNS` reference is the whole signed kernel shifted upward by subtracting its minimum for each fragment. It retains the complete waveform and is not renormalized to mass 100. Genomic PNS and `posPNS` tracks are sums over fragments and retain their native values. Summed scores are not bounded by 100.
 
 See [PNS in Algorithms](../ALGORITHMS.md#probabilistic-nucleosome-scoring) for the equations, discrete symmetry, worked geometry, explanatory plots, accumulation and interpretation.
 
@@ -77,7 +77,7 @@ nucleosuite pns \
 
 If the estimated mode is 165 bp, this scores fragments from 140–190 bp. An explicit `--frag-lower` or `--frag-upper` replaces only that side of the automatic interval. `--mode-search-lower` and `--mode-search-upper` control which fragment lengths are considered when estimating an automatic mode; they do not fix the final scoring interval.
 
-Raw PNS signal is used for peak calling by default. Savitzky–Golay smoothing is available but disabled (`--smooth-window 0`). Mode-histogram smoothing is also disabled by default; `--mode-histogram-smoothing binomial` is an independent option that affects only mode estimation.
+Raw PNS signal is used for peak calling by default. Savitzky–Golay smoothing is available but disabled (`--smooth-window 0`). Mode estimation selects the most frequent integer fragment length directly from the raw histogram.
 
 The resolved mode is printed during execution and written to `*_fragment_mode_estimation.tsv`. Output prefixes include the scoring method, mode, fragment range, and smoothing parameters so analyses using different geometries do not silently overwrite one another.
 

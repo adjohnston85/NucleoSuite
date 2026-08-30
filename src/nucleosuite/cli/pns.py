@@ -24,7 +24,8 @@ def register(subparsers):
         help="Build nucleosome-position score tracks from paired-end fragment geometry.",
         description=(
             "Build probabilistic nucleosome score (PNS) tracks using length-adaptive "
-            "sinusoidal kernels with positive probability mass represented as 100 percent. "
+            "sinusoidal kernels with +100 positive and -100 negative mass "
+            "per kernel (total absolute mass 200; probability represented in percent). "
             "Write native signed scores, non-negative reference tracks, optional "
             "auxiliary tracks, and nucleosome/breakpoint calls."
         ),

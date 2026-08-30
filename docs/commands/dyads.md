@@ -20,7 +20,7 @@ The default:
 
 places 0.5 on each central base. `left` or `right` places the full count 1 on the selected central base.
 
-See [Coverage, dyads, and fragment ends](../ALGORITHMS.md#dyads) for the coordinate definition.
+For example, `[100,267)` is 167 bp long and contributes 1 at position 183. `[100,268)` is 168 bp long and contributes 0.5 at 183 and 0.5 at 184 with the default split rule. See [Dyads](../ALGORITHMS.md#dyads) for the coordinate definitions.
 
 ## Basic usage
 

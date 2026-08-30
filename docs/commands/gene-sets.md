@@ -49,6 +49,8 @@ The rules produce two set types:
 
 A leftover category contains genes that did not enter **any** candidate set. Genes that entered multiple candidates and were subsequently excluded are not reclassified as leftover.
 
+For example, if a gene qualifies for both active and weak candidates and the weak rule excludes active candidates, it is removed from the weak final set. Its active final membership is decided by the active rule. It cannot become leftover because it qualified for at least one candidate category.
+
 See [Gene-set assignment](../ALGORITHMS.md#gene-set-assignment) for the exact set definition.
 
 ## Bundled default categories

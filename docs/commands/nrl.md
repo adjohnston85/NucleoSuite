@@ -33,6 +33,15 @@ For example, with `--peak-resolution 160`:
 160 / 6 = 26.7  -> 21 bp local-maximum smoothing
 ```
 
+| Resolution | Broad detection window | Finer refinement window | Minimum retained peak separation |
+|---:|---:|---:|---:|
+| 120 bp | 41 bp | 11 bp | 120 bp |
+| 130 bp | 51 bp | 21 bp | 130 bp |
+| 160 bp | 61 bp | 21 bp | 160 bp |
+| 200 bp | 71 bp | 31 bp | 200 bp |
+
+Increasing resolution uses wider smoothing and requires greater separation between called peaks. Resolution is not the reported repeat length: a 160 bp setting can retain peaks 185 bp apart and yield an NRL near 185 bp.
+
 See [Nucleosome repeat length](../ALGORITHMS.md#nucleosome-repeat-length) for the exact calculations.
 
 ## Basic usage
@@ -69,7 +78,7 @@ nucleosuite nrl sample_dac.tsv \
   --output-prefix sample_periodicity
 ```
 
-The cfDNA and MNase suites use resolution 0 for their separate short-range periodicity summaries while using the configured long-range NRL resolution for the main NRL analysis.
+The cfDNA and MNase suites use resolution 1 bp for short-range periodicity and default to 8 bp for intermediate periodicity. These values require 1 bp and 8 bp peak separation respectively, but produce no smoothing because both derived windows are below 11 bp. Their main long-range NRL analysis uses the configured NRL resolution, default 160 bp.
 
 ## How to interpret the result
 

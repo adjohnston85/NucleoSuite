@@ -20,6 +20,7 @@ from nucleosuite.align import (
     central_crop,
     make_output_prefix,
     no_valid_regions_message,
+    plot_mean_profile,
     plot_outputs,
     resolve_output_paths,
     resolve_nrl_exclusion,
@@ -130,10 +131,32 @@ def _resolve_contigs(args: argparse.Namespace) -> tuple[list[str], list[tuple[st
     return selected, [(chrom, sizes[chrom]) for chrom in selected]
 
 
-def _worker(namespace_data: dict, contig: str, contig_dir: str, prefix: str, region_bed: str, seed: int | None) -> tuple[int, str]:
+def _worker(
+    namespace_data: dict,
+    contig: str,
+    contig_dir: str,
+    prefix: str,
+    region_bed: str,
+    seed: int | None,
+) -> tuple[int, str, str]:
     from nucleosuite.cli.aggregate import run_from_args
 
     data = dict(namespace_data)
+    requested_details = bool(data.get("write_detail_tables", False))
+    requested_stop = data.get("stop_after_valid")
+    needs_matrix_for_combine = requested_details or requested_stop is not None
+    if requested_stop is not None:
+        # The combiner needs at most the first K rows from each ordered contig
+        # to reproduce a global --stop-after-valid K without scanning or retaining
+        # the remainder of any contig.
+        worker_max_rows = None
+        worker_subsample_mode = "first"
+    else:
+        worker_max_rows = data.get("max_heatmap_rows") if requested_details else None
+        worker_subsample_mode = (
+            data.get("subsample_mode", "first") if requested_details else "first"
+        )
+    accumulator = Path(contig_dir) / f"{prefix}_aggregate_accumulator.tsv.gz"
     data.update(
         {
             "region_bed": Path(region_bed),
@@ -145,10 +168,11 @@ def _worker(namespace_data: dict, contig: str, contig_dir: str, prefix: str, reg
             "plotted_mean_output": None,
             "mean_plot_output": None,
             "summary_output": None,
-            "write_detail_tables": True,
-            "max_heatmap_rows": None,
-            "stop_after_valid": None,
-            "subsample_mode": "first",
+            "accumulator_output": accumulator,
+            "write_detail_tables": needs_matrix_for_combine,
+            "max_heatmap_rows": worker_max_rows,
+            "stop_after_valid": requested_stop,
+            "subsample_mode": worker_subsample_mode,
             "breadth": 1.0,
             "sort_mode": "unsorted",
             "seed": seed,
@@ -159,7 +183,11 @@ def _worker(namespace_data: dict, contig: str, contig_dir: str, prefix: str, reg
             "_per_contig_worker": True,
         }
     )
-    return int(run_from_args(argparse.Namespace(**data)) or 0), str(Path(contig_dir) / prefix)
+    return (
+        int(run_from_args(argparse.Namespace(**data)) or 0),
+        str(Path(contig_dir) / prefix),
+        str(accumulator),
+    )
 
 
 def _iter_matrix(path: Path) -> tuple[np.ndarray, Iterator[np.ndarray]]:
@@ -178,6 +206,40 @@ def _iter_matrix(path: Path) -> tuple[np.ndarray, Iterator[np.ndarray]]:
             handle.close()
 
     return x_values, rows()
+
+
+def _read_accumulator(
+    path: Path,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
+    opener = gzip.open if str(path).lower().endswith(".gz") else open
+    positions: list[int] = []
+    totals: list[float] = []
+    counts: list[int] = []
+    accepted_regions: int | None = None
+    with opener(path, "rt", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        required = {
+            "relative_position", "signal_sum", "valid_count", "accepted_regions"
+        }
+        if reader.fieldnames is None or not required.issubset(reader.fieldnames):
+            raise ValueError(f"Invalid aggregate accumulator: {path}")
+        for row in reader:
+            positions.append(int(float(row["relative_position"])))
+            totals.append(float(row["signal_sum"]))
+            counts.append(int(float(row["valid_count"])))
+            row_total = int(float(row["accepted_regions"]))
+            if accepted_regions is None:
+                accepted_regions = row_total
+            elif accepted_regions != row_total:
+                raise ValueError(
+                    f"Inconsistent accepted-region total in {path}"
+                )
+    return (
+        np.asarray(positions, dtype=int),
+        np.asarray(totals, dtype=float),
+        np.asarray(counts, dtype=np.int64),
+        int(accepted_regions or 0),
+    )
 
 
 def _read_stats(path: Path) -> AlignmentStats:
@@ -230,6 +292,7 @@ def _combine(
     valid_total = 0
     reference_x: np.ndarray | None = None
     stop = False
+    entry_valid_totals: list[int] = []
 
     for entry in entries:
         prefix = Path(str(entry["prefix"]))
@@ -240,42 +303,125 @@ def _combine(
                 if field in {"valid_total", "selected_for_plot", "stopped_after_valid_limit"}:
                     continue
                 setattr(stats, field, getattr(stats, field) + getattr(part_stats, field))
-        matrix_path = prefix.parent / f"{prefix.name}_heatmap_matrix.tsv.gz"
-        x_values, rows = _iter_matrix(matrix_path)
-        if reference_x is None:
-            reference_x = x_values
-        elif not np.array_equal(reference_x, x_values):
-            raise ValueError(f"Aggregate matrix positions differ in {matrix_path}")
-        for row in rows:
-            if running_sum is None:
-                running_sum = np.zeros_like(row)
-                running_count = np.zeros_like(row, dtype=np.int64)
-            finite = np.isfinite(row)
-            running_sum[finite] += row[finite]
-            assert running_count is not None
-            running_count[finite] += 1
-            valid_total += 1
-            add_heatmap_row(
-                selected_rows,
-                row,
-                valid_total,
-                config.max_heatmap_rows,
-                config.subsample_mode,
-                rng,
-            )
-            if config.stop_after_valid is not None and valid_total >= config.stop_after_valid:
-                stop = True
-                break
-        if stop:
-            break
 
-    if running_sum is None or valid_total == 0 or not selected_rows:
+    accumulator_paths = [
+        Path(str(entry["accumulator"]))
+        for entry in entries
+        if entry.get("accumulator")
+    ]
+    use_accumulators = (
+        config.stop_after_valid is None
+        and len(accumulator_paths) == len(entries)
+        and all(path.is_file() for path in accumulator_paths)
+    )
+
+    if use_accumulators:
+        for entry, accumulator_path in zip(entries, accumulator_paths):
+            x_values, part_sum, part_count, part_valid_total = _read_accumulator(
+                accumulator_path
+            )
+            if reference_x is None:
+                reference_x = x_values
+                running_sum = np.zeros_like(part_sum)
+                running_count = np.zeros_like(part_count)
+            elif not np.array_equal(reference_x, x_values):
+                raise ValueError(
+                    f"Aggregate accumulator positions differ in {accumulator_path}"
+                )
+            assert running_sum is not None and running_count is not None
+            running_sum += part_sum
+            running_count += part_count
+            valid_total += part_valid_total
+            entry_valid_totals.append(part_valid_total)
+
+    if not use_accumulators or config.write_detail_tables:
+        random_allocations: list[int] | None = None
+        if (
+            use_accumulators
+            and config.write_detail_tables
+            and config.max_heatmap_rows is not None
+            and config.subsample_mode == "random"
+        ):
+            remaining_draw = min(config.max_heatmap_rows, valid_total)
+            remaining_population = valid_total
+            random_allocations = []
+            for population in entry_valid_totals:
+                if remaining_draw == 0:
+                    selected = 0
+                elif population == remaining_population:
+                    selected = remaining_draw
+                else:
+                    selected = int(
+                        rng.hypergeometric(
+                            population,
+                            remaining_population - population,
+                            remaining_draw,
+                        )
+                    )
+                random_allocations.append(selected)
+                remaining_draw -= selected
+                remaining_population -= population
+
+        sampled_index = 0
+        for entry_index, entry in enumerate(entries):
+            prefix = Path(str(entry["prefix"]))
+            matrix_path = prefix.parent / f"{prefix.name}_heatmap_matrix.tsv.gz"
+            x_values, rows = _iter_matrix(matrix_path)
+            if reference_x is None:
+                reference_x = x_values
+            elif not np.array_equal(reference_x, x_values):
+                raise ValueError(f"Aggregate matrix positions differ in {matrix_path}")
+            if random_allocations is not None:
+                part_rows = list(rows)
+                take = random_allocations[entry_index]
+                if take > len(part_rows):
+                    raise ValueError(
+                        f"Aggregate reservoir in {matrix_path} has {len(part_rows)} "
+                        f"rows but {take} are required"
+                    )
+                if take:
+                    chosen = rng.choice(len(part_rows), size=take, replace=False)
+                    selected_rows.extend(part_rows[int(index)].copy() for index in chosen)
+                continue
+
+            for row in rows:
+                if not use_accumulators:
+                    if running_sum is None:
+                        running_sum = np.zeros_like(row)
+                        running_count = np.zeros_like(row, dtype=np.int64)
+                    finite = np.isfinite(row)
+                    running_sum[finite] += row[finite]
+                    assert running_count is not None
+                    running_count[finite] += 1
+                    valid_total += 1
+                if config.write_detail_tables:
+                    sampled_index += 1
+                    add_heatmap_row(
+                        selected_rows,
+                        row,
+                        sampled_index,
+                        config.max_heatmap_rows,
+                        config.subsample_mode,
+                        rng,
+                    )
+                if (
+                    not use_accumulators
+                    and config.stop_after_valid is not None
+                    and valid_total >= config.stop_after_valid
+                ):
+                    stop = True
+                    break
+            if stop:
+                break
+
+    if running_sum is None or running_count is None or valid_total == 0:
         raise RuntimeError(no_valid_regions_message(stats, config))
+    if config.write_detail_tables and not selected_rows:
+        raise RuntimeError("No vectors were retained for heatmap output")
     stats.valid_total = valid_total
     stats.selected_for_plot = len(selected_rows)
     stats.stopped_after_valid_limit = int(stop)
 
-    assert running_count is not None
     full_mean = np.divide(
         running_sum,
         running_count,
@@ -299,13 +445,24 @@ def _combine(
             exclusion_end=exclusion_end,
         )
         write_aggregate_nrl_outputs(nrl_result, config, outputs)
-    matrix = np.vstack(selected_rows)
-    matrix, x_values = central_crop(matrix, config.breadth)
-    matrix, original_order, sort_scores = sort_matrix(matrix, config.sort_mode)
     if config.write_detail_tables:
+        matrix = np.vstack(selected_rows)
+        matrix, x_values = central_crop(matrix, config.breadth)
+        matrix, original_order, sort_scores = sort_matrix(matrix, config.sort_mode)
         write_heatmap_matrix(matrix, x_values, outputs["heatmap_matrix"])
         write_heatmap_row_metadata(outputs["row_metadata"], original_order, sort_scores, config.sort_mode)
-    plotted_mean = plot_outputs(matrix, x_values, config, outputs)
+        plotted_mean = plot_outputs(matrix, x_values, config, outputs)
+    else:
+        if config.breadth < 1.0:
+            cropped, x_values = central_crop(
+                full_mean[np.newaxis, :], config.breadth
+            )
+            plotted_mean = cropped[0]
+        else:
+            assert reference_x is not None
+            x_values = reference_x
+            plotted_mean = full_mean
+        plot_mean_profile(plotted_mean, x_values, config, outputs)
     write_profile(plotted_mean, outputs["plotted_mean"], x_values)
     write_summary(outputs["summary"], config, stats, outputs)
     return {name: str(path) for name, path in outputs.items()}
@@ -397,10 +554,17 @@ def run_aggregate_per_contig(args: argparse.Namespace, serial_runner) -> int:
         for future in as_completed(futures):
             contig, expected = futures[future]
             try:
-                exit_code, prefix = future.result()
+                exit_code, prefix, accumulator = future.result()
                 if exit_code:
                     failures.append(f"{contig}: exit code {exit_code}")
-                entries.append({"contig": contig, "prefix": prefix, "exit_code": exit_code})
+                entries.append(
+                    {
+                        "contig": contig,
+                        "prefix": prefix,
+                        "accumulator": accumulator,
+                        "exit_code": exit_code,
+                    }
+                )
                 if exit_code == 0:
                     print(f"Completed {contig}")
             except Exception as error:
@@ -412,7 +576,12 @@ def run_aggregate_per_contig(args: argparse.Namespace, serial_runner) -> int:
     manifest = {
         "schema_version": 1,
         "command": "aggregate",
-        "combine_strategy": "aggregate_matrix",
+        "combine_strategy": (
+            "aggregate_matrix"
+            if bool(getattr(args, "write_detail_tables", False))
+            or getattr(args, "stop_after_valid", None) is not None
+            else "aggregate_accumulator"
+        ),
         "base_name": base_name,
         "combined_name": base_name,
         "root_dir": str(root),

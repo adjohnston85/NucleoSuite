@@ -20,21 +20,19 @@ def test_bootstrap_mode_recovers_dominant_length():
     assert modes.size == 100
 
 
-def test_mode_histogram_is_unsmoothed_by_default_and_smoothing_is_explicit():
+def test_mode_uses_raw_integer_counts_and_breaks_ties_at_lowest_length():
+    # An isolated maximum wins over a wider group of lower-count bins.
     counts = np.asarray([0, 10, 0, 9, 9, 9, 0], dtype=int)
-    raw_mode, *_ = bootstrap_histogram_mode(
+    mode, *_ = bootstrap_histogram_mode(
         counts, lower=120, replicates=20, seed=7
     )
-    smoothed_mode, *_ = bootstrap_histogram_mode(
-        counts,
-        lower=120,
-        replicates=20,
-        seed=7,
-        histogram_smoothing="binomial",
-    )
+    assert mode == 121
 
-    assert raw_mode == 121
-    assert smoothed_mode == 124
+    tied = np.asarray([0, 10, 0, 10, 0], dtype=int)
+    tied_mode, *_ = bootstrap_histogram_mode(
+        tied, lower=120, replicates=20, seed=7
+    )
+    assert tied_mode == 121
 
 
 def test_pooled_mode_equal_weights_target_and_control_histograms():
@@ -92,5 +90,4 @@ def test_pns_auto_mode_can_use_fragment_interval_input(tmp_path):
     assert mode == 167
     assert source == "automatic"
     assert estimate is not None
-    assert estimate.histogram_smoothing == "none"
     assert (args.frag_lower, args.frag_upper) == (137, 197)

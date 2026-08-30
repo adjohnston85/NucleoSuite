@@ -168,7 +168,16 @@ chrom    chromStart    chromEnd    name    score    strand    thickStart    thic
 | 7 | `thickStart` | Representative call centre |
 | 8 | `thickEnd` | Representative call centre plus one base |
 
-For PNS calls, column 7 is the retained positive- or negative-region midpoint; for WPS it is the selected above-median subrun midpoint. Score-derived BED files preserve six decimal places in column 5. During bigBed conversion, `--bigbed-score-scale` defaults to 1 and the integer score is rounded and clamped to 0–1000. BigWig values retain their native scale. Commands that accept peak tracks, including `region-extract`, use column 7 by default.
+For PNS calls, column 7 is the retained positive- or negative-region midpoint; for WPS it is the selected above-median subrun midpoint. Score-derived BED files preserve six decimal places in column 5. During bigBed conversion, `--bigbed-score-scale` defaults to 1 and the integer score is rounded and clamped to 0–1000. BigWig values retain their native scale.
+
+Commands do not all use the same default reference position. When column 7 is the intended coordinate, select it with the appropriate option:
+
+| Command | Default position | Option for BED column 7 |
+|---|---|---|
+| `region-extract` (supplied peaks) | Column 7 when present and numeric; otherwise midpoint | `--peak-center-column 7` |
+| `distances` | Interval midpoint | `--position-column 7` |
+| `compare-positions` | Interval midpoint | `--main-summit-column 7` and `--compare-summit-column 7` for the respective inputs |
+| `aggregate` | Interval midpoint | `--point-col 7` |
 
 ### Empirical peak comparison BED
 
@@ -223,7 +232,7 @@ BigWig and bigBed are indexed binary genomic formats described by Kent et al. (2
 
 Native PNS tracks are averaged for discovery, so their amplitudes remain depth-dependent. Coverage normalization is separate: mean coverage across a candidate interval is the default Stage 1 replicate measurement, and the maximum is an explicit option.
 
-Standalone `pns` writes `*_fragment_mode_estimation.tsv`. The table records whether the mode was automatic or explicit, the resolved numeric mode, seed, bootstrap interval, sampled and in-range fragment counts, search bounds, histogram-smoothing setting, convergence result, checkpoint count, and the length:count histogram. Automatic mode estimation uses unsmoothed counts by default. `wps` uses its explicit protection-window and fragment-range settings and does not write a mode-estimation report.
+Standalone `pns` writes `*_fragment_mode_estimation.tsv`. The table records whether the mode was automatic or explicit, the resolved numeric mode, seed, bootstrap interval, sampled and in-range fragment counts, search bounds, convergence result, checkpoint count, and the length:count histogram. Automatic mode estimation selects the most frequent length directly from raw integer counts, with ties resolved at the lowest length. `wps` uses its explicit protection-window and fragment-range settings and does not write a mode-estimation report.
 
 `cutn_stage1_manifest.json` records the score method, treatment/control modes, fragment limits, contigs, input mode, Stage 1 statistical method, peak and cluster paths, condition-mean tracks, separate treatment/control replicate records, native PNS and per-replicate coverage normalization, cluster anchors, and aggregate outputs. `cutn-compare` reads these saved paths directly and validates compatible scoring geometry before measurement.
 
@@ -364,9 +373,9 @@ Dinucleotide-profile commands write `_dinuc_profile_counts.tsv` alongside the fr
 
 | Suffix | Contents |
 |---|---|
-| `_pns.bw` | Mean-centred PNS signal |
+| `_pns.bw` | Sum of signed PNS fragment kernels, in native score units |
 | `_pns_smoothed.bw` | Optional Savitzky–Golay-smoothed PNS signal; not written by default |
-| `_posPNS.bw` | Endpoint-support distribution before mean subtraction |
+| `_posPNS.bw` | Sum of complete PNS kernels shifted upward so each kernel has a minimum of zero |
 | `_coverage.bw` | Fragment coverage |
 | `_dyad.bw` | Fragment-centre signal |
 | `_fragment_ends.bw` | Combined fragment-end signal |

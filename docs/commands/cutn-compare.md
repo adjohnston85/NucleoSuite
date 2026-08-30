@@ -2,7 +2,7 @@
 
 ## What this command does
 
-`cutn-compare` performs cluster-only Stage 2 analysis from two completed `cutn-suite` Stage 1 manifests. It compares target-specific cluster enrichment between biological conditions, summarizes observed cluster overlap and occupied bases, and creates coordinate-matched cluster-centred method-specific score aggregates. It reads saved BigWigs and does not revisit BAM files.
+`cutn-compare` performs cluster-only Stage 2 analysis from two completed `cutn-suite` Stage 1 manifests. It compares target-specific cluster enrichment between biological conditions, summarizes observed cluster overlap and occupied bases, and creates PNS aggregates centred on matching cluster coordinates. It reads saved BigWigs and does not revisit BAM files.
 
 ## Why use it
 
@@ -114,13 +114,13 @@ U_k=\max(Y_{T_k})-\min(Y_{C_k}).
 
 These are descriptive summaries of the observed callsets and their genomic overlap.
 
-### 7. Create matched cluster-centred method-specific score aggregates
+### 7. Create matched cluster-centred PNS aggregates
 
 For each shared or condition-specific locus, the common anchor is the strongest coverage-scored member peak among all contributing Stage 1 clusters. Both conditions are aligned to the same ordered anchors, so heatmap rows refer to identical loci.
 
 Native PNS replicate tracks are averaged directly for discovery and cluster-centred positioning. PNS and `posPNS` retain their native scale; sequencing depth can therefore affect their amplitudes. Broad-range coverage is independently scaled to a non-zero mean of 100 for Stage 1 treatment/control measurements, with mean coverage across each candidate interval used by default. Stage 2 uses raw broad coverage for its statistical model.
 
-The matched outputs include condition-specific heatmaps with one common symmetric colour range, replicate and replicate-combined mean profiles, cluster-bootstrap 95% bands, and directional NRLs. Defaults are ±1,000 bp around the anchor, 140 bp peak resolution, central peak order 0 included, and regression through peak orders 0–3 with no central exclusion. Each Stage 1 directory also contains an own-cluster aggregate; the Stage 2 matched aggregate is intended for direct visual comparison between conditions.
+The matched outputs include condition-specific heatmaps with one common symmetric colour range, replicate and replicate-combined mean profiles, cluster-bootstrap 95% bands, and directional NRLs. Both conditions use the cluster-aggregate settings recorded in the condition 1 manifest. Standard defaults are ±1,000 bp around the anchor, 130 bp peak resolution (51 bp detection and 21 bp refinement smoothing), and regression through peak orders 0–3 with no central exclusion. A central order-0 peak is included when one is called within half the resolution of the anchor. Each Stage 1 directory also contains an own-cluster aggregate; the Stage 2 matched aggregate is intended for direct visual comparison between conditions.
 
 ## Outputs
 

@@ -47,7 +47,6 @@ def test_wps_peak_caller_is_default():
     assert args.protection == 120
     assert (args.frag_lower, args.frag_upper) == (120, 180)
     assert not hasattr(args, "mode")
-    assert not hasattr(args, "mode_histogram_smoothing")
 
 
 def test_call_peaks_method_specific_smoothing_defaults():
@@ -70,7 +69,6 @@ def test_pns_cli_defaults_to_pns_raw_tracks_and_zero_gap():
 
     args = build_parser().parse_args(["pns", "--bam", "sample.bam"])
     assert args.mode_length == "auto"
-    assert args.mode_histogram_smoothing == "none"
     assert args.smooth_window == 0
     assert args.max_neg_run == 0
     assert args.scoring_method == "pns"

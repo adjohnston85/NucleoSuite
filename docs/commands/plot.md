@@ -140,7 +140,7 @@ The compact signed-lag DCC default uses solid 10 bp major guides and dashed 5 bp
 
 ## DAC publication-style replots
 
-DAC replots show the raw DAC profile only by default. No smoothing, peak detection, peak markers, or peak labels are added unless peak detection is explicitly requested.
+DAC replots show the unsmoothed `DAC Value` column by default. This is normally the opportunity-normalized profile; it is the raw pair-product sum only when the source calculation used `--no-normalize-dac`. No smoothing, peak detection, peak markers, or peak labels are added unless peak detection is explicitly requested.
 
 Enable peak detection with `--detect-peaks`. DAC then uses the same resolution-driven smoothing and peak-calling method as the standalone `nrl` command. `--peak-resolution` controls the minimum peak spacing and both smoothing scales; the default 160 bp resolution gives 61 bp detection smoothing and 21 bp local-maximum refinement. The raw profile is drawn in grey behind those two smoothed profiles.
 

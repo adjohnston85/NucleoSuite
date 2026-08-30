@@ -62,7 +62,7 @@ def geometry_figure(directory, mode=167):
 
 def adaptation_figure(directory, mode=167):
     lengths=[137,152,167,182,197]
-    colors=["#377bb5","#9467bd","#cf3e4e","#e29331","#2b9b74"]
+    colors=["#377bb5","#9467bd","#cf3e4e","#2b9b74","#e29331"]
     signed,_=precompute_distributions(lengths,mode)
     fig=plt.figure(figsize=(11.5,7.0),layout="constrained")
     gs=fig.add_gridspec(3,2,width_ratios=[1.45,1],height_ratios=[0.85,1,1])

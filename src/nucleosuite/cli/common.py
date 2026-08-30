@@ -62,16 +62,6 @@ def add_mode_estimation_arguments(
     parser.add_argument("--mode-max-change", type=int, default=1, help="Largest mode range allowed across stable checkpoints (default: 1 bp).")
     parser.add_argument("--mode-max-ci-width", type=float, default=4.0, help="Largest bootstrap 95%% interval width allowed for convergence (default: 4 bp).")
     parser.add_argument("--mode-block-bp", type=int, default=1_000_000, help="Genomic block size used for seeded random sampling (default: 1000000 bp).")
-    parser.add_argument(
-        "--mode-histogram-smoothing",
-        choices=("none", "binomial"),
-        default="none",
-        help=(
-            "Histogram processing used for mode selection and bootstrap draws: "
-            "none uses the observed integer counts; binomial applies the optional "
-            "1,4,6,4,1 kernel (default: none)."
-        ),
-    )
 
 
 def resolve_fragment_mode(args, value: str | int, *, command: str):
@@ -118,9 +108,7 @@ def resolve_fragment_mode(args, value: str | int, *, command: str):
         raise ValueError("Automatic mode-stability limits must be non-negative")
 
     print(
-        f"[{command}] Estimating fragment mode from an unsmoothed histogram"
-        if args.mode_histogram_smoothing == "none"
-        else f"[{command}] Estimating fragment mode with optional binomial histogram smoothing",
+        f"[{command}] Estimating fragment mode from raw integer counts",
         flush=True,
     )
     common = dict(
@@ -137,7 +125,6 @@ def resolve_fragment_mode(args, value: str | int, *, command: str):
         bootstrap_replicates=args.mode_bootstrap,
         block_bp=args.mode_block_bp,
         seed=seed,
-        histogram_smoothing=args.mode_histogram_smoothing,
         blacklist_bed=getattr(args, "blacklist_bed", None),
         max_duplicates=args.max_duplicates,
         dedup_scope=args.dedup_scope,
