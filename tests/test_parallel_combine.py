@@ -639,6 +639,50 @@ def test_tree_combination_regenerates_one_combined_track_report(tmp_path: Path) 
     assert Path(result["combine_log"]).name == "combine_steps.log"
 
 
+def test_tree_combination_ignores_nested_worker_logs_and_markers(
+    tmp_path: Path,
+) -> None:
+    """Per-contig command logs are not chromosome-combinable outputs."""
+
+    from nucleosuite.combine import combine_directory_trees
+
+    contigs = [*[f"chr{index}" for index in range(1, 23)], "chrX"]
+    roots = [tmp_path / "per_contig" / name for name in contigs]
+    for root in roots:
+        prefix = root / "01_combined_tracks" / "pns" / f"sample_{root.name}_PNS"
+        _write_track_report(
+            root / "01_combined_tracks" / f"sample_{root.name}_completion_report.tsv",
+            prefix,
+        )
+        command_log = (
+            root
+            / "01_combined_tracks"
+            / "logs"
+            / "commands"
+            / f"20260828_{root.name}_tracks.log"
+        )
+        command_log.parent.mkdir(parents=True, exist_ok=True)
+        command_log.write_text(f"completed {root.name}\n", encoding="utf-8")
+        marker = root / "01_combined_tracks" / ".done" / f"{root.name}.complete"
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text("complete\n", encoding="utf-8")
+
+    output = tmp_path / "combined"
+    result = combine_directory_trees(
+        roots,
+        output,
+        chrom_sizes=[(contig, 100) for contig in contigs],
+        include_roots=["01_combined_tracks"],
+        sample_name="sample",
+        strict_complete=True,
+    )
+
+    assert result["incomplete_groups"] == []
+    assert result["warnings"] == []
+    assert not (output / "01_combined_tracks" / "logs").exists()
+    assert not (output / "01_combined_tracks" / ".done").exists()
+
+
 def test_tree_combination_rejects_missing_contig_contribution_in_strict_mode(
     tmp_path: Path,
 ) -> None:

@@ -2058,7 +2058,7 @@ def combine_directory_trees(
                 continue
             if any(part in exclude_parts for part in relative.parts):
                 continue
-            if relative.parts and relative.parts[0] in {"logs", ".done"}:
+            if any(part in {"logs", ".done"} for part in relative.parts):
                 continue
             if relative.name.endswith((".bb.empty", ".bigBed.empty")):
                 virtual = relative.with_name(relative.name[:-6])

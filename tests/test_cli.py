@@ -22,7 +22,7 @@ def subparser_choices(parser: argparse.ArgumentParser) -> set[str]:
 
 
 def test_version_is_current_release():
-    assert __version__ == "0.11.6"
+    assert __version__ == "0.11.7"
 
 
 def test_all_primary_commands_are_registered():
