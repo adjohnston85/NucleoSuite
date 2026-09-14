@@ -49,6 +49,7 @@ class GeneSetRule:
     expression: str
     rpn: tuple[str, ...]
     state_names: frozenset[str]
+    required_tss_state: str | None = None
     exclude_if_candidate: frozenset[str] = frozenset()
 
 
@@ -260,7 +261,7 @@ def load_rules(
     config_path: str | Path | None,
     inline_rules: Sequence[str] | None,
 ) -> list[GeneSetRule]:
-    rows: list[tuple[str, str, frozenset[str]]] = []
+    rows: list[tuple[str, str, str | None, frozenset[str]]] = []
     if config_path is not None and inline_rules:
         raise ValueError("Use either --config or --gene-set, not both")
     if inline_rules:
@@ -268,7 +269,7 @@ def load_rules(
             if "=" not in item:
                 raise ValueError("--gene-set values must use NAME=RULE")
             name, expression = item.split("=", 1)
-            rows.append((name.strip(), expression.strip(), frozenset()))
+            rows.append((name.strip(), expression.strip(), None, frozenset()))
     elif config_path is not None:
         with open(config_path, encoding="utf-8-sig", newline="") as handle:
             reader = csv.DictReader(handle, delimiter="\t")
@@ -289,22 +290,32 @@ def load_rules(
             for row in reader:
                 name = (row.get("set_name") or "").strip()
                 expression = (row.get("include_rule") or "").strip()
+                required_tss_state = (row.get("required_tss_state") or "").strip() or None
                 exclusions = _split_set_names(row.get(exclusion_column) if exclusion_column else None)
-                if name or expression or exclusions:
-                    rows.append((name, expression, exclusions))
+                if name or expression or required_tss_state or exclusions:
+                    rows.append((name, expression, required_tss_state, exclusions))
     else:
         raise ValueError("A gene-set config or one or more --gene-set rules is required")
 
     rules: list[GeneSetRule] = []
     seen: set[str] = set()
-    for name, expression, exclusions in rows:
+    for name, expression, required_tss_state, exclusions in rows:
         if not name or not expression:
             raise ValueError("Each gene-set definition requires a name and include rule")
         if name in seen:
             raise ValueError(f"Duplicate gene-set name: {name}")
         seen.add(name)
         rpn, state_names = expression_to_rpn(expression)
-        rules.append(GeneSetRule(name, expression, rpn, state_names, exclusions))
+        rules.append(
+            GeneSetRule(
+                name,
+                expression,
+                rpn,
+                state_names,
+                required_tss_state,
+                exclusions,
+            )
+        )
     if len(rules) < 2:
         raise ValueError("Define at least two gene sets so overlap handling is meaningful")
 
@@ -422,6 +433,47 @@ def gene_anchor_interval(record: GeneRecord) -> tuple[int, int]:
     if strand == "-":
         return record.end - 1, record.end
     return record.start, record.end
+
+
+def intersect_states_by_tss(
+    genes: Sequence[GeneRecord], states: Sequence[StateRecord]
+) -> dict[str, set[str]]:
+    """Return states overlapping each strand-aware one-base TSS.
+
+    Plus-strand genes use ``start:start+1`` and minus-strand genes use
+    ``end-1:end``. Unstranded records have no usable TSS and therefore receive
+    an empty state set.
+    """
+    states_by_chrom: dict[str, list[StateRecord]] = defaultdict(list)
+    anchors_by_chrom: dict[str, list[tuple[int, int, GeneRecord]]] = defaultdict(list)
+    for state in states:
+        states_by_chrom[state.chrom].append(state)
+    for gene in genes:
+        strand = _gene_strand(gene)
+        if strand not in {"+", "-"}:
+            continue
+        start, end = gene_anchor_interval(gene)
+        anchors_by_chrom[gene.chrom].append((start, end, gene))
+
+    result: dict[str, set[str]] = {gene.gene_id: set() for gene in genes}
+    for chrom, anchors in anchors_by_chrom.items():
+        chrom_states = states_by_chrom.get(chrom, [])
+        anchors.sort(key=lambda item: (item[0], item[1], item[2].gene_id))
+        state_index = 0
+        active: list[StateRecord] = []
+        for start, end, gene in anchors:
+            active = [state for state in active if state.end > start]
+            while state_index < len(chrom_states) and chrom_states[state_index].start < end:
+                state = chrom_states[state_index]
+                if state.end > start:
+                    active.append(state)
+                state_index += 1
+            result[gene.gene_id].update(
+                state.label
+                for state in active
+                if state.start < end and state.end > start
+            )
+    return result
 
 
 def filter_blacklisted_gene_anchors(
@@ -572,9 +624,18 @@ def build_gene_sets(
         directory.mkdir(parents=True, exist_ok=True)
 
     state_by_gene = intersect_states_by_gene(genes, states)
+    state_by_tss = intersect_states_by_tss(genes, states)
     available_states = {state.label for state in states}
     missing_states = sorted(
-        {state_name for rule in rules for state_name in rule.state_names} - available_states
+        (
+            {state_name for rule in rules for state_name in rule.state_names}
+            | {
+                rule.required_tss_state
+                for rule in rules
+                if rule.required_tss_state is not None
+            }
+        )
+        - available_states
     )
     if missing_states:
         print(
@@ -589,6 +650,10 @@ def build_gene_sets(
             gene.gene_id
             for gene in genes
             if evaluate_rpn(rule.rpn, state_by_gene[gene.gene_id])
+            and (
+                rule.required_tss_state is None
+                or rule.required_tss_state in state_by_tss[gene.gene_id]
+            )
         }
 
     membership: dict[str, list[str]] = defaultdict(list)
@@ -705,6 +770,7 @@ def build_gene_sets(
     with assignment_path.open("w") as handle:
         handle.write(
             "gene_id\tgene_name\tchrom\tstart\tend\tintersecting_states\t"
+            "tss_intersecting_states\t"
             "candidate_sets\texcluded_from_sets\tfinal_set\tcandidate_overlap\n"
         )
         for gene in genes:
@@ -716,6 +782,7 @@ def build_gene_sets(
             handle.write(
                 f"{gene.gene_id}\t{_gene_name(gene)}\t{gene.chrom}\t{gene.start}\t{gene.end}\t"
                 f"{','.join(sorted(state_by_gene[gene.gene_id]))}\t"
+                f"{','.join(sorted(state_by_tss[gene.gene_id]))}\t"
                 f"{','.join(candidates)}\t{','.join(excluded_from)}\t"
                 f"{finals[0] if finals else ''}\t"
                 f"{'yes' if gene.gene_id in overlapping_ids else 'no'}\n"
@@ -734,22 +801,27 @@ def build_gene_sets(
 
     config_path = outdir / f"{prefix}_rules.tsv"
     with config_path.open("w") as handle:
-        handle.write("set_name\tinclude_rule\texclude_if_candidate\n")
+        handle.write(
+            "set_name\tinclude_rule\trequired_tss_state\texclude_if_candidate\n"
+        )
         for rule in rules:
             handle.write(
-                f"{rule.name}\t{rule.expression}\t{','.join(sorted(rule.exclude_if_candidate))}\n"
+                f"{rule.name}\t{rule.expression}\t{rule.required_tss_state or ''}\t"
+                f"{','.join(sorted(rule.exclude_if_candidate))}\n"
             )
 
     summary_path = outdir / f"{prefix}_summary.tsv"
     with summary_path.open("w") as handle:
         handle.write(
-            "set_name\tinclude_rule\texclude_if_candidate\tcandidate_gene_count\t"
+            "set_name\tinclude_rule\trequired_tss_state\texclude_if_candidate\t"
+            "candidate_gene_count\t"
             "overlap_removed_count\texcluded_gene_count\tfinal_gene_count\t"
             "candidate_interval\tfinal_interval\tfinal_tss_interval\n"
         )
         for rule in rules:
             handle.write(
                 f"{rule.name}\t{rule.expression}\t"
+                f"{rule.required_tss_state or ''}\t"
                 f"{','.join(sorted(rule.exclude_if_candidate))}\t"
                 f"{len(candidate_ids[rule.name])}\t{len(excluded_ids_by_set[rule.name])}\t"
                 f"{len(excluded_ids_by_set[rule.name])}\t{len(final_ids[rule.name])}\t"
@@ -759,7 +831,7 @@ def build_gene_sets(
             )
         if leftover_set_name:
             handle.write(
-                f"{leftover_set_name}\tno candidate-set intersection\t\t{len(final_ids[leftover_set_name])}\t0\t0\t"
+                f"{leftover_set_name}\tno candidate-set intersection\t\t\t{len(final_ids[leftover_set_name])}\t0\t0\t"
                 f"{len(final_ids[leftover_set_name])}\t\t{final_paths[leftover_set_name].resolve()}\t"
                 f"{final_tss_paths[leftover_set_name].resolve()}\n"
             )
@@ -805,8 +877,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="nucleosuite gene-sets",
         description=(
-            "Create candidate gene sets from chromatin-state intersections and resolve "
-            "them into mutually exclusive final categories."
+            "Create candidate gene sets from gene-body chromatin-state intersections, "
+            "optionally require a state at the strand-aware TSS, and resolve candidates "
+            "into mutually exclusive final categories."
         ),
         formatter_class=NucleoSuiteHelpFormatter,
     )
@@ -815,9 +888,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--config",
         help=(
-            "TSV with set_name and include_rule columns. An optional "
-            "exclude_if_candidate column lists candidate sets whose membership excludes "
-            "a gene from the current final set."
+            "TSV with set_name and include_rule columns. Optional required_tss_state "
+            "requires one named state to overlap the strand-aware one-base TSS. Optional "
+            "exclude_if_candidate lists candidate sets whose membership excludes a gene "
+            "from the current final set."
         ),
     )
     parser.add_argument(

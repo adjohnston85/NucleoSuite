@@ -217,7 +217,7 @@ DELEGATED_COMMANDS: dict[str, tuple[CommandMain, str]] = {
     "peak-score-frequency": (_peak_score_frequency_main, "Compare the score distributions of peak callsets."),
     "empirical-peak-fdr": (_empirical_peak_fdr_main, "Compare observed peak scores with fragment-randomized peak callsets."),
     "peak-states": (_peak_states_main, "Measure peak abundance and enrichment by chromatin state."),
-    "gene-sets": (_gene_sets_main, "Group genes by the chromatin states that overlap them."),
+    "gene-sets": (_gene_sets_main, "Group genes by gene-body and optional TSS chromatin-state criteria."),
     "gene-expression": (_gene_expression_main, "Compare gene expression with nucleosome spacing or periodicity."),
     "tss-expression-quintiles": (_tss_expression_quintiles_main, "Aggregate TSS signal after splitting genes into expression quintiles."),
     "mnase-suite": (_mnase_suite_main, "Run the configurable MNase analysis workflow."),

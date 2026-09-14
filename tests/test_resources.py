@@ -94,9 +94,14 @@ def test_default_gene_set_resource_encodes_requested_precedence():
 
     with materialized_resource_path("default-gene-sets") as path:
         rows = path.read_text().splitlines()
+    assert rows[0] == (
+        "set_name\tinclude_rule\trequired_tss_state\texclude_if_candidate"
+    )
+    assert "\t1_Active_Promoter\t" in rows[1]
+    assert "\t2_Weak_Promoter\t" in rows[2]
     assert rows[1].endswith("\trepressed_genes")
     assert rows[2].endswith("\tactive_genes,repressed_genes")
-    assert rows[3] == "repressed_genes\t12_Repressed\tactive_genes,weak_genes"
+    assert rows[3] == "repressed_genes\t12_Repressed\t\tactive_genes,weak_genes"
 
 
 def test_chromatin_state_resource_has_distinct_requested_colours():

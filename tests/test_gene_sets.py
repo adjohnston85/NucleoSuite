@@ -279,6 +279,96 @@ def test_gene_set_blacklist_filter_uses_tss_anchor_not_complete_gene(tmp_path: P
     assert excluded == 1
 
 
+def test_required_tss_state_uses_strand_aware_one_base_tss(tmp_path: Path):
+    genes_path = write(
+        tmp_path / "genes.bed",
+        "chr1\t100\t200\tACTIVE_TSS\tActiveTSS\t+\n"
+        "chr1\t300\t400\tACTIVE_BODY_ONLY\tActiveBodyOnly\t+\n"
+        "chr1\t500\t600\tWEAK_TSS\tWeakTSS\t-\n"
+        "chr1\t700\t800\tWEAK_BODY_ONLY\tWeakBodyOnly\t-\n"
+        "chr1\t900\t1000\tREPRESSED\tRepressed\t+\n",
+    )
+    states_path = write(
+        tmp_path / "states.bed",
+        # Plus-strand TSS is start=100: promoter at the TSS passes.
+        "chr1\t100\t101\t1_Active_Promoter\n"
+        "chr1\t100\t200\t10_Txn_Elongation\n"
+        # Active promoter in the body but not at plus-strand TSS=300 fails.
+        "chr1\t300\t400\t10_Txn_Elongation\n"
+        "chr1\t350\t360\t1_Active_Promoter\n"
+        # Minus-strand TSS is end-1=599: promoter at the TSS passes.
+        "chr1\t500\t600\t11_Weak_Txn\n"
+        "chr1\t599\t600\t2_Weak_Promoter\n"
+        # Weak promoter in the body but not at minus-strand TSS=799 fails.
+        "chr1\t700\t800\t11_Weak_Txn\n"
+        "chr1\t740\t750\t2_Weak_Promoter\n"
+        "chr1\t900\t1000\t12_Repressed\n",
+    )
+    config_path = write(
+        tmp_path / "sets.tsv",
+        "set_name\tinclude_rule\trequired_tss_state\texclude_if_candidate\n"
+        "active_genes\t9_Txn_Transition | 10_Txn_Elongation\t1_Active_Promoter\trepressed_genes\n"
+        "weak_genes\t9_Txn_Transition | 10_Txn_Elongation | 11_Weak_Txn\t2_Weak_Promoter\tactive_genes,repressed_genes\n"
+        "repressed_genes\t12_Repressed\t\tactive_genes,weak_genes\n",
+    )
+
+    rules = load_rules(config_path, [])
+    assert rules[0].required_tss_state == "1_Active_Promoter"
+    assert rules[1].required_tss_state == "2_Weak_Promoter"
+    assert rules[2].required_tss_state is None
+    outputs = build_gene_sets(
+        read_genes(genes_path),
+        read_states(states_path),
+        rules,
+        tmp_path / "out",
+        venn_sets=["active_genes", "weak_genes", "repressed_genes"],
+    )
+
+    def ids(name: str) -> set[str]:
+        path = tmp_path / "out" / "final_sets" / f"{name}.bed"
+        return {line.split("\t")[3] for line in path.read_text().splitlines() if line}
+
+    assert ids("active_genes") == {"ACTIVE_TSS"}
+    assert ids("weak_genes") == {"WEAK_TSS"}
+    assert ids("repressed_genes") == {"REPRESSED"}
+
+    with outputs["assignments"].open() as handle:
+        assignments = {row["gene_id"]: row for row in csv.DictReader(handle, delimiter="\t")}
+    assert "1_Active_Promoter" in assignments["ACTIVE_TSS"]["tss_intersecting_states"]
+    assert "1_Active_Promoter" not in assignments["ACTIVE_BODY_ONLY"]["tss_intersecting_states"]
+    assert "2_Weak_Promoter" in assignments["WEAK_TSS"]["tss_intersecting_states"]
+    assert "2_Weak_Promoter" not in assignments["WEAK_BODY_ONLY"]["tss_intersecting_states"]
+
+
+def test_required_tss_state_is_optional(tmp_path: Path):
+    genes_path = write(
+        tmp_path / "genes.bed",
+        "chr1\t100\t200\tBODY_PROMOTER\tBodyPromoter\t+\n",
+    )
+    states_path = write(
+        tmp_path / "states.bed",
+        "chr1\t100\t200\t10_Txn_Elongation\n"
+        "chr1\t150\t160\t1_Active_Promoter\n",
+    )
+    config_path = write(
+        tmp_path / "sets.tsv",
+        "set_name\tinclude_rule\n"
+        "active_genes\t1_Active_Promoter & 10_Txn_Elongation\n"
+        "other_genes\tOTHER\n",
+    )
+    rules = load_rules(config_path, [])
+    assert all(rule.required_tss_state is None for rule in rules)
+    build_gene_sets(
+        read_genes(genes_path),
+        read_states(states_path),
+        rules,
+        tmp_path / "out",
+        venn_sets=["active_genes", "other_genes"],
+    )
+    rows = (tmp_path / "out/final_sets/active_genes.bed").read_text().splitlines()
+    assert len(rows) == 1 and "BODY_PROMOTER" in rows[0]
+
+
 def test_member_filename_prefix_is_opt_in_for_randomized_controls(tmp_path: Path):
     genes_path = write(
         tmp_path / "genes.bed",

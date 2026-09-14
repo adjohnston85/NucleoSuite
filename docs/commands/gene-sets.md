@@ -2,7 +2,7 @@
 
 ## What this command does
 
-`gene-sets` groups genes by overlapping chromatin states according to configured inclusion and exclusion rules.
+`gene-sets` groups genes using chromatin states that overlap their gene bodies and, when requested by a rule, a specific state at their transcription start sites (TSSs).
 
 ## Why use it
 
@@ -32,13 +32,15 @@ nucleosuite gene-sets \
 ( )  grouping
 ```
 
-For example:
+For example, an ordinary gene-overlap rule is:
 
 ```text
-1_Active_Promoter & (9_Txn_Transition | 10_Txn_Elongation)
+9_Txn_Transition | 10_Txn_Elongation
 ```
 
-requires an active promoter plus at least one of the two transcription-associated states.
+The optional `required_tss_state` column adds a separate TSS-specific condition. A value of `1_Active_Promoter` requires that state to overlap the one-base TSS. Plus-strand genes use `start:start+1`; minus-strand genes use `end-1:end`.
+
+Leaving `required_tss_state` blank, or omitting the column, disables the TSS-specific condition for that rule. This preserves ordinary gene-body-only rules when TSS filtering is not wanted.
 
 `exclude_if_candidate` makes final categories mutually exclusive by removing genes that also qualify for named competing candidate sets.
 
@@ -55,7 +57,13 @@ See [Gene-set assignment](../ALGORITHMS.md#gene-set-assignment) for the exact se
 
 ## Bundled default categories
 
-The bundled rules create active, weak, and repressed candidates. Their final categories are arranged so active/weak/repressed outputs are mutually exclusive, with an optional strict leftover group for genes in none of the candidate sets.
+The bundled rules use the following candidate requirements:
+
+- **Active:** `1_Active_Promoter` overlaps the TSS, and either `9_Txn_Transition` or `10_Txn_Elongation` overlaps the gene.
+- **Weak:** `2_Weak_Promoter` overlaps the TSS, and at least one of `9_Txn_Transition`, `10_Txn_Elongation`, or `11_Weak_Txn` overlaps the gene.
+- **Repressed:** `12_Repressed` overlaps the gene; no TSS-specific state is required.
+
+Configured candidate exclusions then make the final Active, Weak, and Repressed outputs mutually exclusive. The optional strict leftover group contains genes that entered none of the candidate sets.
 
 ## Outputs
 
@@ -63,7 +71,7 @@ The selected options control which outputs are written:
 
 - candidate and final gene BED6 files;
 - final one-base TSS BED6 files;
-- a complete gene assignment table showing candidate and final membership;
+- a complete gene assignment table showing gene-body states, TSS states, and candidate and final membership;
 - overlap/shared-category files; and
 - optional summary/Venn figures.
 
