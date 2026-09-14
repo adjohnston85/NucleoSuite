@@ -1,4 +1,4 @@
-set_name	include_rule	required_tss_state	exclude_if_candidate
-active_genes	9_Txn_Transition | 10_Txn_Elongation	1_Active_Promoter	repressed_genes
-weak_genes	9_Txn_Transition | 10_Txn_Elongation | 11_Weak_Txn	2_Weak_Promoter	active_genes,repressed_genes
-repressed_genes	12_Repressed		active_genes,weak_genes
+set_name	include_rule	required_tss_state	forbidden_tss_states	exclude_if_candidate
+active_genes	9_Txn_Transition | 10_Txn_Elongation	1_Active_Promoter		repressed_genes
+weak_genes	9_Txn_Transition | 10_Txn_Elongation | 11_Weak_Txn	2_Weak_Promoter		active_genes,repressed_genes
+repressed_genes	12_Repressed		1_Active_Promoter,2_Weak_Promoter	active_genes,weak_genes

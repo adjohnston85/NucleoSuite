@@ -358,6 +358,7 @@ def test_required_tss_state_is_optional(tmp_path: Path):
     )
     rules = load_rules(config_path, [])
     assert all(rule.required_tss_state is None for rule in rules)
+    assert all(not rule.forbidden_tss_states for rule in rules)
     build_gene_sets(
         read_genes(genes_path),
         read_states(states_path),
@@ -367,6 +368,70 @@ def test_required_tss_state_is_optional(tmp_path: Path):
     )
     rows = (tmp_path / "out/final_sets/active_genes.bed").read_text().splitlines()
     assert len(rows) == 1 and "BODY_PROMOTER" in rows[0]
+
+
+def test_forbidden_tss_states_exclude_repressed_candidates(tmp_path: Path):
+    genes_path = write(
+        tmp_path / "genes.bed",
+        "chr1\t100\t200\tREPRESSED_OK\tRepressedOK\t+\n"
+        "chr1\t300\t400\tREPRESSED_ACTIVE_TSS\tRepressedActiveTSS\t+\n"
+        "chr1\t500\t600\tREPRESSED_WEAK_TSS\tRepressedWeakTSS\t-\n"
+        "chr1\t700\t800\tOTHER\tOther\t+\n",
+    )
+    states_path = write(
+        tmp_path / "states.bed",
+        "chr1\t100\t101\t7_Weak_Enhancer\n"
+        "chr1\t150\t160\t12_Repressed\n"
+        "chr1\t300\t301\t1_Active_Promoter\n"
+        "chr1\t350\t360\t12_Repressed\n"
+        "chr1\t550\t560\t12_Repressed\n"
+        "chr1\t599\t600\t2_Weak_Promoter\n"
+        "chr1\t700\t800\tOTHER_STATE\n",
+    )
+    config_path = write(
+        tmp_path / "sets.tsv",
+        "set_name\tinclude_rule\tforbidden_tss_states\n"
+        "repressed_genes\t12_Repressed\t1_Active_Promoter,2_Weak_Promoter\n"
+        "other_genes\tOTHER_STATE\t\n",
+    )
+
+    rules = load_rules(config_path, [])
+    assert rules[0].forbidden_tss_states == frozenset(
+        {"1_Active_Promoter", "2_Weak_Promoter"}
+    )
+    outputs = build_gene_sets(
+        read_genes(genes_path),
+        read_states(states_path),
+        rules,
+        tmp_path / "out",
+        venn_sets=["repressed_genes", "other_genes"],
+    )
+
+    candidate_rows = (
+        tmp_path / "out/candidate_sets/repressed_genes.bed"
+    ).read_text().splitlines()
+    assert len(candidate_rows) == 1
+    assert "REPRESSED_OK" in candidate_rows[0]
+    assert not any("REPRESSED_ACTIVE_TSS" in row for row in candidate_rows)
+    assert not any("REPRESSED_WEAK_TSS" in row for row in candidate_rows)
+
+    rules_header = outputs["rules"].read_text().splitlines()[0]
+    assert "forbidden_tss_states" in rules_header.split("\t")
+
+
+def test_rule_cannot_require_and_forbid_the_same_tss_state(tmp_path: Path):
+    config_path = write(
+        tmp_path / "sets.tsv",
+        "set_name\tinclude_rule\trequired_tss_state\tforbidden_tss_states\n"
+        "impossible\tSTATE\tPROMOTER\tPROMOTER\n"
+        "other\tOTHER\t\t\n",
+    )
+    try:
+        load_rules(config_path, [])
+    except ValueError as error:
+        assert "both require and forbid" in str(error)
+    else:
+        raise AssertionError("Expected contradictory TSS rule to be rejected")
 
 
 def test_member_filename_prefix_is_opt_in_for_randomized_controls(tmp_path: Path):

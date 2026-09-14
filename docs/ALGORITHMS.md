@@ -1127,11 +1127,11 @@ The slopes $\lambda_+$ and $\lambda_-$ are the positive- and negative-direction 
 
 ## Gene-set assignment
 
-`gene-sets` assigns genes to categories using gene-body state overlaps and an optional state requirement at the transcription start site (TSS).
+`gene-sets` assigns genes to categories using gene-body state overlaps and optional required or forbidden states at the transcription start site (TSS).
 
-For a plus-strand gene, the TSS interval is the one-base BED interval `[start,start+1)`. For a minus-strand gene, it is `[end-1,end)`. A rule's `include_rule` is evaluated against all states overlapping the gene interval. If `required_tss_state` is present, the gene becomes a candidate only when that state also overlaps its one-base TSS. If the field is blank or absent, no TSS-specific condition is applied.
+For a plus-strand gene, the TSS interval is the one-base BED interval `[start,start+1)`. For a minus-strand gene, it is `[end-1,end)`. A rule's `include_rule` is evaluated against all states overlapping the gene interval. If `required_tss_state` is present, the gene becomes a candidate only when that state also overlaps its one-base TSS. If `forbidden_tss_states` is present, none of its comma-separated states may overlap the TSS. Blank or absent fields apply no condition of that type.
 
-The bundled Active rule requires `1_Active_Promoter` at the TSS and a `9_Txn_Transition` or `10_Txn_Elongation` overlap within the gene. The bundled Weak rule requires `2_Weak_Promoter` at the TSS and a `9_Txn_Transition`, `10_Txn_Elongation`, or `11_Weak_Txn` overlap within the gene. The Repressed rule continues to use gene overlap with `12_Repressed` without a TSS-state requirement.
+The bundled Active rule requires `1_Active_Promoter` at the TSS and a `9_Txn_Transition` or `10_Txn_Elongation` overlap within the gene. The bundled Weak rule requires `2_Weak_Promoter` at the TSS and a `9_Txn_Transition`, `10_Txn_Elongation`, or `11_Weak_Txn` overlap within the gene. The bundled Repressed rule requires a `12_Repressed` overlap within the gene and rejects candidates whose TSS overlaps either `1_Active_Promoter` or `2_Weak_Promoter`.
 
 Each configured rule first creates a **candidate set**. `exclude_if_candidate` can then remove genes from a named final category when those genes also belong to specified competing candidate sets. The final named categories are mutually exclusive.
 

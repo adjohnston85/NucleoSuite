@@ -1,3 +1,3 @@
 """NucleoSuite: nucleosome and fragmentomics analysis tools."""
 
-__version__ = "0.11.8"
+__version__ = "0.11.9"

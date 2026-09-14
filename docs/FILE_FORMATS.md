@@ -120,13 +120,13 @@ Each row represents one gene/profile combination. The selected expression value 
 
 ### Gene-set configuration TSV
 
-Gene-set configurations require `set_name` and `include_rule`. The optional `required_tss_state` column requires one state to overlap the strand-aware one-base TSS. Leaving it blank, or omitting the column, applies no TSS-specific condition. The optional `exclude_if_candidate` column lists candidate sets that disqualify a gene from the current final category.
+Gene-set configurations require `set_name` and `include_rule`. The optional `required_tss_state` column requires one state to overlap the strand-aware one-base TSS. The optional `forbidden_tss_states` column lists comma-separated states that must not overlap the TSS. Leaving either field blank, or omitting its column, applies no condition of that type. The optional `exclude_if_candidate` column lists candidate sets that disqualify a gene from the current final category.
 
 ```text
-set_name         include_rule                                            required_tss_state  exclude_if_candidate
-active_genes     9_Txn_Transition | 10_Txn_Elongation                   1_Active_Promoter   repressed_genes
-weak_genes       9_Txn_Transition | 10_Txn_Elongation | 11_Weak_Txn     2_Weak_Promoter     active_genes,repressed_genes
-repressed_genes  12_Repressed                                                                  active_genes,weak_genes
+set_name         include_rule                                            required_tss_state  forbidden_tss_states                      exclude_if_candidate
+active_genes     9_Txn_Transition | 10_Txn_Elongation                   1_Active_Promoter                                             repressed_genes
+weak_genes       9_Txn_Transition | 10_Txn_Elongation | 11_Weak_Txn     2_Weak_Promoter                                               active_genes,repressed_genes
+repressed_genes  12_Repressed                                                                1_Active_Promoter,2_Weak_Promoter      active_genes,weak_genes
 ```
 
 Rules support `&`, `|`, and parentheses. `--leftover-set-name leftover_genes` assigns genes that belong to none of the configured candidate sets. A candidate-overlap gene removed from named final categories remains recorded as unassigned and is excluded from the leftover set.

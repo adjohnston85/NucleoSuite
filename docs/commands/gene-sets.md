@@ -42,6 +42,8 @@ The optional `required_tss_state` column adds a separate TSS-specific condition.
 
 Leaving `required_tss_state` blank, or omitting the column, disables the TSS-specific condition for that rule. This preserves ordinary gene-body-only rules when TSS filtering is not wanted.
 
+The optional `forbidden_tss_states` column lists comma-separated states that must not overlap the TSS. For example, `1_Active_Promoter,2_Weak_Promoter` excludes a candidate when either promoter state occurs at its TSS. Leaving the field blank, or omitting the column, applies no TSS-state exclusion.
+
 `exclude_if_candidate` makes final categories mutually exclusive by removing genes that also qualify for named competing candidate sets.
 
 The rules produce two set types:
@@ -61,7 +63,7 @@ The bundled rules use the following candidate requirements:
 
 - **Active:** `1_Active_Promoter` overlaps the TSS, and either `9_Txn_Transition` or `10_Txn_Elongation` overlaps the gene.
 - **Weak:** `2_Weak_Promoter` overlaps the TSS, and at least one of `9_Txn_Transition`, `10_Txn_Elongation`, or `11_Weak_Txn` overlaps the gene.
-- **Repressed:** `12_Repressed` overlaps the gene; no TSS-specific state is required.
+- **Repressed:** `12_Repressed` overlaps the gene, while neither `1_Active_Promoter` nor `2_Weak_Promoter` overlaps the TSS.
 
 Configured candidate exclusions then make the final Active, Weak, and Repressed outputs mutually exclusive. The optional strict leftover group contains genes that entered none of the candidate sets.
 
