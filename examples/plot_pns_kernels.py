@@ -18,9 +18,16 @@ from nucleosuite.scoring.pns import precompute_distributions
 from nucleosuite.scoring.wps import wps_kernel_kircher_exact
 
 
+DOC_FONT_SCALE = 1.30
+
+
+def fs(size: float) -> float:
+    """Scale documentation-figure text by the shared documentation factor."""
+    return size * DOC_FONT_SCALE
+
+
 def save(fig, directory, stem):
-    for ext in ("png", "svg"):
-        fig.savefig(directory / f"{stem}.{ext}", dpi=180, bbox_inches="tight", pad_inches=0.12)
+    fig.savefig(directory / f"{stem}.png", dpi=180, bbox_inches="tight", pad_inches=0.12)
     plt.close(fig)
 
 
@@ -36,7 +43,7 @@ def geometry_figure(directory, mode=167):
         axes[0, col].plot([start, x[-1]], [0.28, 0.28], color="0.65", lw=2)
         axes[0, col].plot([0, length-1], [0.65, 0.65], color=color, lw=6, solid_capstyle="butt")
         axes[0, col].text((length-1)/2, 0.89, f"{length} bp fragment", ha="center", color=color, weight="bold")
-        axes[0, col].text((length-1)/2, 0.02, f"{len(x)} bp scoring support", ha="center", color="0.35", fontsize=10)
+        axes[0, col].text((length-1)/2, 0.02, f"{len(x)} bp scoring support", ha="center", color="0.35", fontsize=fs(10))
         axes[0, col].set_ylim(-0.1, 1.15)
         axes[0, col].axis("off")
         for row, values in [(1, signed[length]), (2, positive[length])]:
@@ -53,11 +60,11 @@ def geometry_figure(directory, mode=167):
             ax.grid(axis='y',alpha=0.2)
         axes[1,col].set_ylim(-2.15,2.15)
         axes[2,col].set_ylim(-0.15,4.15)
-        axes[1,col].text(0.97,0.96,"+100 / −100 mass",ha="right",va="top",fontsize=9,transform=axes[1,col].transAxes)
+        axes[1,col].text(0.97,0.96,"+100 / −100 mass",ha="right",va="top",fontsize=fs(9),transform=axes[1,col].transAxes)
         axes[2,col].set_xlabel("Position from fragment start (bp)")
     axes[1,0].set_ylabel("PNS contribution per base")
     axes[2,0].set_ylabel("posPNS contribution per base")
-    fig.suptitle("PNS fragment geometry and native kernels · protected-DNA mode 167 bp",fontsize=14,weight="bold")
+    fig.suptitle("PNS fragment geometry and native kernels · protected-DNA mode 167 bp",fontsize=fs(14),weight="bold")
     save(fig,directory,"pns_kernels_120_167_180_mode167")
 
 
@@ -71,12 +78,12 @@ def adaptation_figure(directory, mode=167):
     for i,(length,color) in enumerate(zip(lengths,colors)):
         x=np.arange(len(signed[length]))-(len(signed[length])-1)/2
         spans.plot([-(length-1)/2,(length-1)/2],[4-i,4-i],color=color,lw=3)
-        spans.text(105,4-i,f"{length} bp",color=color,va='center',fontsize=10)
+        spans.text(105,4-i,f"{length} bp",color=color,va='center',fontsize=fs(10))
         wave.plot(x,signed[length],color=color,lw=2,ls='--' if length>mode else '-',label=f"{length} bp")
-    spans.set_xlim(-110,110);spans.set_ylim(-0.7,4.7);spans.axis('off');spans.set_title('Observed fragments aligned at their centres',fontsize=11)
+    spans.set_xlim(-110,110);spans.set_ylim(-0.7,4.7);spans.axis('off');spans.set_title('Observed fragments aligned at their centres',fontsize=fs(11))
     wave.set(xlabel='Position from fragment centre (bp)',ylabel='PNS contribution per base',xlim=(-110,110))
     wave.axhline(0,color='0.4',lw=.8);wave.axvline(0,color='0.5',lw=.8,ls=':')
-    wave.legend(ncol=3,fontsize=9,loc='lower center',frameon=False)
+    wave.legend(ncol=3,fontsize=fs(9),loc='lower center',frameon=False)
     lengths_all=np.arange(100,235)
     all_signed,_=precompute_distributions(lengths_all,mode)
     amplitude.plot(lengths_all,[all_signed[x].max() for x in lengths_all],color='#cf3e4e',lw=2)
@@ -85,10 +92,10 @@ def adaptation_figure(directory, mode=167):
     mass.plot(lengths_all,[all_signed[x][all_signed[x]>0].sum() for x in lengths_all],color='#cf3e4e',label='Positive mass')
     mass.plot(lengths_all,[all_signed[x][all_signed[x]<0].sum() for x in lengths_all],color='#377bb5',label='Negative mass')
     mass.set(xlabel='Fragment length (bp)',ylabel='Signed mass',ylim=(-135,135),yticks=[-100,0,100])
-    mass.legend(fontsize=9,loc='center',ncol=2,frameon=False)
+    mass.legend(fontsize=fs(9),loc='center',ncol=2,frameon=False)
     for ax in [wave,amplitude,mass]:
         ax.spines[['top','right']].set_visible(False);ax.grid(alpha=.2)
-    fig.suptitle('PNS length adaptation · equal mass, changing width and amplitude',fontsize=14,weight='bold')
+    fig.suptitle('PNS length adaptation · equal mass, changing width and amplitude',fontsize=fs(14),weight='bold')
     save(fig,directory,'pns_length_adaptation_mode167')
 
 
@@ -107,7 +114,7 @@ def wps_figure(directory, protection=120):
         ax.axvline(fragment_start, color="0.55", lw=0.9, ls=":")
         ax.axvline(fragment_end, color="0.55", lw=0.9, ls=":")
         ax.plot(x, kernel, color="#377bb5", lw=2.0, label="WPS contribution")
-        ax.set_title(f"{length} bp fragment", fontsize=12)
+        ax.set_title(f"{length} bp fragment", fontsize=fs(12))
         ax.set_xlim(-65, 230)
         ax.set_ylim(-1.22, 1.25)
         ax.set_yticks([-1, 0, 1])
@@ -120,7 +127,7 @@ def wps_figure(directory, protection=120):
     fig.legend([handles[i] for i in order], [labels[i] for i in order],
                loc="upper center", bbox_to_anchor=(0.5, 0.835), ncol=2, frameon=False)
     fig.suptitle("Single-fragment WPS kernels · protection window 120 bp",
-                 y=.965, fontsize=15, weight="bold")
+                 y=.965, fontsize=fs(15), weight="bold")
     save(fig, directory, "wps_kernels_120_167_180_multiplot")
 
 
@@ -129,7 +136,7 @@ def main():
     parser.add_argument('--output-dir',type=Path,default=Path(__file__).resolve().parents[1]/'docs/images')
     args=parser.parse_args();args.output_dir.mkdir(parents=True,exist_ok=True)
     plt.rcParams.update({'font.family':['Calibri','Carlito','Arial','sans-serif'],
-                         'font.size':10,'svg.fonttype':'none','savefig.facecolor':'white'})
+                         'font.size':fs(10),'savefig.facecolor':'white'})
     geometry_figure(args.output_dir);adaptation_figure(args.output_dir);wps_figure(args.output_dir)
 
 

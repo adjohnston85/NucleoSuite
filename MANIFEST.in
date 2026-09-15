@@ -1,5 +1,5 @@
 include README.md LICENSE environment.yml
-recursive-include docs *.md *.png *.svg
+recursive-include docs *.md *.png
 recursive-include recipe *.yaml
 recursive-include examples *.sh *.py
 

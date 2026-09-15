@@ -18,7 +18,7 @@ Each accepted BED feature defines an aggregation centre. NucleoSuite extracts Bi
 
 The complete aggregate profile is the mean of the valid signal values at each relative position. The exact handling of missing and blacklisted positions is described in [Regional aggregation](../ALGORITHMS.md#regional-aggregation).
 
-For example, signals 4 and 8 from two regions give an aggregate value of 6 at that relative position. Each position is averaged across regions independently; the command does not first reduce each region to one mean.
+For example, signals 4 and 8 from two regions give an aggregate value of 6 at that relative position. Each relative position is averaged independently across all contributing regions.
 
 Without `--write-detail-tables`, each extracted window is added to per-position sums and valid-value counts and is then discarded. The final profile is calculated by dividing each sum by its count. Memory therefore depends mainly on the selected window width, not on the number of accepted regions.
 
@@ -229,7 +229,7 @@ nucleosuite aggregate \
   --output-prefix sample
 ```
 
-Each worker writes compact per-position sums and valid-value counts. The combined profile adds those totals across selected contigs and divides the combined sums by the combined counts. It does not load individual-region matrices unless `--write-detail-tables` is requested. In category mode this same multicontig process is run independently for each category before the category profiles are overlaid.
+Each worker writes compact per-position sums and valid-value counts. The combined profile adds those totals across selected contigs and divides the combined sums by the combined counts. Individual-region matrices are loaded when `--write-detail-tables` is requested. In category mode this same multicontig process is run independently for each category before the category profiles are overlaid.
 
 ## Blacklist handling
 

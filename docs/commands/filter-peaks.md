@@ -121,7 +121,7 @@ to retain peaks whose BigWig value is at least the selected threshold.
 
 By default, coverage is sampled at the BED interval midpoint.
 
-This filter reads one BigWig value per peak; it does not calculate interval mean, maximum, or summed coverage. For example, a peak covering values `[20,40,60]` is evaluated using its midpoint value 40. The separate `cutn-suite` Stage 1 measurement instead averages the complete interval by default. If the peak file contains an explicit genomic summit or representative position, provide its one-based BED column number with:
+This filter evaluates one BigWig value at each peak position. For example, a peak covering values `[20,40,60]` is evaluated using its midpoint value 40. `cutn-suite` Stage 1 separately uses mean coverage across the complete interval by default. If the peak file contains an explicit genomic summit or representative position, provide its one-based BED column number with:
 
 ```bash
 --coverage-position-column COLUMN
@@ -138,7 +138,7 @@ nucleosuite filter-peaks sample_nucleosome_regions.bed \
 
 Missing or non-finite BigWig values are treated as zero coverage. Chromosome-name aliases such as `1` and `chr1` are resolved using the normal NucleoSuite contig-matching rules.
 
-`--coverage-chunk-size` controls the genomic cache used while scanning the coverage BigWig and normally does not need to be changed.
+`--coverage-chunk-size` controls the genomic cache used while scanning the coverage BigWig. The default is suitable for normal use.
 
 ## Output format
 
@@ -152,7 +152,7 @@ Use `--output-format bed`, `--output-format bed.gz`, or `--output-format bigbed`
 
 When producing bigBed from BED/BED.gz input, provide chromosome sizes with `--chrom-sizes`. For bigBed input, NucleoSuite attempts to inherit the chromosome sizes embedded in that file automatically.
 
-Automatic output names include the central filtering parameters, including the coverage-track basename and threshold when coverage filtering is used, so changing a fundamental filter does not silently overwrite a previous filtered set.
+Automatic output names include the central filtering parameters, including the coverage-track basename and threshold when coverage filtering is used, so distinct filter settings produce distinct default output names.
 
 ## Summary output
 

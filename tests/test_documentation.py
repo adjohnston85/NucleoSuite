@@ -65,6 +65,23 @@ def test_documentation_demonstrates_composable_resource_paths() -> None:
     assert not missing, "Missing resource-path usage examples:\n" + "\n".join(missing)
 
 
+def test_documentation_avoids_historical_and_negative_change_language() -> None:
+    markdown_files = [ROOT / "README.md", *(ROOT / "docs").rglob("*.md")]
+    forbidden = [
+        re.compile(r"\bno longer\b", re.I),
+        re.compile(r"\bprevious version\b", re.I),
+        re.compile(r"\blegacy behavior\b", re.I),
+        re.compile(r"\bdoes not\b", re.I),
+    ]
+    failures: list[str] = []
+    for markdown in markdown_files:
+        text = markdown.read_text()
+        for pattern in forbidden:
+            if pattern.search(text):
+                failures.append(f"{markdown.relative_to(ROOT)}: {pattern.pattern}")
+    assert not failures, "Documentation should describe current positive behavior:\n" + "\n".join(failures)
+
+
 def test_user_documentation_does_not_announce_plain_language_style() -> None:
     markdown_files = [ROOT / "README.md", *(ROOT / "docs").rglob("*.md")]
     patterns = [
@@ -97,11 +114,11 @@ def test_workflow_diagrams_are_present() -> None:
 def test_algorithm_figure_assets_exist_and_are_linked() -> None:
     algorithms = (ROOT / "docs" / "ALGORITHMS.md").read_text()
     figures = [
-        "pns_kernels_120_167_180_mode167.svg",
-        "pns_length_adaptation_mode167.svg",
-        "wps_kernels_120_167_180_multiplot.svg",
-        "dac_periodicity_example.svg",
-        "dcc_shift_example.svg",
+        "pns_kernels_120_167_180_mode167.png",
+        "pns_length_adaptation_mode167.png",
+        "wps_kernels_120_167_180_multiplot.png",
+        "dac_periodicity_example.png",
+        "dcc_shift_example.png",
     ]
     missing: list[str] = []
     for filename in figures:
@@ -113,23 +130,26 @@ def test_algorithm_figure_assets_exist_and_are_linked() -> None:
     assert not missing, "Algorithm figure problems:\n" + "\n".join(missing)
 
 
-def test_algorithm_svg_figures_prefer_calibri() -> None:
-    figures = [
-        "pns_kernels_120_167_180_mode167.svg",
-        "pns_length_adaptation_mode167.svg",
-        "wps_kernels_120_167_180_multiplot.svg",
-        "dac_periodicity_example.svg",
-        "dcc_shift_example.svg",
+def test_algorithm_figures_are_png_only() -> None:
+    image_dir = ROOT / "docs" / "images"
+    assert not list(image_dir.glob("*.svg")), "Documentation images should use PNG assets"
+
+
+def test_documentation_plot_generators_use_calibri_and_30_percent_font_scale() -> None:
+    generators = [
+        ROOT / "examples" / "plot_pns_kernels.py",
+        ROOT / "examples" / "plot_dac_dcc_examples.py",
     ]
     failures: list[str] = []
-    for filename in figures:
-        path = ROOT / "docs" / "images" / filename
-        if not path.is_file():
-            failures.append(f"missing file: {filename}")
-            continue
-        if "font-family: 'Calibri'" not in path.read_text():
-            failures.append(f"Calibri is not the first SVG font family: {filename}")
-    assert not failures, "Documentation figure font problems:\n" + "\n".join(failures)
+    for path in generators:
+        text = path.read_text()
+        if '"Calibri"' not in text and "'Calibri'" not in text:
+            failures.append(f"Calibri is not preferred: {path.relative_to(ROOT)}")
+        if "DOC_FONT_SCALE = 1.30" not in text:
+            failures.append(f"30% font scaling missing: {path.relative_to(ROOT)}")
+        if '("png", "svg")' in text or "for extension in" in text:
+            failures.append(f"generator still writes SVG: {path.relative_to(ROOT)}")
+    assert not failures, "Documentation figure styling problems:\n" + "\n".join(failures)
 
 
 def test_dcc_png_is_complete() -> None:
@@ -144,7 +164,15 @@ def test_opportunity_normalization_wording_is_deterministic() -> None:
     glossary = (ROOT / "docs" / "GLOSSARY.md").read_text()
     assert "usually have fewer" not in algorithms
     assert "Fewer comparisons may be possible" not in glossary
-    assert "number of position pairs available at distance $d$ is exactly $L-d$" in algorithms
+    assert "number of position pairs at distance $d$ is $L-d$" in algorithms
+
+
+
+def test_algorithm_documentation_avoids_generator_provenance_and_unmasked_example_wording() -> None:
+    algorithms = (ROOT / "docs" / "ALGORITHMS.md").read_text()
+    assert "The figures are generated directly from the scoring implementation" not in algorithms
+    assert "PNG and SVG versions are included" not in algorithms
+    assert "unmasked 925 bp region" not in algorithms
 
 
 def test_every_primary_command_has_one_documentation_page() -> None:

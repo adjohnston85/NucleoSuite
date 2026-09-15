@@ -19,7 +19,7 @@ For a coordinated analysis with standard defaults, use [`cfdna-suite`](commands/
 For a CUT&RUN or CUT&Tag treatment plus control, use [`cutn-suite`](commands/cutn-suite.md). It uses PNS for nucleosome-aware peak discovery by default, measures target/control support from coverage, and can compare two completed conditions. 
 
 
-Use [`cutn-compare`](commands/cutn-compare.md) when two conditions already have completed Stage 1 manifests. It compares overlap-connected cluster loci using the saved raw coverage tracks, produces matched cluster-centred PNS aggregates, and does not read the BAMs again.
+Use [`cutn-compare`](commands/cutn-compare.md) when two conditions already have completed Stage 1 manifests. It compares overlap-connected cluster loci using the saved raw coverage tracks and produces matched cluster-centred PNS aggregates directly from the completed Stage 1 outputs.
 
 ## I already have nucleosome or other peak calls
 

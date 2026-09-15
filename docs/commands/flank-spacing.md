@@ -51,7 +51,7 @@ nucleosuite flank-spacing \
   --distribution count
 ```
 
-Density curves are estimated using all valid spacing observations in the category. `--x-max` controls the displayed/output grid range; it does not discard wider spacing observations before density estimation.
+Density curves are estimated from all valid spacing observations in the category. `--x-max` controls only the displayed and output grid range.
 
 ## Ranking categories
 

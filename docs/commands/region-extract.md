@@ -25,7 +25,7 @@ Multiple named signal tracks can be supplied with repeated `--signal-track NAME=
 
 The input region's midpoint is the reference for upstream/downstream distances. Supplied peak files use an absolute centre from BED column 7 when it is present and numeric, falling back to the peak interval midpoint otherwise. `--peak-center-column` selects another one-based column; `--peak-center-column 0` always uses the peak midpoint.
 
-`--peak-flank-bp` sets how far on either side of the input region centre to search for peaks. It does not change the region's per-base signal vector.
+`--peak-flank-bp` sets how far on either side of the input region centre to search for peaks while the per-base signal vector remains defined by the input region.
 
 ## Use bundled CTCF regions
 

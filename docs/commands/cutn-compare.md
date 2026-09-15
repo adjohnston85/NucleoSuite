@@ -2,7 +2,7 @@
 
 ## What this command does
 
-`cutn-compare` performs cluster-only Stage 2 analysis from two completed `cutn-suite` Stage 1 manifests. It compares target-specific cluster enrichment between biological conditions, summarizes observed cluster overlap and occupied bases, and creates PNS aggregates centred on matching cluster coordinates. It reads saved BigWigs and does not revisit BAM files.
+`cutn-compare` performs cluster-only Stage 2 analysis from two completed `cutn-suite` Stage 1 manifests. It compares target-specific cluster enrichment between biological conditions, summarizes observed cluster overlap and occupied bases, and creates PNS aggregates centred on matching cluster coordinates. It reads the saved Stage 1 BigWigs and manifests directly.
 
 ## Why use it
 

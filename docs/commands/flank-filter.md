@@ -41,7 +41,7 @@ nucleosuite flank-filter \
 
 For each candidate region, NucleoSuite finds the nearest flank at a strictly smaller representative position and the nearest flank at a strictly larger representative position. The candidate is retained only when it is the **only `--regions` record between those two flanks**. This is equivalent to requiring the immediate event types around the candidate to be `FLANK -- REGION -- FLANK`.
 
-A flank at exactly the same representative position as the candidate does not count as upstream or downstream. Flanks on another chromosome do not count.
+Upstream and downstream flanks must have distinct representative positions on the same chromosome as the candidate.
 
 ## Limiting flank distance
 

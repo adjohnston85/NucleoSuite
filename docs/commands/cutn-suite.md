@@ -59,7 +59,7 @@ Every treatment and control coverage BigWig is independently divided by its fini
 Cov_{100,i}(x)=100\frac{Cov_i(x)}{\mathrm{mean}(Cov_i(x)\mid Cov_i(x)>0)}.
 ```
 
-A value of 100 therefore represents the mean among covered bases in that replicate. This scaling compensates for overall coverage differences so local values can be compared between replicates. It is applied independently and does not subtract control signal from treatment signal.
+A value of 100 therefore represents the mean among covered bases in that replicate. This scaling compensates for overall coverage differences so local values can be compared between replicates. The scaling is applied independently to each replicate before treatment/control comparisons.
 
 ### 4. Measure each treatment candidate in every replicate
 
@@ -105,7 +105,7 @@ G = all treatment replicates > all control replicates
 
 The one-sided raw p-value uses Welch's test of treatment mean > control mean. The default threshold can be changed with `--cluster-seed-p-value`.
 
-For example, treatment replicate values `[80,120]` and control values `[90,100]` pass the mean gate because `100 > 95`. They fail the all-controls gate because the lowest treatment value, 80, does not exceed the highest control value, 100. These are gate results only; a seed configured to require a p-value must also pass its statistical threshold.
+For example, treatment replicate values `[80,120]` and control values `[90,100]` pass the mean gate because `100 > 95`. They fail the all-controls gate because the lowest treatment value is 80 while the highest control value is 100. These are gate results only; a seed configured to require a p-value must also pass its statistical threshold.
 
 The automatic rule is printed when the run starts. Explicit controls are available when another design is required:
 
@@ -165,7 +165,7 @@ The Stage 2 statistic is mean raw coverage over the comparison interval. The fou
 
 The comparison table reports raw interaction p-values, empirical-Bayes moderated p-values, BH-adjusted differential FDR, effect sizes, confidence intervals, direction, contributing cluster IDs, the exact measurement interval(s), and the number of measured bases. Significant gain/loss BEDs use `--differential-fdr`; all gain/loss outputs remain available for ranking.
 
-Stage 2 also reports cluster-count and occupied-base overlap summaries and creates matched cluster-centred aggregate plots using a shared anchor set. It uses the retained Stage 1 files and does not return to the BAMs.
+Stage 2 also reports cluster-count and occupied-base overlap summaries and creates matched cluster-centred aggregate plots using a shared anchor set. It uses the retained Stage 1 files directly.
 
 ## Inspect a completed run
 

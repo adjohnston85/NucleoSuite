@@ -33,6 +33,6 @@ The exact set of checks depends on which input types are supplied.
 
 ## How to use the result
 
-A successful validation means the checked structural/reference requirements passed. It does not guarantee that biological parameters such as fragment ranges or tissue/resource choices are appropriate for your experiment; those remain analysis decisions.
+A successful validation means the checked structural and reference requirements passed. Biological parameters such as fragment ranges and tissue/resource choices remain experiment-specific analysis decisions.
 
 [Back to the command reference](../COMMAND_REFERENCE.md)

@@ -11,7 +11,7 @@ The two analyses can be run separately or together.
 
 ## Why use it
 
-Use this command when you want to compare chromatin organization with expression across genes, tissues, or cell-line expression profiles. Correlation describes association; it does not by itself establish a causal relationship.
+Use this command when you want to compare chromatin organization with expression across genes, tissues, or cell-line expression profiles. Correlation describes association; causal interpretation requires additional evidence.
 
 ## Use bundled genes and expression data
 

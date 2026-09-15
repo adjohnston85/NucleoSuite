@@ -1,11 +1,9 @@
-#!/usr/bin/env python3
-"""Draw exact DAC/DCC examples as editable SVG and PNG figures.
+"""Draw exact DAC/DCC examples as PNG documentation figures.
 
 Run with NucleoSuite installed, or from its source tree with PYTHONPATH=src:
     python plot_dac_dcc_examples.py --output-dir figures
 
-The calculations use NucleoSuite's own sparse, FFT and normalization functions.
-No package or documentation files are modified by this script.
+The calculations use NucleoSuite's analysis functions directly.
 """
 
 from pathlib import Path
@@ -34,16 +32,23 @@ PURPLE = "#9467bd"
 INK = "#263544"
 GREY = "#aab2ba"
 
+DOC_FONT_SCALE = 1.30
+
+
+def fs(size: float) -> float:
+    """Scale documentation-figure text by the shared documentation factor."""
+    return size * DOC_FONT_SCALE
+
 
 def panel(ax, letter, title):
-    ax.set_title(f"{letter}   {title}", loc="left", fontsize=12,
+    ax.set_title(f"{letter}   {title}", loc="left", fontsize=fs(12),
                  fontweight="bold", color=INK, pad=13)
 
 
 def clean(ax):
     ax.spines[["top", "right"]].set_visible(False)
     ax.spines[["bottom", "left"]].set_color("#aab2ba")
-    ax.tick_params(color="#aab2ba", labelsize=9)
+    ax.tick_params(color="#aab2ba", labelsize=fs(9))
     ax.grid(axis="y", color="#e8ebee", lw=.8)
     ax.set_axisbelow(True)
 
@@ -58,7 +63,7 @@ def track(ax, positions, baseline, color, label=None, heights=None):
     if label:
         ax.text(-.018, baseline + .20, label,
                 transform=ax.get_yaxis_transform(), ha="right", va="center",
-                fontsize=10, color=color)
+                fontsize=fs(10), color=color)
 
 
 def raw_profile(ax, x, y, color, peak_labels=None):
@@ -70,7 +75,7 @@ def raw_profile(ax, x, y, color, peak_labels=None):
         for at, label in peak_labels.items():
             value = y[np.flatnonzero(x == at)[0]]
             ax.annotate(label, (at, value), xytext=(0, 9), textcoords="offset points",
-                        ha="center", va="bottom", fontsize=10, color=color)
+                        ha="center", va="bottom", fontsize=fs(10), color=color)
     clean(ax)
 
 
@@ -79,17 +84,16 @@ def canvas(title, subtitle):
     gs = fig.add_gridspec(3, 2, height_ratios=[1, 1.40, 1.45],
                           left=.115, right=.965, top=.86, bottom=.14,
                           hspace=.82, wspace=.34)
-    fig.text(.04, .973, title, fontsize=21, weight="bold", color=INK, va="top")
-    fig.text(.04, .937, subtitle, fontsize=11, color="#5b6671", va="top")
+    fig.text(.04, .973, title, fontsize=fs(21), weight="bold", color=INK, va="top")
+    fig.text(.04, .937, subtitle, fontsize=fs(11), color="#5b6671", va="top")
     return fig, [fig.add_subplot(gs[0, :]), fig.add_subplot(gs[1, :]),
                  fig.add_subplot(gs[2, 0]), fig.add_subplot(gs[2, 1])]
 
 
 def save(fig, destination, stem):
-    for extension in ("png", "svg"):
-        fig.savefig(destination / f"{stem}.{extension}", dpi=180,
-                    facecolor="white", bbox_inches="tight", pad_inches=0.18,
-                    metadata={"Creator": "NucleoSuite figure examples"})
+    fig.savefig(destination / f"{stem}.png", dpi=180,
+                facecolor="white", bbox_inches="tight", pad_inches=0.18,
+                metadata={"Creator": "NucleoSuite figure examples"})
     plt.close(fig)
 
 
@@ -121,7 +125,7 @@ def dac_example(destination):
     for left, right in zip(positions[:-1], positions[1:]):
         a.annotate("", (left, 1.28), (right, 1.28),
                    arrowprops={"arrowstyle": "<->", "lw": 1, "color": INK})
-        a.text((left+right)/2, 1.40, "185 bp", ha="center", fontsize=9, color=INK)
+        a.text((left+right)/2, 1.40, "185 bp", ha="center", fontsize=fs(9), color=INK)
     a.set(xlim=(-25, n), ylim=(-.08, 1.75), yticks=[0, 1],
           xticks=[0, 185, 370, 555, 740, 924], ylabel="Signal", xlabel="Genomic position (bp)")
     clean(a)
@@ -133,13 +137,13 @@ def dac_example(destination):
     track(b, positions, 2, BLUE, "S(x)")
     track(b, matching, 1, AMBER, "S(x + 185)")
     track(b, matching, 0, GREEN, "Product")
-    b.text(740, .35, "Sum of products = 4", color=GREEN, fontsize=12,
+    b.text(740, .35, "Sum of products = 4", color=GREEN, fontsize=fs(12),
            ha="center", weight="bold")
     b.set(xlim=(-25, n), ylim=(-.1, 2.7), yticks=[],
           xticks=[0, 185, 370, 555, 740, 924], xlabel="Pair starting position x (bp)")
     b.spines[["top", "right", "left"]].set_visible(False)
     b.spines["bottom"].set_color(GREY)
-    b.tick_params(axis="x", labelsize=9, color=GREY)
+    b.tick_params(axis="x", labelsize=fs(9), color=GREY)
 
     panel(c, "C", "Repeat the calculation at every distance")
     raw_profile(c, distances, raw[1:], GREEN,
@@ -156,9 +160,9 @@ def dac_example(destination):
     formatter.set_powerlimits((-3, -3))
     d.yaxis.set_major_formatter(formatter)
     fig.text(.115, .035,
-             "This 925 bp unmasked region has 925 − d possible position pairs. Zero-signal bases still count.\n"
-             "In this constructed example, all four normalized peaks equal 1/185 ≈ 0.00541.",
-             fontsize=9.5, color="#5b6671", va="bottom")
+             "At distance d, this 925 bp region has 925 − d position pairs. All position pairs contribute to the opportunity count.\n"
+             "In this example, all four normalized peaks equal 1/185 ≈ 0.00541.",
+             fontsize=fs(9.5), color="#5b6671", va="bottom")
     save(fig, destination, "dac_periodicity_example")
     np.savetxt(destination / "DAC-example-data.tsv",
                np.column_stack((distances, raw[1:], opportunities[1:], normalized[1:])),
@@ -204,12 +208,12 @@ def dcc_example(destination):
     for pa, pb in zip(positions_a, positions_b):
         a.annotate("", (pb, .52), (pa, .52),
                    arrowprops={"arrowstyle": "->", "lw": 1, "color": INK})
-        a.text((pa + pb) / 2, .64, "+10 bp", ha="center", fontsize=8.5, color=INK)
+        a.text((pa + pb) / 2, .64, "+10 bp", ha="center", fontsize=fs(8.5), color=INK)
     a.set(xlim=(-25, n), ylim=(-.08, 1.72), yticks=[],
           xticks=[0, 185, 370, 555, 740, 924], xlabel="Genomic position (bp)")
     a.spines[["top", "right", "left"]].set_visible(False)
     a.spines["bottom"].set_color(GREY)
-    a.tick_params(axis="x", labelsize=9, color=GREY)
+    a.tick_params(axis="x", labelsize=fs(9), color=GREY)
 
     panel(b, "B", "At lag +10 bp, five pairs contribute 1 × 1")
     matching = positions_a
@@ -218,19 +222,19 @@ def dcc_example(destination):
     track(b, positions_a, 2, BLUE, "A(x)")
     track(b, positions_b-offset, 1, AMBER, "B(x + 10)")
     track(b, matching, 0, GREEN, "Product")
-    b.text(740, .35, "Sum of products = 5", color=GREEN, fontsize=12,
+    b.text(740, .35, "Sum of products = 5", color=GREEN, fontsize=fs(12),
            ha="center", weight="bold")
     b.set(xlim=(-25, n), ylim=(-.1, 2.7), yticks=[],
           xticks=[0, 185, 370, 555, 740, 924], xlabel="A position x (bp)")
     b.spines[["top", "right", "left"]].set_visible(False)
     b.spines["bottom"].set_color(GREY)
-    b.tick_params(axis="x", labelsize=9, color=GREY)
+    b.tick_params(axis="x", labelsize=fs(9), color=GREY)
 
     panel(c, "C", "Repeat the calculation at every signed lag")
     raw_profile(c, lags, raw, GREEN, {10: "5"})
     c.axvline(0, color=GREY, ls=":", lw=1)
-    c.text(-42, 4.42, "B upstream", ha="center", fontsize=9, color="#5b6671")
-    c.text(42, 4.42, "B downstream", ha="center", fontsize=9, color="#5b6671")
+    c.text(-42, 4.42, "B upstream", ha="center", fontsize=fs(9), color="#5b6671")
+    c.text(42, 4.42, "B downstream", ha="center", fontsize=fs(9), color="#5b6671")
     c.set(xlim=(-80, 80), ylim=(-.12, 5.3), yticks=range(6),
           xticks=[-80, -40, 0, 10, 40, 80],
           xlabel="Signed lag ℓ = position B − position A (bp)",
@@ -247,9 +251,9 @@ def dcc_example(destination):
     d.yaxis.set_major_formatter(formatter)
 
     fig.text(.115, .035,
-             "This 925 bp unmasked region has 925 − |ℓ| possible A/B position pairs at signed lag ℓ. Zero-signal bases still count.\n"
-             "At +10 bp, the normalized DCC is 5/915 ≈ 0.00546; positive lag means B is downstream of A.",
-             fontsize=9.5, color="#5b6671", va="bottom")
+             "At signed lag ℓ, this 925 bp region has 925 − |ℓ| A/B position pairs. All position pairs contribute to the opportunity count.\n"
+             "At +10 bp, the normalized DCC is 5/915 ≈ 0.00546; positive lag places B downstream of A.",
+             fontsize=fs(9.5), color="#5b6671", va="bottom")
     save(fig, destination, "dcc_shift_example")
     np.savetxt(destination / "DCC-example-data.tsv",
                np.column_stack((lags, raw, opportunities, normalized)),
@@ -266,7 +270,7 @@ def main():
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     plt.rcParams.update({"font.family": ["Calibri", "Carlito", "Arial", "sans-serif"],
-                         "font.size": 10, "svg.fonttype": "none",
+                         "font.size": fs(10),
                          "savefig.facecolor": "white"})
     results = {"DAC": dac_example(args.output_dir), "DCC": dcc_example(args.output_dir),
                "verification": "Sparse and FFT results agree for both examples."}
