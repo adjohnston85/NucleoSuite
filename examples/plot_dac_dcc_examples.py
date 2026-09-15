@@ -88,7 +88,8 @@ def canvas(title, subtitle):
 def save(fig, destination, stem):
     for extension in ("png", "svg"):
         fig.savefig(destination / f"{stem}.{extension}", dpi=180,
-                    facecolor="white", metadata={"Creator": "NucleoSuite figure examples"})
+                    facecolor="white", bbox_inches="tight", pad_inches=0.18,
+                    metadata={"Creator": "NucleoSuite figure examples"})
     plt.close(fig)
 
 
@@ -129,8 +130,8 @@ def dac_example(destination):
     matching = positions[:-1]
     for x in matching:
         b.axvspan(x-5, x+5, color=GREEN, alpha=.10, lw=0)
-    track(b, positions, 2, BLUE, r"$S(x)$")
-    track(b, matching, 1, AMBER, r"$S(x+185)$")
+    track(b, positions, 2, BLUE, "S(x)")
+    track(b, matching, 1, AMBER, "S(x + 185)")
     track(b, matching, 0, GREEN, "Product")
     b.text(740, .35, "Sum of products = 4", color=GREEN, fontsize=12,
            ha="center", weight="bold")
@@ -151,7 +152,7 @@ def dac_example(destination):
                 {int(x): f"{int(raw[x])}/{int(opportunities[x])}" for x in selected})
     d.set(xlim=(0, 800), ylim=(-.0002, .0070), xticks=[0, *selected],
           xlabel="Distance d (bp)", ylabel="Opportunity-normalized DAC")
-    formatter = ScalarFormatter(useMathText=True)
+    formatter = ScalarFormatter(useMathText=False)
     formatter.set_powerlimits((-3, -3))
     d.yaxis.set_major_formatter(formatter)
     fig.text(.115, .035,
@@ -170,8 +171,12 @@ def dac_example(destination):
 
 
 def dcc_example(destination):
-    n, dmax, offset = 640, 40, 10
-    positions_a = np.asarray([100, 300, 530])
+    # Match the DAC example's 925 bp region and five regularly spaced positions.
+    # B is shifted +10 bp relative to A. The DCC display is restricted to
+    # signed lags ±80 bp so the intended +10 bp relationship is isolated from
+    # the 185 bp recurrence of the illustrative positions.
+    n, dmax, offset = 925, 80, 10
+    positions_a = np.arange(5) * 185
     positions_b = positions_a + offset
     values_a, values_b = np.zeros(n), np.zeros(n)
     values_a[positions_a] = 1
@@ -182,66 +187,68 @@ def dcc_example(destination):
     update_dense_dcc_fft(fft, values_a, values_b, dmax)
     np.testing.assert_allclose(raw, fft, atol=1e-12)
     opportunities = signed_opportunity_vector(n, dmax)
-    normalized = build_reported_dcc(raw, opportunities, True, False, 3, 3)
+    normalized = build_reported_dcc(raw, opportunities, True, False, 5, 5)
     lags = np.arange(-dmax, dmax + 1)
-    assert raw[offset+dmax] == 3 and np.count_nonzero(raw) == 1
-    assert opportunities[offset+dmax] == 630
-    np.testing.assert_allclose(normalized[offset+dmax], 3/630)
+    assert raw[offset+dmax] == 5 and np.count_nonzero(raw) == 1
+    assert opportunities[offset+dmax] == 915
+    np.testing.assert_allclose(normalized[offset+dmax], 5/915)
 
     fig, (a, b, c, d) = canvas(
-        "DCC  |  Where does signal B occur relative to A?",
-        "Three A peaks and three B peaks, each with height 1. B occurs 10 bp downstream of each A peak.",
+        "DCC  |  Relative positions between two signals",
+        "Five A peaks and five B peaks. Each B peak occurs 10 bp downstream of its corresponding A peak.",
     )
-    panel(a, "A", "Keep the two input signals on separate rows")
+
+    panel(a, "A", "Start with two positional signals")
     track(a, positions_a, 1, BLUE, "Signal A")
     track(a, positions_b, 0, AMBER, "Signal B")
     for pa, pb in zip(positions_a, positions_b):
-        a.text(pa, 1.57, str(pa), ha="center", color=BLUE, fontsize=9)
-        a.text(pb, -.20, str(pb), ha="center", color=AMBER, fontsize=9)
-        a.annotate("", (pb, .45), (pa, .95),
-                   arrowprops={"arrowstyle": "->", "color": INK, "lw": 1})
-        a.text(pb+13, .70, "+10 bp", color=INK, fontsize=9, va="center")
-    a.set(xlim=(0, n), ylim=(-.36, 1.92), yticks=[],
-          xticks=[0, 100, 200, 300, 400, 500, 600], xlabel="Genomic position (bp)")
+        a.annotate("", (pb, .52), (pa, .52),
+                   arrowprops={"arrowstyle": "->", "lw": 1, "color": INK})
+        a.text((pa + pb) / 2, .64, "+10 bp", ha="center", fontsize=8.5, color=INK)
+    a.set(xlim=(-25, n), ylim=(-.08, 1.72), yticks=[],
+          xticks=[0, 185, 370, 555, 740, 924], xlabel="Genomic position (bp)")
     a.spines[["top", "right", "left"]].set_visible(False)
     a.spines["bottom"].set_color(GREY)
     a.tick_params(axis="x", labelsize=9, color=GREY)
 
-    panel(b, "B", "At lag +10 bp, compare A(x) with B(x + 10)")
-    for x in positions_a:
+    panel(b, "B", "At lag +10 bp, five pairs contribute 1 × 1")
+    matching = positions_a
+    for x in matching:
         b.axvspan(x-5, x+5, color=GREEN, alpha=.10, lw=0)
-    track(b, positions_a, 2, BLUE, r"$A(x)$")
-    track(b, positions_b-offset, 1, AMBER, r"$B(x+10)$")
-    track(b, positions_a, 0, GREEN, "Product")
-    b.text(315, .5, "1 × 1", color=GREEN, ha="left", fontsize=9)
-    b.text(595, 1.15, "3 matches\n\nRaw DCC = 3", color=GREEN,
-           fontsize=10, ha="center", va="center", weight="bold")
-    b.set(xlim=(0, n), ylim=(-.1, 2.7), yticks=[],
-          xticks=[0, 100, 200, 300, 400, 500, 600], xlabel="A position x (bp)")
+    track(b, positions_a, 2, BLUE, "A(x)")
+    track(b, positions_b-offset, 1, AMBER, "B(x + 10)")
+    track(b, matching, 0, GREEN, "Product")
+    b.text(740, .35, "Sum of products = 5", color=GREEN, fontsize=12,
+           ha="center", weight="bold")
+    b.set(xlim=(-25, n), ylim=(-.1, 2.7), yticks=[],
+          xticks=[0, 185, 370, 555, 740, 924], xlabel="A position x (bp)")
     b.spines[["top", "right", "left"]].set_visible(False)
     b.spines["bottom"].set_color(GREY)
     b.tick_params(axis="x", labelsize=9, color=GREY)
 
-    panel(c, "C", "Signed lags retain the direction")
-    raw_profile(c, lags, raw, GREEN, {10: "3 matches"})
+    panel(c, "C", "Repeat the calculation at every signed lag")
+    raw_profile(c, lags, raw, GREEN, {10: "5"})
     c.axvline(0, color=GREY, ls=":", lw=1)
-    c.text(-22, 3.58, "B upstream", ha="center", fontsize=9, color="#5b6671")
-    c.text(22, 3.58, "B downstream", ha="center", fontsize=9, color="#5b6671")
-    c.set(xlim=(-40, 40), ylim=(-.1, 4.0), yticks=range(4),
-          xticks=[-40, -20, 0, 10, 20, 40],
-          xlabel="Lag ℓ = position B − position A (bp)", ylabel="Raw signed DCC")
+    c.text(-42, 4.42, "B upstream", ha="center", fontsize=9, color="#5b6671")
+    c.text(42, 4.42, "B downstream", ha="center", fontsize=9, color="#5b6671")
+    c.set(xlim=(-80, 80), ylim=(-.12, 5.3), yticks=range(6),
+          xticks=[-80, -40, 0, 10, 40, 80],
+          xlabel="Signed lag ℓ = position B − position A (bp)",
+          ylabel="Raw DCC\n(sum of pair products)")
 
-    panel(d, "D", "Normalize by available A/B position pairs")
-    raw_profile(d, lags, normalized, PURPLE, {10: "3/630 = 0.00476"})
+    panel(d, "D", "Divide by the available position pairs")
+    raw_profile(d, lags, normalized, PURPLE, {10: "5/915"})
     d.axvline(0, color=GREY, ls=":", lw=1)
-    d.set(xlim=(-40, 40), ylim=(-.0002, .0066), xticks=[-40, -20, 0, 10, 20, 40],
+    d.set(xlim=(-80, 80), ylim=(-.0002, .0070),
+          xticks=[-80, -40, 0, 10, 40, 80],
           xlabel="Signed lag ℓ (bp)", ylabel="Opportunity-normalized DCC")
-    formatter = ScalarFormatter(useMathText=True)
+    formatter = ScalarFormatter(useMathText=False)
     formatter.set_powerlimits((-3, -3))
     d.yaxis.set_major_formatter(formatter)
+
     fig.text(.115, .035,
-             "Signed lags shown (−40 to +40 bp): use --signed-lags. At +10 bp, a 640 bp region has 630 possible A/B pairs.\n"
-             "A peak at +10 bp means B repeatedly occurs 10 bp downstream of A in the active coordinate orientation.",
+             "This 925 bp unmasked region has 925 − |ℓ| possible A/B position pairs at signed lag ℓ. Zero-signal bases still count.\n"
+             "At +10 bp, the normalized DCC is 5/915 ≈ 0.00546; positive lag means B is downstream of A.",
              fontsize=9.5, color="#5b6671", va="bottom")
     save(fig, destination, "dcc_shift_example")
     np.savetxt(destination / "DCC-example-data.tsv",
@@ -250,7 +257,7 @@ def dcc_example(destination):
                comments="", fmt="%.12g")
     return {"region_length": n, "positions_A": positions_a.tolist(),
             "positions_B": positions_b.tolist(), "peak_lag": offset,
-            "raw_value": 3, "opportunities": 630, "normalized_value": 3/630}
+            "raw_value": 5, "opportunities": 915, "normalized_value": 5/915}
 
 
 def main():
@@ -258,8 +265,9 @@ def main():
     parser.add_argument("--output-dir", type=Path, default=Path(__file__).resolve().parent)
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 10,
-                         "svg.fonttype": "none", "savefig.facecolor": "white"})
+    plt.rcParams.update({"font.family": ["Calibri", "Carlito", "Arial", "sans-serif"],
+                         "font.size": 10, "svg.fonttype": "none",
+                         "savefig.facecolor": "white"})
     results = {"DAC": dac_example(args.output_dir), "DCC": dcc_example(args.output_dir),
                "verification": "Sparse and FFT results agree for both examples."}
     (args.output_dir / "example-checks.json").write_text(json.dumps(results, indent=2) + "\n")

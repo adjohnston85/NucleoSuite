@@ -82,7 +82,7 @@ The sequential number assigned to recurring spacing peaks. The first peak repres
 
 ## Opportunity normalization
 
-Adjustment for the number of position pairs that can contribute at each separation distance. Fewer comparisons may be possible at long distances or near region boundaries. Dividing the raw DAC or DCC value by the number of available comparisons makes distances with different numbers of opportunities comparable.
+Adjustment for the number of position pairs that can contribute at each separation distance. In a contiguous unmasked region of length $L$, the opportunity count is $L-d$ for DAC distances $0\le d<L$ and $L-|\ell|$ for DCC signed lags $|\ell|<L$; it is zero beyond those bounds. Increasing separation therefore reduces the number of available position pairs until none remain. When positions are masked, NucleoSuite counts only pairs in which both positions are valid. Dividing the raw DAC or DCC value by the resulting opportunity count makes separations with different numbers of available pairs comparable.
 
 ## PNS
 

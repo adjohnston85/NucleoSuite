@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerate the PNS documentation figures from the installed scoring code.
+"""Regenerate the PNS and WPS documentation figures from the installed scoring code.
 
 From the source root:
     PYTHONPATH=src python examples/plot_pns_kernels.py
@@ -15,11 +15,12 @@ from matplotlib.ticker import MultipleLocator
 import numpy as np
 
 from nucleosuite.scoring.pns import precompute_distributions
+from nucleosuite.scoring.wps import wps_kernel_kircher_exact
 
 
 def save(fig, directory, stem):
     for ext in ("png", "svg"):
-        fig.savefig(directory / f"{stem}.{ext}", dpi=180, bbox_inches="tight")
+        fig.savefig(directory / f"{stem}.{ext}", dpi=180, bbox_inches="tight", pad_inches=0.12)
     plt.close(fig)
 
 
@@ -91,12 +92,45 @@ def adaptation_figure(directory, mode=167):
     save(fig,directory,'pns_length_adaptation_mode167')
 
 
+def wps_figure(directory, protection=120):
+    lengths = [120, 167, 180]
+    fig, axes = plt.subplots(1, 3, figsize=(14.5, 4.8), sharey=True)
+    fig.subplots_adjust(left=.065, right=.985, bottom=.15, top=.70, wspace=.03)
+    for ax, length in zip(axes, lengths):
+        kernel = wps_kernel_kircher_exact(length, protection=protection)
+        flank = protection - 1
+        x = np.arange(kernel.size) - flank
+        fragment_start = 0
+        fragment_end = length - 1
+
+        ax.axvspan(fragment_start, fragment_end, color="0.93", zorder=0, label="Fragment interval")
+        ax.axvline(fragment_start, color="0.55", lw=0.9, ls=":")
+        ax.axvline(fragment_end, color="0.55", lw=0.9, ls=":")
+        ax.plot(x, kernel, color="#377bb5", lw=2.0, label="WPS contribution")
+        ax.set_title(f"{length} bp fragment", fontsize=12)
+        ax.set_xlim(-65, 230)
+        ax.set_ylim(-1.22, 1.25)
+        ax.set_yticks([-1, 0, 1])
+        ax.set_xlabel("Position from fragment start (bp)")
+        ax.spines[["top", "right"]].set_visible(False)
+        ax.grid(axis="y", alpha=.18)
+    axes[0].set_ylabel("WPS contribution")
+    handles, labels = axes[1].get_legend_handles_labels()
+    order = [labels.index("WPS contribution"), labels.index("Fragment interval")]
+    fig.legend([handles[i] for i in order], [labels[i] for i in order],
+               loc="upper center", bbox_to_anchor=(0.5, 0.835), ncol=2, frameon=False)
+    fig.suptitle("Single-fragment WPS kernels · protection window 120 bp",
+                 y=.965, fontsize=15, weight="bold")
+    save(fig, directory, "wps_kernels_120_167_180_multiplot")
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output-dir',type=Path,default=Path(__file__).resolve().parents[1]/'docs/images')
     args=parser.parse_args();args.output_dir.mkdir(parents=True,exist_ok=True)
-    plt.rcParams.update({'font.size':10,'svg.fonttype':'none','savefig.facecolor':'white'})
-    geometry_figure(args.output_dir);adaptation_figure(args.output_dir)
+    plt.rcParams.update({'font.family':['Calibri','Carlito','Arial','sans-serif'],
+                         'font.size':10,'svg.fonttype':'none','savefig.facecolor':'white'})
+    geometry_figure(args.output_dir);adaptation_figure(args.output_dir);wps_figure(args.output_dir)
 
 
 if __name__=='__main__':

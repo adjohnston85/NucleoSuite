@@ -97,11 +97,11 @@ def test_workflow_diagrams_are_present() -> None:
 def test_algorithm_figure_assets_exist_and_are_linked() -> None:
     algorithms = (ROOT / "docs" / "ALGORITHMS.md").read_text()
     figures = [
-        "pns_kernels_120_167_180_mode167.png",
-        "pns_length_adaptation_mode167.png",
-        "wps_kernels_120_167_180_multiplot.png",
-        "dac_periodicity_example.png",
-        "dcc_shift_example.png",
+        "pns_kernels_120_167_180_mode167.svg",
+        "pns_length_adaptation_mode167.svg",
+        "wps_kernels_120_167_180_multiplot.svg",
+        "dac_periodicity_example.svg",
+        "dcc_shift_example.svg",
     ]
     missing: list[str] = []
     for filename in figures:
@@ -111,6 +111,40 @@ def test_algorithm_figure_assets_exist_and_are_linked() -> None:
         if f"images/{filename}" not in algorithms:
             missing.append(f"not linked from ALGORITHMS.md: {filename}")
     assert not missing, "Algorithm figure problems:\n" + "\n".join(missing)
+
+
+def test_algorithm_svg_figures_prefer_calibri() -> None:
+    figures = [
+        "pns_kernels_120_167_180_mode167.svg",
+        "pns_length_adaptation_mode167.svg",
+        "wps_kernels_120_167_180_multiplot.svg",
+        "dac_periodicity_example.svg",
+        "dcc_shift_example.svg",
+    ]
+    failures: list[str] = []
+    for filename in figures:
+        path = ROOT / "docs" / "images" / filename
+        if not path.is_file():
+            failures.append(f"missing file: {filename}")
+            continue
+        if "font-family: 'Calibri'" not in path.read_text():
+            failures.append(f"Calibri is not the first SVG font family: {filename}")
+    assert not failures, "Documentation figure font problems:\n" + "\n".join(failures)
+
+
+def test_dcc_png_is_complete() -> None:
+    path = ROOT / "docs" / "images" / "dcc_shift_example.png"
+    data = path.read_bytes()
+    assert data.startswith(b"\x89PNG\r\n\x1a\n")
+    assert data.endswith(b"\x00\x00\x00\x00IEND\xaeB`\x82"), "DCC PNG is truncated"
+
+
+def test_opportunity_normalization_wording_is_deterministic() -> None:
+    algorithms = (ROOT / "docs" / "ALGORITHMS.md").read_text()
+    glossary = (ROOT / "docs" / "GLOSSARY.md").read_text()
+    assert "usually have fewer" not in algorithms
+    assert "Fewer comparisons may be possible" not in glossary
+    assert "number of position pairs available at distance $d$ is exactly $L-d$" in algorithms
 
 
 def test_every_primary_command_has_one_documentation_page() -> None:

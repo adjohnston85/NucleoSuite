@@ -130,11 +130,11 @@ The positive and negative distributions describe two kinds of positional support
 
 The first figure shows the observed fragment above each kernel, with genomic position zero at the fragment start. Dashed vertical lines mark the observed outermost bases. The 120 bp fragment at mode 167 bp extends 47 bp in each direction and spans 214 bins. All three panels share the same score scale.
 
-![PNS fragment geometry, signed kernels and non-negative references for 120, 167 and 180 bp fragments](images/pns_kernels_120_167_180_mode167.png)
+![PNS fragment geometry, signed kernels and non-negative references for 120, 167 and 180 bp fragments](images/pns_kernels_120_167_180_mode167.svg)
 
 The second figure aligns fragments at their geometric centres. Lengths equally far from the 167 bp mode have matching waves: blue/yellow for 137/197 bp and purple/green for 152/182 bp. Dashed curves identify the longer fragment in each overlapping pair. The upper-right panel shows the maximum value of a single-fragment kernel as fragment length changes, with the highest amplitude at the mode. The lower-right panel sums each signed lobe across all support bins: +100 and −100 at every length, giving total absolute mass 200. These are integrated masses, not peak heights.
 
-![PNS width, peak amplitude and conserved percent mass across fragment lengths](images/pns_length_adaptation_mode167.png)
+![PNS width, peak amplitude and conserved percent mass across fragment lengths](images/pns_length_adaptation_mode167.svg)
 
 The figures are generated directly from the scoring implementation by [`examples/plot_pns_kernels.py`](../examples/plot_pns_kernels.py). PNG and SVG versions are included.
 
@@ -312,7 +312,7 @@ and one pair separated by 740 bp,
 DAC_{raw}(740)=1.
 ```
 
-![DAC example showing dyad positions, products at 185 bp, raw pair counts, and opportunity-normalized values](images/dac_periodicity_example.png)
+![DAC example showing dyad positions, products at 185 bp, raw pair counts, and opportunity-normalized values](images/dac_periodicity_example.svg)
 
 The raw DAC profile has peaks at the repeating distance and its multiples. Their decreasing height in this finite example reflects the smaller number of available pairs at larger multiples.
 
@@ -330,7 +330,7 @@ The same is done across multiple input BigWigs. Each BigWig is autocorrelated wi
 
 ### Correct for the number of possible pairs
 
-Large distances usually have fewer genomic position pairs available for comparison. NucleoSuite therefore counts the number of valid opportunities at each distance.
+For a contiguous unmasked region of length $L$ and $0\le d<L$, the number of position pairs available at distance $d$ is exactly $L-d$; at $d\ge L$ there are no valid pairs. Increasing the distance therefore reduces the number of available pairs until the count reaches zero. NucleoSuite counts these valid opportunities at every distance before normalization.
 
 For one region-track pair,
 
@@ -418,25 +418,27 @@ DCC_r(\ell)=\sum_{x\in V_r(\ell)}A(x)B(x+\ell).
 
 ### Example: B shifted downstream of A
 
-Suppose signal A occurs at three positions and signal B occurs 10 bp downstream of each one:
+Suppose signal A occurs at five positions and signal B occurs 10 bp downstream of each one:
 
 | A position | Corresponding B position | Lag: B − A |
 |---:|---:|---:|
-| 100 | 110 | +10 bp |
-| 300 | 310 | +10 bp |
-| 530 | 540 | +10 bp |
+| 0 | 10 | +10 bp |
+| 185 | 195 | +10 bp |
+| 370 | 380 | +10 bp |
+| 555 | 565 | +10 bp |
+| 740 | 750 | +10 bp |
 
-At lag $+10$ bp, all three A positions line up with B positions, so a binary signal gives
+At lag $+10$ bp, all five A positions line up with B positions, so a binary signal gives
 
 ```math
-DCC_{raw}(+10)=3.
+DCC_{raw}(+10)=5.
 ```
 
 A DCC maximum at +10 bp therefore indicates that B is repeatedly enriched 10 bp downstream of A.
 
-![Signed DCC example showing A and B positions, their alignment at plus 10 bp, raw pair counts, and opportunity-normalized values](images/dcc_shift_example.png)
+![Signed DCC example showing A and B positions, their alignment at plus 10 bp, raw pair counts, and opportunity-normalized values](images/dcc_shift_example.svg)
 
-The figure uses `--signed-lags` and an unmasked 640 bp region. Its alignment panel shows where `B(x+10)` coincides with `A(x)`; the three products produce the +10 bp peak. The two lower panels show the same result before and after opportunity normalization.
+The figure uses `--signed-lags` and an unmasked 925 bp region. Its layout intentionally mirrors the DAC example: the upper panels show the input signal and pair-product calculation, and the lower panels show the raw and opportunity-normalized profiles. At +10 bp, `B(x+10)` coincides with `A(x)` at all five signal positions.
 
 ### Combine regions and input tracks
 
@@ -466,7 +468,7 @@ DCC(\ell)=\frac{DCC_{raw}(\ell)}{O(\ell)}.
 
 `--no-normalize-dcc` reports the uncorrected raw profile.
 
-For the +10 bp example in one unmasked 640 bp region, there are `640 − 10 = 630` opportunities, including pairs with zero product. The default signed DCC at +10 bp is therefore `3 / 630 ≈ 0.004762`. This is a mean product of signal values, not a Pearson correlation coefficient.
+For the +10 bp example in one unmasked 925 bp region, there are exactly `925 − 10 = 915` opportunities, including pairs with zero product. The default signed DCC at +10 bp is therefore `5 / 915 ≈ 0.005464`. This is a mean product of signal values, not a Pearson correlation coefficient.
 
 If `--normalize-by-signal-totals` is also requested, the selected DCC profile is divided by
 
@@ -584,7 +586,7 @@ For example, the default broad-window target is 64 bp and is snapped down to 61 
 | 160 bp | 61 bp | 21 bp | 160 bp |
 | 200 bp | 71 bp | 31 bp | 200 bp |
 
-Resolution controls how closely peaks may be called; it does not set the fitted NRL to that number. A 160 bp resolution can, for example, retain a peak series spaced 185 bp apart and report an NRL near 185 bp.
+Resolution sets the minimum allowed separation between called peaks; it does not set the fitted NRL to that number. A 160 bp resolution can, for example, retain a peak series spaced 185 bp apart and report an NRL near 185 bp.
 
 ### Smooth at the two scales
 
@@ -757,7 +759,7 @@ If $L_i<k$, no complete $k$-base protection window fits inside the fragment, so 
 
 #### Example WPS kernels
 
-![WPS example kernels](images/wps_kernels_120_167_180_multiplot.png)
+![WPS example kernels](images/wps_kernels_120_167_180_multiplot.svg)
 
 The x axis is measured from the fragment start, and grey shading marks the fragment interval. With the 120 bp protection window, the displayed kernel coordinates run from -59 to $L+59$ bp. All three panels use the same x-axis limits.
 
@@ -1094,7 +1096,7 @@ For the default $R=160$ bp, the complete aggregate profile $A(x)$ therefore prod
 \widetilde{A}_{local}(x)=\widetilde{A}_{21}(x).
 ```
 
-The broader curve identifies candidate peaks. Each candidate is refined to the strongest local maximum on the finer curve within $R/2$ bp, and final peaks must remain at least $R$ bp apart. Increasing resolution generally uses wider smoothing and retains more widely separated peaks; decreasing it permits closer peaks with less smoothing.
+The broader curve identifies candidate peaks. Each candidate is refined to the strongest local maximum on the finer curve within $R/2$ bp, and final peaks must remain at least $R$ bp apart. Increasing resolution uses wider smoothing and requires greater separation between retained peaks; decreasing it uses narrower smoothing and permits closer peaks.
 
 Called peaks are then assigned to downstream (positive-coordinate) and upstream (negative-coordinate) regressions. Let $c$ be the called peak closest to 0 when it lies within half the calling resolution:
 

@@ -103,3 +103,76 @@ def test_explicit_position_columns_override_auto_bed7(tmp_path: Path):
     )
     assert len(retained) == 1
     assert retained[0].position == 100
+
+
+def test_consecutive_regions_between_flanks_are_both_rejected(tmp_path: Path):
+    regions = _write(
+        tmp_path / "regions.bed",
+        "chr1\t95\t105\tnuc_a\n"
+        "chr1\t115\t125\tnuc_b\n",
+    )
+    flanks = _write(
+        tmp_path / "flanks.bed",
+        "chr1\t45\t55\tbrk_left\n"
+        "chr1\t165\t175\tbrk_right\n",
+    )
+
+    retained = filter_flanked_regions(
+        read_bed_records(regions),
+        build_flank_index(read_bed_records(flanks)),
+    )
+    assert retained == []
+
+
+def test_consecutive_flanks_do_not_disqualify_a_clean_region(tmp_path: Path):
+    regions = _write(tmp_path / "regions.bed", "chr1\t195\t205\tnuc\n")
+    flanks = _write(
+        tmp_path / "flanks.bed",
+        "chr1\t45\t55\tbrk_1\n"
+        "chr1\t145\t155\tbrk_2\n"
+        "chr1\t245\t255\tbrk_3\n",
+    )
+
+    retained = filter_flanked_regions(
+        read_bed_records(regions),
+        build_flank_index(read_bed_records(flanks)),
+    )
+    assert [record.raw_line.split("\t")[3] for record in retained] == ["nuc"]
+
+
+def test_region_outside_previous_flank_pair_does_not_disqualify_clean_region(tmp_path: Path):
+    regions = _write(
+        tmp_path / "regions.bed",
+        "chr1\t45\t55\tleft_nuc\n"
+        "chr1\t195\t205\ttarget_nuc\n",
+    )
+    flanks = _write(
+        tmp_path / "flanks.bed",
+        "chr1\t145\t155\tbrk_left\n"
+        "chr1\t245\t255\tbrk_right\n",
+    )
+
+    retained = filter_flanked_regions(
+        read_bed_records(regions),
+        build_flank_index(read_bed_records(flanks)),
+    )
+    assert [record.raw_line.split("\t")[3] for record in retained] == ["target_nuc"]
+
+
+def test_duplicate_region_positions_are_rejected(tmp_path: Path):
+    regions = _write(
+        tmp_path / "regions.bed",
+        "chr1\t95\t105\tnuc_a\n"
+        "chr1\t95\t105\tnuc_b\n",
+    )
+    flanks = _write(
+        tmp_path / "flanks.bed",
+        "chr1\t45\t55\tbrk_left\n"
+        "chr1\t145\t155\tbrk_right\n",
+    )
+
+    retained = filter_flanked_regions(
+        read_bed_records(regions),
+        build_flank_index(read_bed_records(flanks)),
+    )
+    assert retained == []

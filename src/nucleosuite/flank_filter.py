@@ -137,10 +137,22 @@ def filter_flanked_regions(
     *,
     max_flank_distance: int | None = None,
 ) -> list[BedRecord]:
-    """Keep regions with a strictly upstream and strictly downstream flank position."""
+    """Keep only clean FLANK--REGION--FLANK arrangements.
+
+    The nearest strictly upstream and downstream flank positions define the
+    bracketing interval for each candidate region. Exactly one ``--regions``
+    record must occur inside that interval: the candidate itself. This rejects
+    consecutive region calls such as FLANK--REGION--REGION--FLANK while still
+    allowing consecutive flank calls.
+    """
 
     if max_flank_distance is not None and max_flank_distance < 0:
         raise ValueError("--max-flank-distance must be at least 0")
+
+    # Index all candidate-region positions as well as the flank positions.
+    # This lets us enforce the adjacency rule without merging or rewriting the
+    # original BED records. Duplicate region positions count as multiple calls.
+    region_positions_by_chrom = build_flank_index(regions)
 
     retained: list[BedRecord] = []
     for region in regions:
@@ -148,8 +160,8 @@ def filter_flanked_regions(
         if not positions:
             continue
 
-        # bisect_left excludes a flank at exactly the region position from the
-        # upstream side; bisect_right excludes it from the downstream side.
+        # Flanks must be strictly on opposite sides of the candidate position.
+        # A flank at exactly the region position does not count for either side.
         left_index = bisect.bisect_left(positions, region.position) - 1
         right_index = bisect.bisect_right(positions, region.position)
         if left_index < 0 or right_index >= len(positions):
@@ -157,6 +169,16 @@ def filter_flanked_regions(
 
         left = positions[left_index]
         right = positions[right_index]
+
+        # A clean flanked call contains exactly one region between the nearest
+        # bracketing flanks. Thus BRK--NUC--BRK is retained, whereas
+        # BRK--NUC--NUC--BRK rejects both nucleosome calls.
+        region_positions = region_positions_by_chrom[region.chrom]
+        first_inside = bisect.bisect_right(region_positions, left)
+        first_at_or_after_right = bisect.bisect_left(region_positions, right)
+        if first_at_or_after_right - first_inside != 1:
+            continue
+
         if max_flank_distance is not None:
             if region.position - left > max_flank_distance:
                 continue
@@ -187,8 +209,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="nucleosuite flank-filter",
         description=(
-            "Retain BED regions only when a second BED contains a feature strictly "
-            "upstream and strictly downstream of the region's representative position."
+            "Retain BED regions only when the nearest surrounding events form a clean "
+            "flank--region--flank arrangement with no second region between the two flanks."
         ),
         formatter_class=NucleoSuiteHelpFormatter,
     )
@@ -203,7 +225,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--flanks",
         required=True,
-        help="BED3+, BED.gz, or bigBed features used to test upstream/downstream flanking.",
+        help=(
+            "BED3+, BED.gz, or bigBed features used as the required immediate "
+            "upstream/downstream flank type."
+        ),
     )
     parser.add_argument(
         "--out",
