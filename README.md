@@ -52,6 +52,7 @@ Analysis commands derive output filenames or prefixes from the primary input bas
 | [`call-peaks`](docs/commands/call-peaks.md) | Call nucleosome and breakpoint features from nucleosome-score or WPS BigWigs. |
 | [`empirical-peak-fdr`](docs/commands/empirical-peak-fdr.md) | Compare observed peak scores with fragment-randomized peak callsets and report empirical p-values and FDR. |
 | [`filter-peaks`](docs/commands/filter-peaks.md) | Filter peak intervals by score, score percentile, region length, and/or BigWig coverage. |
+| [`flank-filter`](docs/commands/flank-filter.md) | Retain BED regions only when a second feature set has a peak on both sides. |
 | [`peak-score-frequency`](docs/commands/peak-score-frequency.md) | Compare peak-score distributions. |
 | [`peak-states`](docs/commands/peak-states.md) | Measure peak abundance and score-dependent enrichment by chromatin state. |
 | [`compare-positions`](docs/commands/compare-positions.md) | Compare one main callset with one or more positional callsets and optional BigWig score comparators. |

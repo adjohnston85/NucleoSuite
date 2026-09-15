@@ -53,6 +53,17 @@ nucleosuite filter-peaks \
   --coverage-position-column 7
 ```
 
+To retain only nucleosome regions that have breakpoint peaks on both sides:
+
+```bash
+nucleosuite flank-filter \
+  --regions sample_nucleosome_regions.bed \
+  --flanks sample_breakpoint_peaks.bed \
+  --out sample_nucleosome_regions_flanked.bed
+```
+
+For NucleoSuite BED8 peaks, representative positions are read from column 7 automatically. Add `--max-flank-distance` when both breakpoint peaks must also fall within a defined distance.
+
 ## 3. Assign empirical FDR from randomized peaks
 
 Run the observed and randomized sample with identical PNS settings, then compare their peak BEDs:

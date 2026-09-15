@@ -27,6 +27,8 @@ Use [`mean-scale`](commands/mean-scale.md) when BigWig signal or BED-family scor
 
 Use [`filter-peaks`](commands/filter-peaks.md) to create a reusable peak subset by score, score percentile, interval length, BigWig coverage, or combinations of these filters. Use [`peak-score-frequency`](commands/peak-score-frequency.md) to compare peak-score distributions and [`peak-states`](commands/peak-states.md) to measure how peaks are distributed across chromatin states.
 
+Use [`flank-filter`](commands/flank-filter.md) when a peak should be retained only if a second BED has features on both sides. A common PNS use is filtering nucleosome regions to calls flanked by both an upstream and downstream breakpoint peak.
+
 Use [`empirical-peak-fdr`](commands/empirical-peak-fdr.md) when an observed peak BED and one or more identically processed fragment-randomized peak BEDs are available. It preserves every observed BED field and appends empirical p-value and FDR. An optional `--fdr` cutoff adds a filtered BED without replacing the complete annotated output.
 
 Use [`compare-positions`](commands/compare-positions.md) when one main nucleosome callset should be compared with one or more other callsets using one-to-one positional matching, main-score percentile groups, and optional within-percentile statistics.

@@ -80,6 +80,10 @@ chr1	120000	120001	category_B	0	-
 
 The nucleosome BED supplied to `--nucleosome-bed` is also interpreted from interval midpoints by default. `--nucleosome-center-col` can select an explicit centre column when the callset stores one.
 
+### Flank-filter BEDs
+
+`flank-filter` accepts BED3+, BED.gz, or bigBed for both `--regions` and `--flanks`. For NucleoSuite BED8 calls, BED column 7 (`thickStart`) is automatically used as the representative position when numeric; otherwise the interval midpoint is used. `--region-position-column` and `--flank-position-column` select explicit one-based absolute-position columns. Retained region rows are written without changing their columns.
+
 ### State BED
 
 State or group annotations require at least BED4:

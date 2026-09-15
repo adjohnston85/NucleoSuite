@@ -27,6 +27,7 @@ Each command page describes the calculation, a typical invocation, analysis opti
 - [`call-peaks`](commands/call-peaks.md) — call nucleosome-score or WPS features from an existing signal track.
 - [`empirical-peak-fdr`](commands/empirical-peak-fdr.md) — compare observed peaks with fragment-randomized peak callsets and report empirical p-values and FDR.
 - [`filter-peaks`](commands/filter-peaks.md) — filter peak intervals by score, score percentile, region length, and/or BigWig coverage.
+- [`flank-filter`](commands/flank-filter.md) — retain BED regions that have a second feature type on both sides.
 - [`peak-score-frequency`](commands/peak-score-frequency.md) — compare peak-score distributions.
 - [`peak-states`](commands/peak-states.md) — count peaks and score-dependent enrichment across chromatin states.
 - [`compare-positions`](commands/compare-positions.md) — compare one main callset with positional callsets and optional BigWig score comparators.
