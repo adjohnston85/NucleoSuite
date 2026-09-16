@@ -117,8 +117,6 @@ def test_algorithm_figure_assets_exist_and_are_linked() -> None:
         "pns_kernels_120_167_180_mode167.png",
         "pns_length_adaptation_mode167.png",
         "wps_kernels_120_167_180_multiplot.png",
-        "dac_periodicity_example.png",
-        "dcc_shift_example.png",
     ]
     missing: list[str] = []
     for filename in figures:
@@ -152,11 +150,26 @@ def test_documentation_plot_generators_use_calibri_and_30_percent_font_scale() -
     assert not failures, "Documentation figure styling problems:\n" + "\n".join(failures)
 
 
-def test_dcc_png_is_complete() -> None:
-    path = ROOT / "docs" / "images" / "dcc_shift_example.png"
-    data = path.read_bytes()
-    assert data.startswith(b"\x89PNG\r\n\x1a\n")
-    assert data.endswith(b"\x00\x00\x00\x00IEND\xaeB`\x82"), "DCC PNG is truncated"
+def test_dac_dcc_plots_are_not_in_documentation() -> None:
+    algorithms = (ROOT / "docs" / "ALGORITHMS.md").read_text()
+    image_dir = ROOT / "docs" / "images"
+    assert "images/dac_" not in algorithms
+    assert "images/dcc_" not in algorithms
+    assert not list(image_dir.glob("dac_*.png"))
+    assert not list(image_dir.glob("dcc_*.png"))
+
+
+def test_documentation_kernel_generator_has_no_plot_titles() -> None:
+    text = (ROOT / "examples" / "plot_pns_kernels.py").read_text()
+    assert ".set_title(" not in text
+    assert ".suptitle(" not in text
+    assert "title=" not in text
+
+
+def test_wps_documentation_uses_scoring_coordinate_geometry() -> None:
+    text = (ROOT / "examples" / "plot_pns_kernels.py").read_text()
+    assert "genomic_x = np.arange(kernel.size) - half + 1" in text
+    assert 'set_xlabel("Position from fragment centre (bp)")' in text
 
 
 def test_opportunity_normalization_wording_is_deterministic() -> None:

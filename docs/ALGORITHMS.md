@@ -311,11 +311,7 @@ and one pair separated by 740 bp,
 DAC_{raw}(740)=1.
 ```
 
-![DAC example showing dyad positions, products at 185 bp, raw pair counts, and opportunity-normalized values](images/dac_periodicity_example.png)
-
 The raw DAC profile has peaks at the repeating distance and its multiples. Their decreasing height in this finite example reflects the smaller number of available pairs at larger multiples.
-
-The figure follows the calculation from top to bottom: the input dyads, the four matching pairs at 185 bp, the raw DAC profile, and the opportunity-normalized profile. The normalized profile divides the raw pair-product sum by the number of available position pairs at each distance.
 
 ### Combine regions and tracks
 
@@ -355,10 +351,10 @@ An opportunity is a pair of genomic positions available for comparison, includin
 
 | Distance | Raw DAC | Opportunities | Default DAC value |
 |---:|---:|---:|---:|
-| 185 bp | 4 | 740 | 4 / 740 ≈ 0.005405 |
-| 370 bp | 3 | 555 | 3 / 555 ≈ 0.005405 |
-| 555 bp | 2 | 370 | 2 / 370 ≈ 0.005405 |
-| 740 bp | 1 | 185 | 1 / 185 ≈ 0.005405 |
+| 185 bp | 4 | 740 | 1 / 185 |
+| 370 bp | 3 | 555 | 1 / 185 |
+| 555 bp | 2 | 370 | 1 / 185 |
+| 740 bp | 1 | 185 | 1 / 185 |
 
 The normalized peaks are equal in this example. For a weighted track, a pair with values 2 and 3 contributes 6 to the raw sum, so DAC represents a mean pair product after opportunity normalization.
 
@@ -434,10 +430,6 @@ DCC_{raw}(+10)=5.
 ```
 
 A DCC maximum at +10 bp therefore indicates that B is repeatedly enriched 10 bp downstream of A.
-
-![Signed DCC example showing A and B positions, their alignment at plus 10 bp, raw pair counts, and opportunity-normalized values](images/dcc_shift_example.png)
-
-The figure uses `--signed-lags` across a 925 bp region. The upper panels show the two input signals and the pair-product calculation at +10 bp. The lower panels show the raw DCC profile and the opportunity-normalized profile. At +10 bp, `B(x+10)` aligns with `A(x)` at all five signal positions.
 
 ### Combine regions and input tracks
 
@@ -760,7 +752,7 @@ If $L_i<k$, no complete $k$-base protection window fits inside the fragment, so 
 
 ![WPS example kernels](images/wps_kernels_120_167_180_multiplot.png)
 
-The x axis is measured from the fragment start, and grey shading marks the fragment interval. With the 120 bp protection window, the displayed kernel coordinates run from -59 to $L+59$ bp. All three panels use the same x-axis limits.
+The x axis is centred on the fragment, and grey shading marks the fragment interval. The WPS kernel extends on both sides of the fragment, with negative contributions where a fragment endpoint lies within the protection window and positive contributions where the complete protection window is spanned by the fragment.
 
 The positive central region becomes wider as fragment length increases because more window centres can be completely spanned by the fragment.
 

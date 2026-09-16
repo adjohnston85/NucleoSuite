@@ -64,7 +64,6 @@ def geometry_figure(directory, mode=167):
         axes[2,col].set_xlabel("Position from fragment start (bp)")
     axes[1,0].set_ylabel("PNS contribution per base")
     axes[2,0].set_ylabel("posPNS contribution per base")
-    fig.suptitle("PNS fragment geometry and native kernels · protected-DNA mode 167 bp",fontsize=fs(14),weight="bold")
     save(fig,directory,"pns_kernels_120_167_180_mode167")
 
 
@@ -80,7 +79,7 @@ def adaptation_figure(directory, mode=167):
         spans.plot([-(length-1)/2,(length-1)/2],[4-i,4-i],color=color,lw=3)
         spans.text(105,4-i,f"{length} bp",color=color,va='center',fontsize=fs(10))
         wave.plot(x,signed[length],color=color,lw=2,ls='--' if length>mode else '-',label=f"{length} bp")
-    spans.set_xlim(-110,110);spans.set_ylim(-0.7,4.7);spans.axis('off');spans.set_title('Observed fragments aligned at their centres',fontsize=fs(11))
+    spans.set_xlim(-110,110);spans.set_ylim(-0.7,4.7);spans.axis('off')
     wave.set(xlabel='Position from fragment centre (bp)',ylabel='PNS contribution per base',xlim=(-110,110))
     wave.axhline(0,color='0.4',lw=.8);wave.axvline(0,color='0.5',lw=.8,ls=':')
     wave.legend(ncol=3,fontsize=fs(9),loc='lower center',frameon=False)
@@ -88,46 +87,55 @@ def adaptation_figure(directory, mode=167):
     all_signed,_=precompute_distributions(lengths_all,mode)
     amplitude.plot(lengths_all,[all_signed[x].max() for x in lengths_all],color='#cf3e4e',lw=2)
     amplitude.axvline(mode,color='0.5',lw=.8,ls=':')
-    amplitude.set(xlabel='Fragment length (bp)',ylabel='Maximum PNS contribution',title='Peak amplitude is highest at the mode')
+    amplitude.set(xlabel='Fragment length (bp)',ylabel='Maximum PNS contribution')
     mass.plot(lengths_all,[all_signed[x][all_signed[x]>0].sum() for x in lengths_all],color='#cf3e4e',label='Positive mass')
     mass.plot(lengths_all,[all_signed[x][all_signed[x]<0].sum() for x in lengths_all],color='#377bb5',label='Negative mass')
     mass.set(xlabel='Fragment length (bp)',ylabel='Signed mass',ylim=(-135,135),yticks=[-100,0,100])
     mass.legend(fontsize=fs(9),loc='center',ncol=2,frameon=False)
     for ax in [wave,amplitude,mass]:
         ax.spines[['top','right']].set_visible(False);ax.grid(alpha=.2)
-    fig.suptitle('PNS length adaptation · equal mass, changing width and amplitude',fontsize=fs(14),weight='bold')
     save(fig,directory,'pns_length_adaptation_mode167')
 
 
 def wps_figure(directory, protection=120):
     lengths = [120, 167, 180]
-    fig, axes = plt.subplots(1, 3, figsize=(14.5, 4.8), sharey=True)
-    fig.subplots_adjust(left=.065, right=.985, bottom=.15, top=.70, wspace=.03)
+    fig, axes = plt.subplots(1, 3, figsize=(14.5, 4.6), sharex=True, sharey=True)
+    fig.subplots_adjust(left=.065, right=.985, bottom=.18, top=.82, wspace=.03)
+    half = protection // 2
+
     for ax, length in zip(axes, lengths):
         kernel = wps_kernel_kircher_exact(length, protection=protection)
-        flank = protection - 1
-        x = np.arange(kernel.size) - flank
-        fragment_start = 0
-        fragment_end = length - 1
 
-        ax.axvspan(fragment_start, fragment_end, color="0.93", zorder=0, label="Fragment interval")
+        # Match the coordinates used by add_fragment(): the effective kernel
+        # starts at fragment_start - protection/2 + 1.  Re-centre the whole
+        # diagram on the fragment so the kernel/fragment geometry is explicit.
+        genomic_x = np.arange(kernel.size) - half + 1
+        fragment_centre = length / 2.0
+        x = genomic_x - fragment_centre
+        fragment_start = -fragment_centre
+        fragment_end = fragment_centre
+
+        ax.axvspan(fragment_start, fragment_end, color="0.93", zorder=0,
+                   label="Fragment interval")
         ax.axvline(fragment_start, color="0.55", lw=0.9, ls=":")
         ax.axvline(fragment_end, color="0.55", lw=0.9, ls=":")
+        ax.axvline(0, color="0.72", lw=0.8, ls="--")
         ax.plot(x, kernel, color="#377bb5", lw=2.0, label="WPS contribution")
-        ax.set_title(f"{length} bp fragment", fontsize=fs(12))
-        ax.set_xlim(-65, 230)
-        ax.set_ylim(-1.22, 1.25)
+        ax.text(0, 1.10, f"{length} bp", ha="center", va="bottom",
+                fontsize=fs(11), weight="bold")
+        ax.set_xlim(-155, 155)
+        ax.set_ylim(-1.22, 1.28)
         ax.set_yticks([-1, 0, 1])
-        ax.set_xlabel("Position from fragment start (bp)")
+        ax.set_xlabel("Position from fragment centre (bp)")
         ax.spines[["top", "right"]].set_visible(False)
         ax.grid(axis="y", alpha=.18)
+
     axes[0].set_ylabel("WPS contribution")
     handles, labels = axes[1].get_legend_handles_labels()
     order = [labels.index("WPS contribution"), labels.index("Fragment interval")]
     fig.legend([handles[i] for i in order], [labels[i] for i in order],
-               loc="upper center", bbox_to_anchor=(0.5, 0.835), ncol=2, frameon=False)
-    fig.suptitle("Single-fragment WPS kernels · protection window 120 bp",
-                 y=.965, fontsize=fs(15), weight="bold")
+               loc="upper center", bbox_to_anchor=(0.5, 0.985), ncol=2,
+               frameon=False)
     save(fig, directory, "wps_kernels_120_167_180_multiplot")
 
 
