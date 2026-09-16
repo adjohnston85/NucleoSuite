@@ -96,15 +96,15 @@ def test_default_gene_set_resource_encodes_requested_precedence():
         rows = path.read_text().splitlines()
     assert rows[0] == (
         "set_name\tinclude_rule\trequired_tss_state\tforbidden_tss_states\t"
-        "exclude_if_candidate"
+        "forbidden_gene_states\texclude_if_candidate"
     )
-    assert "\t1_Active_Promoter\t" in rows[1]
-    assert "\t2_Weak_Promoter\t" in rows[2]
+    assert "\t1_Active_Promoter\t\t12_Repressed\t" in rows[1]
+    assert "\t2_Weak_Promoter\t\t12_Repressed\t" in rows[2]
     assert rows[1].endswith("\trepressed_genes")
     assert rows[2].endswith("\tactive_genes,repressed_genes")
     assert rows[3] == (
         "repressed_genes\t12_Repressed\t\t"
-        "1_Active_Promoter,2_Weak_Promoter\tactive_genes,weak_genes"
+        "1_Active_Promoter,2_Weak_Promoter\t\tactive_genes,weak_genes"
     )
 
 

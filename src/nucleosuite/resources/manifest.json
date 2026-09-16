@@ -42,7 +42,7 @@
     },
     "default-gene-sets": {
       "path": "resources/default_gene_sets.tsv",
-      "description": "Default active, weak and repressed gene-category rules with candidate-set exclusions"
+      "description": "Default active, weak and repressed gene-category rules with gene-body, TSS and candidate-set exclusions"
     },
     "mnase-suite-script": {
       "path": "resources/mnase_full_suite.sh",

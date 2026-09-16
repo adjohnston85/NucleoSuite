@@ -51,6 +51,7 @@ class GeneSetRule:
     state_names: frozenset[str]
     required_tss_state: str | None = None
     forbidden_tss_states: frozenset[str] = frozenset()
+    forbidden_gene_states: frozenset[str] = frozenset()
     exclude_if_candidate: frozenset[str] = frozenset()
 
 
@@ -263,7 +264,7 @@ def load_rules(
     inline_rules: Sequence[str] | None,
 ) -> list[GeneSetRule]:
     rows: list[
-        tuple[str, str, str | None, frozenset[str], frozenset[str]]
+        tuple[str, str, str | None, frozenset[str], frozenset[str], frozenset[str]]
     ] = []
     if config_path is not None and inline_rules:
         raise ValueError("Use either --config or --gene-set, not both")
@@ -273,7 +274,7 @@ def load_rules(
                 raise ValueError("--gene-set values must use NAME=RULE")
             name, expression = item.split("=", 1)
             rows.append(
-                (name.strip(), expression.strip(), None, frozenset(), frozenset())
+                (name.strip(), expression.strip(), None, frozenset(), frozenset(), frozenset())
             )
     elif config_path is not None:
         with open(config_path, encoding="utf-8-sig", newline="") as handle:
@@ -297,14 +298,17 @@ def load_rules(
                 expression = (row.get("include_rule") or "").strip()
                 required_tss_state = (row.get("required_tss_state") or "").strip() or None
                 forbidden_tss_states = _split_set_names(row.get("forbidden_tss_states"))
+                forbidden_gene_states = _split_set_names(row.get("forbidden_gene_states"))
                 exclusions = _split_set_names(row.get(exclusion_column) if exclusion_column else None)
-                if name or expression or required_tss_state or forbidden_tss_states or exclusions:
+                if (name or expression or required_tss_state or forbidden_tss_states
+                        or forbidden_gene_states or exclusions):
                     rows.append(
                         (
                             name,
                             expression,
                             required_tss_state,
                             forbidden_tss_states,
+                            forbidden_gene_states,
                             exclusions,
                         )
                     )
@@ -313,7 +317,8 @@ def load_rules(
 
     rules: list[GeneSetRule] = []
     seen: set[str] = set()
-    for name, expression, required_tss_state, forbidden_tss_states, exclusions in rows:
+    for (name, expression, required_tss_state, forbidden_tss_states,
+         forbidden_gene_states, exclusions) in rows:
         if not name or not expression:
             raise ValueError("Each gene-set definition requires a name and include rule")
         if name in seen:
@@ -333,6 +338,7 @@ def load_rules(
                 state_names=state_names,
                 required_tss_state=required_tss_state,
                 forbidden_tss_states=forbidden_tss_states,
+                forbidden_gene_states=forbidden_gene_states,
                 exclude_if_candidate=exclusions,
             )
         )
@@ -659,6 +665,11 @@ def build_gene_sets(
                 for rule in rules
                 for state_name in rule.forbidden_tss_states
             }
+            | {
+                state_name
+                for rule in rules
+                for state_name in rule.forbidden_gene_states
+            }
         )
         - available_states
     )
@@ -675,6 +686,9 @@ def build_gene_sets(
             gene.gene_id
             for gene in genes
             if evaluate_rpn(rule.rpn, state_by_gene[gene.gene_id])
+            and rule.forbidden_gene_states.isdisjoint(
+                state_by_gene[gene.gene_id]
+            )
             and (
                 rule.required_tss_state is None
                 or rule.required_tss_state in state_by_tss[gene.gene_id]
@@ -831,12 +845,13 @@ def build_gene_sets(
     with config_path.open("w") as handle:
         handle.write(
             "set_name\tinclude_rule\trequired_tss_state\tforbidden_tss_states\t"
-            "exclude_if_candidate\n"
+            "forbidden_gene_states\texclude_if_candidate\n"
         )
         for rule in rules:
             handle.write(
                 f"{rule.name}\t{rule.expression}\t{rule.required_tss_state or ''}\t"
                 f"{','.join(sorted(rule.forbidden_tss_states))}\t"
+                f"{','.join(sorted(rule.forbidden_gene_states))}\t"
                 f"{','.join(sorted(rule.exclude_if_candidate))}\n"
             )
 
@@ -844,7 +859,7 @@ def build_gene_sets(
     with summary_path.open("w") as handle:
         handle.write(
             "set_name\tinclude_rule\trequired_tss_state\tforbidden_tss_states\t"
-            "exclude_if_candidate\t"
+            "forbidden_gene_states\texclude_if_candidate\t"
             "candidate_gene_count\t"
             "overlap_removed_count\texcluded_gene_count\tfinal_gene_count\t"
             "candidate_interval\tfinal_interval\tfinal_tss_interval\n"
@@ -854,6 +869,7 @@ def build_gene_sets(
                 f"{rule.name}\t{rule.expression}\t"
                 f"{rule.required_tss_state or ''}\t"
                 f"{','.join(sorted(rule.forbidden_tss_states))}\t"
+                f"{','.join(sorted(rule.forbidden_gene_states))}\t"
                 f"{','.join(sorted(rule.exclude_if_candidate))}\t"
                 f"{len(candidate_ids[rule.name])}\t{len(excluded_ids_by_set[rule.name])}\t"
                 f"{len(excluded_ids_by_set[rule.name])}\t{len(final_ids[rule.name])}\t"
@@ -863,7 +879,7 @@ def build_gene_sets(
             )
         if leftover_set_name:
             handle.write(
-                f"{leftover_set_name}\tno candidate-set intersection\t\t\t\t{len(final_ids[leftover_set_name])}\t0\t0\t"
+                f"{leftover_set_name}\tno candidate-set intersection\t\t\t\t\t{len(final_ids[leftover_set_name])}\t0\t0\t"
                 f"{len(final_ids[leftover_set_name])}\t\t{final_paths[leftover_set_name].resolve()}\t"
                 f"{final_tss_paths[leftover_set_name].resolve()}\n"
             )
@@ -910,7 +926,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="nucleosuite gene-sets",
         description=(
             "Create candidate gene sets from gene-body chromatin-state intersections, "
-            "optionally require or forbid states at the strand-aware TSS, and resolve "
+            "apply gene-body and strand-aware TSS state rules, and resolve "
             "candidates into mutually exclusive final categories."
         ),
         formatter_class=NucleoSuiteHelpFormatter,
@@ -923,7 +939,8 @@ def build_parser() -> argparse.ArgumentParser:
             "TSV with set_name and include_rule columns. Optional required_tss_state "
             "requires one named state to overlap the strand-aware one-base TSS. Optional "
             "forbidden_tss_states lists comma-separated states that must not overlap the "
-            "TSS. Optional exclude_if_candidate lists candidate sets whose membership "
+            "TSS. Optional forbidden_gene_states lists comma-separated states that must "
+            "not overlap any part of the gene. Optional exclude_if_candidate lists candidate sets whose membership "
             "excludes a gene from the current final set."
         ),
     )

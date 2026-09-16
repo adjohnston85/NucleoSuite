@@ -44,6 +44,8 @@ Leaving `required_tss_state` blank, or omitting the column, disables the TSS-spe
 
 The optional `forbidden_tss_states` column lists comma-separated states that must not overlap the TSS. For example, `1_Active_Promoter,2_Weak_Promoter` excludes a candidate when either promoter state occurs at its TSS. Leaving the field blank, or omitting the column, applies no TSS-state exclusion.
 
+The optional `forbidden_gene_states` column lists states whose overlap with any part of the gene excludes it from that candidate set. The bundled Active and Weak rules use `12_Repressed` in this column.
+
 `exclude_if_candidate` makes final categories mutually exclusive by removing genes that also qualify for named competing candidate sets.
 
 The rules produce two set types:
@@ -61,8 +63,8 @@ See [Gene-set assignment](../ALGORITHMS.md#gene-set-assignment) for the exact se
 
 The bundled rules use the following candidate requirements:
 
-- **Active:** `1_Active_Promoter` overlaps the TSS, and either `9_Txn_Transition` or `10_Txn_Elongation` overlaps the gene.
-- **Weak:** `2_Weak_Promoter` overlaps the TSS, and at least one of `9_Txn_Transition`, `10_Txn_Elongation`, or `11_Weak_Txn` overlaps the gene.
+- **Active:** `1_Active_Promoter` overlaps the TSS, either `9_Txn_Transition` or `10_Txn_Elongation` overlaps the gene, and the gene has no overlap with `12_Repressed`.
+- **Weak:** `2_Weak_Promoter` overlaps the TSS, at least one of `9_Txn_Transition`, `10_Txn_Elongation`, or `11_Weak_Txn` overlaps the gene, and the gene has no overlap with `12_Repressed`.
 - **Repressed:** `12_Repressed` overlaps the gene, while neither `1_Active_Promoter` nor `2_Weak_Promoter` overlaps the TSS.
 
 Configured candidate exclusions then make the final Active, Weak, and Repressed outputs mutually exclusive. The optional strict leftover group contains genes that entered none of the candidate sets.

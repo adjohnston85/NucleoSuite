@@ -30,7 +30,7 @@ The CTCF resource contains JASPAR MA0139.1 motif sites found with FIMO and inter
 
 ## Gene-set rules
 
-The default gene-set configuration defines Active candidates by `1_Active_Promoter` at the strand-aware TSS plus transcription-associated gene overlap, Weak candidates by `2_Weak_Promoter` at the TSS plus weak/transcription-associated gene overlap, and Repressed candidates by `12_Repressed` gene overlap with neither promoter state at the TSS. Required and forbidden TSS states are optional per-rule fields. Directed exclusions make the final categories mutually exclusive. `leftover_genes` contains genes that enter none of the candidate sets; genes removed because they enter competing candidates remain unassigned. Assignment outputs record both candidate and final membership.
+The default gene-set configuration defines Active candidates by `1_Active_Promoter` at the strand-aware TSS plus transcription-associated gene overlap, and Weak candidates by `2_Weak_Promoter` at the TSS plus weak/transcription-associated gene overlap. Both categories exclude genes with any `12_Repressed` overlap. Repressed candidates require `12_Repressed` within the gene and exclude genes with either promoter state at the TSS. The TSV supports optional TSS requirements and exclusions and optional gene-body state exclusions. Directed exclusions make the final categories mutually exclusive. `leftover_genes` contains genes that enter none of the candidate sets; genes removed because they enter competing candidates remain unassigned. Assignment outputs record both candidate and final membership.
 
 ## Gene annotation
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import os
 from pathlib import Path
+from nucleosuite.resource_files import materialized_resource_path
 
 from nucleosuite.gene_sets import (
     build_gene_sets,
@@ -19,6 +20,81 @@ from nucleosuite.core.blacklist import load_blacklist_unbounded
 def write(path: Path, text: str) -> Path:
     path.write_text(text)
     return path
+
+
+def test_default_rules_exclude_any_repressed_gene_body_overlap(tmp_path: Path):
+    """A promoter-positive gene overlapping state 12 is excluded at candidate time."""
+    genes = write(
+        tmp_path / "genes.bed",
+        "chr1\t0\t100\tACTIVE_CLEAN\tActiveClean\t+\n"
+        "chr1\t200\t300\tACTIVE_REPRESSED\tActiveRepressed\t+\n"
+        "chr1\t400\t500\tWEAK_CLEAN\tWeakClean\t-\n"
+        "chr1\t600\t700\tWEAK_REPRESSED\tWeakRepressed\t-\n"
+        "chr1\t800\t900\tREPRESSED_CLEAN\tRepressedClean\t+\n"
+        "chr1\t1000\t1100\tACTIVE_TOUCHING\tActiveTouching\t+\n",
+    )
+    states = write(
+        tmp_path / "states.bed",
+        "chr1\t0\t1\t1_Active_Promoter\n"
+        "chr1\t20\t30\t10_Txn_Elongation\n"
+        "chr1\t200\t201\t1_Active_Promoter\n"
+        "chr1\t220\t230\t10_Txn_Elongation\n"
+        "chr1\t250\t251\t12_Repressed\n"
+        "chr1\t499\t500\t2_Weak_Promoter\n"
+        "chr1\t420\t430\t11_Weak_Txn\n"
+        "chr1\t699\t700\t2_Weak_Promoter\n"
+        "chr1\t630\t640\t11_Weak_Txn\n"
+        "chr1\t650\t660\t12_Repressed\n"
+        "chr1\t850\t860\t12_Repressed\n"
+        "chr1\t1000\t1001\t1_Active_Promoter\n"
+        "chr1\t1050\t1060\t10_Txn_Elongation\n"
+        "chr1\t1100\t1110\t12_Repressed\n",
+    )
+    with materialized_resource_path("default-gene-sets") as config:
+        rules = load_rules(config, [])
+
+    assert [rule.forbidden_gene_states for rule in rules] == [
+        frozenset({"12_Repressed"}),
+        frozenset({"12_Repressed"}),
+        frozenset(),
+    ]
+    assert rules[2].forbidden_tss_states == frozenset(
+        {"1_Active_Promoter", "2_Weak_Promoter"}
+    )
+    outputs = build_gene_sets(
+        read_genes(genes),
+        read_states(states),
+        rules,
+        tmp_path / "out",
+        leftover_set_name="leftover_genes",
+    )
+
+    def members(directory: str, category: str) -> set[str]:
+        bed = tmp_path / "out" / directory / f"{category}.bed"
+        return {line.split("\t")[3] for line in bed.read_text().splitlines() if line}
+
+    for directory in ("candidate_sets", "final_sets"):
+        assert members(directory, "active_genes") == {"ACTIVE_CLEAN", "ACTIVE_TOUCHING"}
+        assert members(directory, "weak_genes") == {"WEAK_CLEAN"}
+        assert members(directory, "repressed_genes") == {"REPRESSED_CLEAN"}
+    assert members("final_sets", "leftover_genes") == {
+        "ACTIVE_REPRESSED", "WEAK_REPRESSED"
+    }
+
+    with outputs["assignments"].open() as handle:
+        assignments = {row["gene_id"]: row for row in csv.DictReader(handle, delimiter="\t")}
+    for gene_id in ("ACTIVE_REPRESSED", "WEAK_REPRESSED"):
+        assert "12_Repressed" in assignments[gene_id]["intersecting_states"]
+        assert assignments[gene_id]["candidate_sets"] == ""
+        assert assignments[gene_id]["final_set"] == "leftover_genes"
+
+    for path_key in ("rules", "summary"):
+        with outputs[path_key].open() as handle:
+            output_rows = list(csv.DictReader(handle, delimiter="\t"))
+        assert "forbidden_gene_states" in output_rows[0]
+        assert output_rows[0]["forbidden_gene_states"] == "12_Repressed"
+        assert output_rows[1]["forbidden_gene_states"] == "12_Repressed"
+        assert output_rows[2]["forbidden_gene_states"] == ""
 
 
 def test_default_style_rules_remove_candidate_overlap(tmp_path: Path):
