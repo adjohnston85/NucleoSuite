@@ -1116,11 +1116,11 @@ The slopes $\lambda_+$ and $\lambda_-$ are the positive- and negative-direction 
 
 ## Gene-set assignment
 
-`gene-sets` assigns genes to categories using gene-body state overlaps, optional gene-body exclusions, and TSS state requirements.
+`gene-sets` uses transcript TSSs matched to gene IDs from Ensembl GRCh37 release 87. The state at each one-base TSS is evaluated separately.
 
-For a plus-strand gene, the TSS interval is the one-base BED interval `[start,start+1)`. For a minus-strand gene, it is `[end-1,end)`. A rule's `include_rule` is evaluated against all states overlapping the gene interval. If `required_tss_state` is present, the gene becomes a candidate only when that state also overlaps its one-base TSS. The `forbidden_tss_states` field excludes genes with any listed state at the TSS. The `forbidden_gene_states` field excludes genes with any listed state anywhere in their gene interval.
+For active and weak promoter rules, at least one transcript TSS must overlap the required promoter state. Starting with the most upstream qualifying TSS in transcriptional orientation, the command adjusts the gene interval from that TSS to the gene's original 3′ end. It evaluates gene-body states over the adjusted interval and selects the first TSS that satisfies the gene-body inclusion and exclusion rules. One selected interval is retained per gene.
 
-The bundled Active rule requires `1_Active_Promoter` at the TSS, `9_Txn_Transition` or `10_Txn_Elongation` within the gene, and no `12_Repressed` overlap anywhere in the gene. The bundled Weak rule requires `2_Weak_Promoter` at the TSS, at least one of `9_Txn_Transition`, `10_Txn_Elongation`, or `11_Weak_Txn` within the gene, and no `12_Repressed` overlap anywhere in the gene. The bundled Repressed rule requires `12_Repressed` within the gene and no `1_Active_Promoter` or `2_Weak_Promoter` overlap at the TSS.
+The default Active rule requires `1_Active_Promoter` at a transcript TSS and `9_Txn_Transition` or `10_Txn_Elongation` in the adjusted gene, excluding `12_Repressed` overlap. The Weak rule requires `2_Weak_Promoter` at a transcript TSS and `9_Txn_Transition`, `10_Txn_Elongation` or `11_Weak_Txn` in the adjusted gene, excluding `12_Repressed` overlap. The Repressed rule requires `12_Repressed` in the original gene and excludes any gene with `1_Active_Promoter` or `2_Weak_Promoter` at **any** transcript TSS.
 
 Each configured rule first creates a **candidate set**. `exclude_if_candidate` can then remove genes from a named final category when those genes also belong to specified competing candidate sets. The final named categories are mutually exclusive.
 

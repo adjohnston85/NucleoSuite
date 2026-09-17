@@ -34,6 +34,8 @@ Common resource names include:
 
 ```bash
 nucleosuite resources path hg19-genes
+nucleosuite resources path hg19-ensembl87-transcript-tss
+nucleosuite resources path hg19-ensembl87-gtf
 nucleosuite resources path gm12878-hg19-ctcf
 nucleosuite resources path hg19-blacklist-v2
 nucleosuite resources path default-gene-sets

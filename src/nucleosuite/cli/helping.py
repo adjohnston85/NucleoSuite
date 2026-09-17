@@ -178,8 +178,9 @@ CORE_DESTINATIONS: dict[str, set[str]] = {
         "pct_values", "pct_bin_size", "output_prefix", "cores",
     },
     "gene-sets": {
-        "genes_bed", "states_bed", "config", "gene_set", "chrom_sizes", "blacklist_bed",
-        "output_dir", "output_prefix", "venn_sets", "cores",
+        "genes_bed", "states_bed", "transcript_tss_bed", "transcript_gtf", "config",
+        "gene_set", "chrom_sizes", "blacklist_bed", "output_dir", "output_prefix",
+        "venn_sets", "cores",
     },
     "gene-expression": {
         "expression", "genes_bed", "resource_set", "peaks", "signal", "signal_type", "analysis",

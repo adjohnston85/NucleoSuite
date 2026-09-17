@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import bisect
 import csv
 import re
 import sys
@@ -20,6 +21,8 @@ from nucleosuite.core.blacklist import BlacklistIndex, load_blacklist_unbounded
 from nucleosuite.parallel import add_parallel_arguments
 from nucleosuite.partitioned import run_partitioned_command
 from nucleosuite.progress import ProgressReporter
+from nucleosuite.transcript_tss import (TranscriptTSS, read_transcript_tss, ensure_ensembl_tss,
+                                      extract_transcript_tss)
 
 
 _TOKEN_RE = re.compile(r"\s*([&|()]|[^&|()\s]+)")
@@ -402,7 +405,7 @@ def write_bed(path: Path, records: Sequence[GeneRecord]) -> None:
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w") as handle:
-        for record in records:
+        for record in sorted(records, key=lambda x: (x.chrom, x.start, x.end, x.gene_id)):
             handle.write(
                 "\t".join(
                     [
@@ -427,7 +430,9 @@ def write_tss_bed(path: Path, records: Sequence[GeneRecord]) -> None:
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w") as handle:
-        for record in records:
+        for record in sorted(records, key=lambda x: (
+            x.chrom, x.start if _gene_strand(x) == "+" else x.end - 1, x.gene_id
+        )):
             strand = _gene_strand(record)
             if strand == "+":
                 start, end = record.start, record.start + 1
@@ -502,6 +507,82 @@ def intersect_states_by_tss(
     return result
 
 
+def transcript_state_index(
+    genes: Sequence[GeneRecord],
+    states: Sequence[StateRecord],
+    transcripts: dict[str, tuple[TranscriptTSS, ...]],
+) -> dict[str, dict[str, frozenset[str]]]:
+    """Assign the overlapping ChromHMM states to each individual transcript TSS."""
+    anchors = []
+    for gene in genes:
+        for item in transcripts.get(gene.gene_id, ()):
+            uid = gene.gene_id + "|" + item.transcript_id
+            anchors.append(GeneRecord(item.chrom, item.start, item.end, uid,
+                                      (item.chrom, str(item.start), str(item.end), uid, "0", item.strand)))
+    hits = intersect_states_by_tss(anchors, states) if anchors else {}
+    return {gene.gene_id: {item.transcript_id: frozenset(hits[gene.gene_id + "|" + item.transcript_id])
+                           for item in transcripts.get(gene.gene_id, ())} for gene in genes}
+
+
+def adjusted_gene(gene: GeneRecord, tss: TranscriptTSS) -> GeneRecord:
+    """Trim the 5-prime gene boundary to the selected transcript TSS."""
+    if _gene_strand(gene) == "+":
+        start, end = tss.start, gene.end
+    else:
+        start, end = gene.start, tss.end
+    fields = list(gene.fields)
+    fields[1:3] = [str(start), str(end)]
+    return GeneRecord(gene.chrom, start, end, gene.gene_id, tuple(fields))
+
+
+class _StateIntervalIndex:
+    """Indexed interval queries for candidate gene intervals."""
+    def __init__(self, states: Sequence[StateRecord]):
+        groups: dict[str, list[StateRecord]] = defaultdict(list)
+        for state in states:
+            groups[state.chrom].append(state)
+        self.data = {}
+        for chrom, items in groups.items():
+            items.sort(key=lambda x: (x.start, x.end))
+            max_ends = []
+            max_end = 0
+            for item in items:
+                max_end = max(max_end, item.end)
+                max_ends.append(max_end)
+            self.data[chrom] = ([x.start for x in items], max_ends, items)
+
+    def overlap(self, chrom: str, start: int, end: int) -> set[str]:
+        match = self.data.get(chrom)
+        if match is None:
+            return set()
+        starts, max_ends, items = match
+        stop = bisect.bisect_left(starts, end)
+        begin = bisect.bisect_right(max_ends, start)
+        return {item.label for item in items[begin:stop] if item.end > start}
+
+
+def transcript_candidates(
+    gene: GeneRecord, rule: GeneSetRule,
+    transcript_records: tuple[TranscriptTSS, ...],
+    transcript_states: dict[str, frozenset[str]],
+    state_index: _StateIntervalIndex,
+) -> tuple[GeneRecord, TranscriptTSS, set[str]] | None:
+    """Return the most upstream qualifying promoter and its adjusted gene."""
+    ordered = sorted(transcript_records,
+                     key=lambda item: (item.start if item.strand == "+" else -item.start,
+                                       item.transcript_id))
+    for item in ordered:
+        tss_states = transcript_states[item.transcript_id]
+        if rule.required_tss_state is not None and rule.required_tss_state not in tss_states:
+            continue
+        # Exclusions inspect every transcript; callers apply them before this function.
+        interval = adjusted_gene(gene, item) if rule.required_tss_state else gene
+        body_states = state_index.overlap(interval.chrom, interval.start, interval.end)
+        if evaluate_rpn(rule.rpn, body_states) and rule.forbidden_gene_states.isdisjoint(body_states):
+            return interval, item, body_states
+    return None
+
+
 def filter_blacklisted_gene_anchors(
     genes: Sequence[GeneRecord], blacklist: BlacklistIndex | None
 ) -> tuple[list[GeneRecord], int]:
@@ -537,7 +618,7 @@ def write_state_labeled_bed(
             category_by_gene[gene_id] = set_name
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w") as handle:
-        for gene in genes:
+        for gene in sorted(genes, key=lambda x: (x.chrom, x.start, x.end, x.gene_id)):
             category = category_by_gene.get(gene.gene_id)
             if category is None:
                 continue
@@ -574,7 +655,9 @@ def write_state_labeled_tss_bed(
             category_by_gene[gene_id] = set_name
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w") as handle:
-        for gene in genes:
+        for gene in sorted(genes, key=lambda x: (
+            x.chrom, x.start if _gene_strand(x) == "+" else x.end - 1, x.gene_id
+        )):
             category = category_by_gene.get(gene.gene_id)
             if category is None:
                 continue
@@ -638,6 +721,7 @@ def build_gene_sets(
     chrom_sizes=None,
     leftover_set_name: str | None = None,
     prefix_member_files: bool = False,
+    transcript_tss: dict[str, tuple[TranscriptTSS, ...]] | None = None,
 ) -> dict[str, Path]:
     outdir = Path(output_dir)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -681,22 +765,53 @@ def build_gene_sets(
         )
 
     candidate_ids: dict[str, set[str]] = {}
-    for rule in rules:
-        candidate_ids[rule.name] = {
-            gene.gene_id
+    candidate_records: dict[str, dict[str, GeneRecord]] = {}
+    candidate_tss: dict[str, dict[str, TranscriptTSS]] = {}
+    candidate_states: dict[str, dict[str, set[str]]] = {}
+    if transcript_tss is not None:
+        per_transcript_states = transcript_state_index(genes, states, transcript_tss)
+        indexed_states = _StateIntervalIndex(states)
+        all_tss_states = {
+            gene.gene_id: set().union(*per_transcript_states[gene.gene_id].values())
+            if per_transcript_states[gene.gene_id] else set()
             for gene in genes
-            if evaluate_rpn(rule.rpn, state_by_gene[gene.gene_id])
-            and rule.forbidden_gene_states.isdisjoint(
-                state_by_gene[gene.gene_id]
-            )
-            and (
-                rule.required_tss_state is None
-                or rule.required_tss_state in state_by_tss[gene.gene_id]
-            )
-            and rule.forbidden_tss_states.isdisjoint(
-                state_by_tss[gene.gene_id]
-            )
         }
+        state_by_tss = all_tss_states
+    for rule in rules:
+        ids: set[str] = set()
+        selected_records: dict[str, GeneRecord] = {}
+        selected_tss: dict[str, TranscriptTSS] = {}
+        selected_states: dict[str, set[str]] = {}
+        for gene in genes:
+            gene_id = gene.gene_id
+            if transcript_tss is None:
+                # Direct API callers without transcript annotations retain their explicit
+                # original strand-aware gene-boundary semantics.
+                body_states = state_by_gene[gene_id]
+                if (evaluate_rpn(rule.rpn, body_states)
+                        and rule.forbidden_gene_states.isdisjoint(body_states)
+                        and (rule.required_tss_state is None
+                             or rule.required_tss_state in state_by_tss[gene_id])
+                        and rule.forbidden_tss_states.isdisjoint(state_by_tss[gene_id])):
+                    ids.add(gene_id)
+                    selected_records[gene_id] = gene
+                    selected_states[gene_id] = body_states
+                continue
+            records = transcript_tss.get(gene_id, ())
+            if not records or not rule.forbidden_tss_states.isdisjoint(state_by_tss[gene_id]):
+                continue
+            result = transcript_candidates(gene, rule, records,
+                                           per_transcript_states[gene_id], indexed_states)
+            if result is not None:
+                adjusted, selected, body_states = result
+                ids.add(gene_id)
+                selected_records[gene_id] = adjusted
+                selected_tss[gene_id] = selected
+                selected_states[gene_id] = body_states
+        candidate_ids[rule.name] = ids
+        candidate_records[rule.name] = selected_records
+        candidate_tss[rule.name] = selected_tss
+        candidate_states[rule.name] = selected_states
 
     membership: dict[str, list[str]] = defaultdict(list)
     for set_name, identifiers in candidate_ids.items():
@@ -744,11 +859,36 @@ def build_gene_sets(
         if leftover_set_name in final_ids:
             raise ValueError(f"Leftover set name duplicates a configured set: {leftover_set_name}")
         candidate_union = set().union(*candidate_ids.values()) if candidate_ids else set()
-        final_ids[leftover_set_name] = {
+        annotated_ids = {
             gene.gene_id for gene in genes
-        } - candidate_union
+            if transcript_tss is None or transcript_tss.get(gene.gene_id)
+        }
+        final_ids[leftover_set_name] = annotated_ids - candidate_union
         excluded_ids_by_set[leftover_set_name] = set()
         ordered_set_names.append(leftover_set_name)
+
+    final_record_by_gene = {
+        gene_id: candidate_records[set_name][gene_id]
+        for set_name, identifiers in final_ids.items()
+        for gene_id in identifiers
+        if gene_id in candidate_records.get(set_name, {})
+    }
+    final_tss_by_gene = {
+        gene_id: candidate_tss[set_name][gene_id]
+        for set_name, identifiers in final_ids.items()
+        for gene_id in identifiers
+        if gene_id in candidate_tss.get(set_name, {})
+    }
+    final_states_by_gene = {
+        gene_id: candidate_states[set_name][gene_id]
+        for set_name, identifiers in final_ids.items()
+        for gene_id in identifiers
+        if gene_id in candidate_states.get(set_name, {})
+    }
+    # Retain each original gene interval for leftover entries.
+    final_record_by_gene.update({gene.gene_id: gene for gene in genes
+                                 if leftover_set_name and gene.gene_id in final_ids[leftover_set_name]})
+    output_genes = [final_record_by_gene.get(gene.gene_id, gene) for gene in genes]
 
     candidate_paths: dict[str, Path] = {}
     final_paths: dict[str, Path] = {}
@@ -759,8 +899,8 @@ def build_gene_sets(
         candidate_path = candidate_dir / filename
         final_path = final_dir / filename
         final_tss_path = final_tss_dir / filename
-        selected_candidates = [gene for gene in genes if gene.gene_id in candidate_ids[rule.name]]
-        selected_final = [gene for gene in genes if gene.gene_id in final_ids[rule.name]]
+        selected_candidates = [candidate_records[rule.name][gene.gene_id] for gene in genes if gene.gene_id in candidate_ids[rule.name]]
+        selected_final = [final_record_by_gene[gene.gene_id] for gene in genes if gene.gene_id in final_ids[rule.name]]
         write_bed(candidate_path, selected_candidates)
         write_bed(final_path, selected_final)
         write_tss_bed(final_tss_path, selected_final)
@@ -780,9 +920,9 @@ def build_gene_sets(
     write_bed(overlap_path, [gene for gene in genes if gene.gene_id in overlapping_ids])
 
     final_state_path = outdir / f"{prefix}_final_states.bed"
-    write_state_labeled_bed(final_state_path, genes, final_ids, ordered_set_names)
+    write_state_labeled_bed(final_state_path, output_genes, final_ids, ordered_set_names)
     final_tss_state_path = outdir / f"{prefix}_final_tss.bed"
-    write_state_labeled_tss_bed(final_tss_state_path, genes, final_ids, ordered_set_names)
+    write_state_labeled_tss_bed(final_tss_state_path, output_genes, final_ids, ordered_set_names)
 
     interval_beds = [
         *candidate_paths.values(),
@@ -813,22 +953,47 @@ def build_gene_sets(
         handle.write(
             "gene_id\tgene_name\tchrom\tstart\tend\tintersecting_states\t"
             "tss_intersecting_states\t"
-            "candidate_sets\texcluded_from_sets\tfinal_set\tcandidate_overlap\n"
+            "candidate_sets\texcluded_from_sets\tfinal_set\tcandidate_overlap\t"
+            "original_start\toriginal_end\tselected_transcript_id\tselected_tss_start\t"
+            "selected_tss_end\ttranscript_tss_count\toriginal_intersecting_states\t"
+            "tss_annotation_status\n"
         )
         for gene in genes:
+            effective = final_record_by_gene.get(gene.gene_id, gene)
+            chosen = final_tss_by_gene.get(gene.gene_id)
             candidates = sorted(membership.get(gene.gene_id, []))
             excluded_from = sorted(
                 name for name, ids in excluded_ids_by_set.items() if gene.gene_id in ids
             )
             finals = [name for name in ordered_set_names if gene.gene_id in final_ids.get(name, set())]
             handle.write(
-                f"{gene.gene_id}\t{_gene_name(gene)}\t{gene.chrom}\t{gene.start}\t{gene.end}\t"
-                f"{','.join(sorted(state_by_gene[gene.gene_id]))}\t"
+                f"{gene.gene_id}\t{_gene_name(gene)}\t{gene.chrom}\t{effective.start}\t{effective.end}\t"
+                f"{','.join(sorted(final_states_by_gene.get(gene.gene_id, state_by_gene[gene.gene_id])))}\t"
                 f"{','.join(sorted(state_by_tss[gene.gene_id]))}\t"
                 f"{','.join(candidates)}\t{','.join(excluded_from)}\t"
                 f"{finals[0] if finals else ''}\t"
-                f"{'yes' if gene.gene_id in overlapping_ids else 'no'}\n"
+                f"{'yes' if gene.gene_id in overlapping_ids else 'no'}\t"
+                f"{gene.start}\t{gene.end}\t"
+                f"{chosen.transcript_id if chosen else ''}\t"
+                f"{chosen.start if chosen else ''}\t{chosen.end if chosen else ''}\t"
+                f"{len(transcript_tss.get(gene.gene_id, ())) if transcript_tss is not None else ''}\t"
+                f"{','.join(sorted(state_by_gene[gene.gene_id]))}\t"
+                f"{'matched' if transcript_tss is not None and transcript_tss.get(gene.gene_id) else ('missing' if transcript_tss is not None else 'gene_boundary')}\n"
             )
+
+    selected_tss_path = outdir / f"{prefix}_selected_transcript_tss.tsv"
+    with selected_tss_path.open("w", encoding="utf-8") as handle:
+        handle.write("gene_id\tfinal_set\ttranscript_id\tchrom\ttss_start\ttss_end\tstrand\t"
+                     "original_start\toriginal_end\tadjusted_start\tadjusted_end\n")
+        for gene in genes:
+            selected = final_tss_by_gene.get(gene.gene_id)
+            if selected is None:
+                continue
+            category = next(name for name in ordered_set_names if gene.gene_id in final_ids.get(name, set()))
+            adjusted = final_record_by_gene[gene.gene_id]
+            handle.write(f"{gene.gene_id}\t{category}\t{selected.transcript_id}\t"
+                         f"{gene.chrom}\t{selected.start}\t{selected.end}\t{selected.strand}\t"
+                         f"{gene.start}\t{gene.end}\t{adjusted.start}\t{adjusted.end}\n")
 
     pairwise_path = outdir / f"{prefix}_pairwise_overlap.tsv"
     with pairwise_path.open("w") as handle:
@@ -911,6 +1076,7 @@ def build_gene_sets(
     return {
         "summary": summary_path,
         "assignments": assignment_path,
+        "selected_transcript_tss": selected_tss_path,
         "pairwise": pairwise_path,
         "overlap_interval": overlap_path,
         "overlap_bed": overlap_path,
@@ -926,21 +1092,31 @@ def build_parser() -> argparse.ArgumentParser:
         prog="nucleosuite gene-sets",
         description=(
             "Create candidate gene sets from gene-body chromatin-state intersections, "
-            "apply gene-body and strand-aware TSS state rules, and resolve "
-            "candidates into mutually exclusive final categories."
+            "evaluate all annotated transcript TSSs and gene-body chromatin states, "
+            "select one interval per gene, and assign mutually exclusive final categories."
         ),
         formatter_class=NucleoSuiteHelpFormatter,
     )
     parser.add_argument("--genes-bed", required=True, help="BED3+ file containing one interval per gene.")
     parser.add_argument("--states-bed", required=True, help="BED3+ chromatin-state segmentation.")
+    annotation_group = parser.add_mutually_exclusive_group()
+    annotation_group.add_argument(
+        "--transcript-tss-tsv", dest="transcript_tss_bed",
+        help=("Transcript-TSS TSV(.gz) with gene_id, transcript_id, chrom, tss_start, "
+              "tss_end and strand. For the bundled Ensembl gene-set configuration, "
+              "the bundled GRCh37 release-87 TSS resource is used automatically."),
+    )
+    annotation_group.add_argument(
+        "--transcript-gtf", help="Ensembl GRCh37 release-87 GTF(.gz); extract transcript TSSs for --genes-bed.",
+    )
     parser.add_argument(
         "--config",
         help=(
             "TSV with set_name and include_rule columns. Optional required_tss_state "
-            "requires one named state to overlap the strand-aware one-base TSS. Optional "
-            "forbidden_tss_states lists comma-separated states that must not overlap the "
-            "TSS. Optional forbidden_gene_states lists comma-separated states that must "
-            "not overlap any part of the gene. Optional exclude_if_candidate lists candidate sets whose membership "
+            "requires an overlapping promoter state at any transcript TSS. Optional "
+            "forbidden_tss_states exclude a gene when any transcript TSS intersects a "
+            "listed state. Optional forbidden_gene_states exclude gene-interval overlaps. "
+            "Optional exclude_if_candidate lists candidate sets whose membership "
             "excludes a gene from the current final set."
         ),
     )
@@ -1014,6 +1190,9 @@ def _run_serial(args: argparse.Namespace) -> int:
         f"Loaded {len(genes):,} genes; loading chromatin-state annotations"
     )
     states = read_states(args.states_bed, args.state_label_column, chrom_sizes)
+    transcript_annotation = read_transcript_tss(args.transcript_tss_bed, genes) if args.transcript_tss_bed else None
+    if transcript_annotation is not None:
+        reporter.stage(f"Matched transcripts for {len(transcript_annotation):,}/{len(genes):,} genes")
     reporter.stage(
         f"Assigning genes using {len(states):,} chromatin-state intervals"
     )
@@ -1028,6 +1207,7 @@ def _run_serial(args: argparse.Namespace) -> int:
         chrom_sizes,
         args.leftover_set_name,
         args.prefix_member_files,
+        transcript_annotation,
     )
     if blacklist is not None:
         metadata_path = (
@@ -1057,6 +1237,21 @@ def run(args: argparse.Namespace) -> int:
     if not args.output_prefix:
         from nucleosuite.output_naming import input_basename
         args.output_prefix = f"{input_basename(args.genes_bed)}_{input_basename(args.states_bed)}_gene_sets"
+    if args.transcript_gtf:
+        all_genes = read_genes(args.genes_bed, args.gene_id_column,
+                               read_chrom_sizes(args.chrom_sizes))
+        tss_out = Path(args.output_dir) / f"{safe_name(args.output_prefix)}_ensembl87_transcript_tss.tsv.gz"
+        extract_transcript_tss(args.transcript_gtf, all_genes, tss_out)
+        args.transcript_tss_bed = str(tss_out.resolve())
+    elif not args.transcript_tss_bed:
+        rules = load_rules(args.config, args.gene_set)
+        if args.config and Path(args.config).name == "default_gene_sets.tsv":
+            from nucleosuite.resource_files import materialized_resource_path
+            with materialized_resource_path("hg19-ensembl87-transcript-tss") as bundled_tss:
+                args.transcript_tss_bed = str(bundled_tss.resolve())
+        elif any(rule.required_tss_state or rule.forbidden_tss_states for rule in rules):
+            raise ValueError("Promoter-based gene-set rules require transcript annotation. "
+                             "Provide --transcript-gtf GTF or --transcript-tss-tsv TSV.")
     return run_partitioned_command(
         "gene-sets",
         args,
@@ -1066,7 +1261,7 @@ def run(args: argparse.Namespace) -> int:
         primary_attr="genes_bed",
         output_prefix_attr="output_prefix",
         output_dir_attr="output_dir",
-        path_attrs=("states_bed", "blacklist_bed"),
+        path_attrs=("states_bed", "blacklist_bed", "transcript_tss_bed"),
     )
 
 

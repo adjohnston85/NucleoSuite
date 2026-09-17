@@ -69,7 +69,7 @@ Analysis commands derive output filenames or prefixes from the primary input bas
 |---|---|
 | [`aggregate`](docs/commands/aggregate.md) | Aggregate BigWig signal around genomic reference features. |
 | [`region-extract`](docs/commands/region-extract.md) | Export region-level signal vectors and nearby peaks. |
-| [`gene-sets`](docs/commands/gene-sets.md) | Define gene groups from chromatin-state overlaps. |
+| [`gene-sets`](docs/commands/gene-sets.md) | Define one interval per gene using all annotated transcript TSSs and chromatin-state overlaps. |
 | [`gene-expression`](docs/commands/gene-expression.md) | Relate expression to peak spacing or signal periodicity. |
 | [`tss-expression-quintiles`](docs/commands/tss-expression-quintiles.md) | Aggregate nucleosome-score or WPS signal around TSSs after splitting genes into tissue-expression quintiles. |
 

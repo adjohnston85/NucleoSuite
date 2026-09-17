@@ -72,6 +72,24 @@
         "Bairoch (2018), Journal of Biomolecular Techniques 29:25-38, doi:10.7171/jbt.18-2902-002"
       ],
       "website": "https://www.proteinatlas.org/"
+    },
+    "hg19-ensembl87-gtf": {
+      "path": "resources/hg19/Homo_sapiens.GRCh37.87.gtf.gz",
+      "description": "Complete Ensembl GRCh37 release-87 transcript/gene GTF annotation (gzip)",
+      "assembly": "GRCh37/hg19",
+      "source": "Ensembl",
+      "source_release": "87",
+      "source_url": "https://ftp.ensembl.org/pub/grch37/release-87/gtf/homo_sapiens/Homo_sapiens.GRCh37.87.gtf.gz",
+      "sha256": "56bc520f5e9cbc14ab4d03b472355b572818729fa422b905ba62d58291590058"
+    },
+    "hg19-ensembl87-transcript-tss": {
+      "path": "resources/hg19/hg19_ensembl87_transcript_tss.tsv.gz",
+      "description": "Gene-matched transcript TSS positions from Ensembl GRCh37 release 87 (BED coordinates; 143,066 transcripts, 19,383 genes)",
+      "assembly": "GRCh37/hg19",
+      "source": "Ensembl",
+      "source_release": "87",
+      "derived_from": "hg19-ensembl87-gtf",
+      "sha256": "20903defa71ec7564c985616b1a72e3917e47cc2254c744897452f1f6d005b2c"
     }
   },
   "resource_sets": {
@@ -83,7 +101,9 @@
       "blacklist": "hg19-blacklist-v2",
       "gene_set_config": "default-gene-sets",
       "tissue_expression": "hpa-tissue-expression",
-      "cell_line_metadata": "hpa-cell-line-metadata"
+      "cell_line_metadata": "hpa-cell-line-metadata",
+      "transcript_tss": "hg19-ensembl87-transcript-tss",
+      "transcript_gtf": "hg19-ensembl87-gtf"
     }
   }
 }

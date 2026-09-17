@@ -110,7 +110,17 @@ The bundled hg19 gene table was derived from Ensembl release 87 (`Homo_sapiens.G
 chrom    start    end    ensembl_gene_id    gene_name    strand
 ```
 
-`gene-sets` uses column 4 as its default identifier. `gene-expression` uses columns 4, 5, and 6 as the Ensembl identifier, display name, and strand.
+`gene-sets` matches the Ensembl identifier in column 4 to the transcript annotation. `gene-expression` uses columns 4, 5, and 6 as the Ensembl identifier, display name, and strand.
+
+### Transcript TSS TSV
+
+Transcript coordinates come from Ensembl GRCh37 release 87. The bundled `.tsv.gz` table contains one one-base BED-coordinate position per transcript:
+
+```text
+gene_id  transcript_id  chrom  tss_start  tss_end  strand
+```
+
+Pass a precomputed table with `--transcript-tss-tsv`, or use the Ensembl GTF directly with `--transcript-gtf`.
 
 ### Long-format expression TSV
 
@@ -124,7 +134,7 @@ Each row represents one gene/profile combination. The selected expression value 
 
 ### Gene-set configuration TSV
 
-Gene-set configurations require `set_name` and `include_rule`. `required_tss_state` requires overlap at the strand-aware one-base TSS; `forbidden_tss_states` excludes genes with listed states at the TSS; `forbidden_gene_states` excludes genes with listed states anywhere in the gene interval. `exclude_if_candidate` lists competing candidate sets that disqualify a gene from the current final category. The latter four columns are optional.
+Gene-set configurations require `set_name` and `include_rule`. `required_tss_state` requires overlap at one or more transcript TSSs; `forbidden_tss_states` excludes genes with listed states at any transcript TSS; `forbidden_gene_states` excludes genes with listed states in the gene interval being classified. `exclude_if_candidate` lists competing candidate sets that disqualify a gene from the current final category. The latter four columns are optional.
 
 ```tsv
 set_name	include_rule	required_tss_state	forbidden_tss_states	forbidden_gene_states	exclude_if_candidate
@@ -149,7 +159,7 @@ chrom  start  end  Ensembl_gene_ID  0  strand
 chrom  start  end  category  0  strand
 ```
 
-Gene names, Ensembl identifiers, candidate memberships and final categories are retained together in `gene_sets_gene_assignments.tsv`.
+Gene names, Ensembl identifiers, original and adjusted coordinates, selected transcript IDs, candidate memberships and final categories are retained in `<output-prefix>_gene_assignments.tsv`. Selected transcript TSSs and the corresponding gene intervals are provided in `<output-prefix>_selected_transcript_tss.tsv`.
 
 The default category labels are `active_genes`, `weak_genes`, `repressed_genes`, and `leftover_genes`.
 

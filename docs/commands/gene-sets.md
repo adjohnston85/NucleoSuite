@@ -2,7 +2,7 @@
 
 ## What this command does
 
-`gene-sets` groups genes using chromatin states that overlap their gene bodies and, when requested by a rule, a specific state at their transcription start sites (TSSs).
+`gene-sets` classifies genes using chromatin states at their transcript transcription start sites (TSSs) and across the gene body. Each final gene has one interval, starting at its selected promoter TSS when a promoter rule applies.
 
 ## Why use it
 
@@ -10,7 +10,7 @@ Use this command when you want reproducible gene groups such as active, weakly a
 
 ## Basic usage
 
-NucleoSuite includes an hg19 gene BED, the GM12878 ChromHMM states, and default gene-set rules. They can be passed directly:
+NucleoSuite includes the hg19 gene BED, matching Ensembl GRCh37 release-87 transcript TSSs, GM12878 ChromHMM states and default gene-set rules. The command uses these bundled annotations directly:
 
 ```bash
 nucleosuite gene-sets \
@@ -21,6 +21,22 @@ nucleosuite gene-sets \
   --output-dir gm12878_gene_sets \
   --venn-sets active_genes weak_genes repressed_genes
 ```
+
+### Transcript annotation
+
+The bundled transcript TSS table is available with:
+
+```bash
+nucleosuite resources path hg19-ensembl87-transcript-tss
+```
+
+The complete matching Ensembl GTF is also bundled:
+
+```bash
+nucleosuite resources path hg19-ensembl87-gtf
+```
+
+For another compatible annotation, use `--transcript-gtf FILE` or `--transcript-tss-tsv FILE`.
 
 ## How the rules work
 
@@ -38,15 +54,9 @@ For example, an ordinary gene-overlap rule is:
 9_Txn_Transition | 10_Txn_Elongation
 ```
 
-The optional `required_tss_state` column adds a separate TSS-specific condition. A value of `1_Active_Promoter` requires that state to overlap the one-base TSS. Plus-strand genes use `start:start+1`; minus-strand genes use `end-1:end`.
+`required_tss_state` selects genes with **at least one transcript TSS** overlapping the specified state. NucleoSuite selects the most upstream qualifying TSS in transcriptional orientation and adjusts the gene start to that position. The gene-body inclusion and exclusion rules are evaluated over this adjusted interval.
 
-Leaving `required_tss_state` blank, or omitting the column, disables the TSS-specific condition for that rule. This preserves ordinary gene-body-only rules when TSS filtering is not wanted.
-
-The optional `forbidden_tss_states` column lists comma-separated states that must not overlap the TSS. For example, `1_Active_Promoter,2_Weak_Promoter` excludes a candidate when either promoter state occurs at its TSS. Leaving the field blank, or omitting the column, applies no TSS-state exclusion.
-
-The optional `forbidden_gene_states` column lists states whose overlap with any part of the gene excludes it from that candidate set. The bundled Active and Weak rules use `12_Repressed` in this column.
-
-`exclude_if_candidate` makes final categories mutually exclusive by removing genes that also qualify for named competing candidate sets.
+`forbidden_tss_states` excludes a gene when **any of its transcript TSSs** overlaps a listed state. `forbidden_gene_states` excludes genes with a listed state in the interval being classified. `exclude_if_candidate` resolves competing candidate sets into mutually exclusive final categories.
 
 The rules produce two set types:
 
@@ -63,9 +73,9 @@ See [Gene-set assignment](../ALGORITHMS.md#gene-set-assignment) for the exact se
 
 The bundled rules use the following candidate requirements:
 
-- **Active:** `1_Active_Promoter` overlaps the TSS, either `9_Txn_Transition` or `10_Txn_Elongation` overlaps the gene, and the gene has no overlap with `12_Repressed`.
-- **Weak:** `2_Weak_Promoter` overlaps the TSS, at least one of `9_Txn_Transition`, `10_Txn_Elongation`, or `11_Weak_Txn` overlaps the gene, and the gene has no overlap with `12_Repressed`.
-- **Repressed:** `12_Repressed` overlaps the gene, while neither `1_Active_Promoter` nor `2_Weak_Promoter` overlaps the TSS.
+- **Active:** At least one transcript TSS overlaps `1_Active_Promoter`; the adjusted gene overlaps `9_Txn_Transition` or `10_Txn_Elongation` and has no `12_Repressed` overlap.
+- **Weak:** At least one transcript TSS overlaps `2_Weak_Promoter`; the adjusted gene overlaps `9_Txn_Transition`, `10_Txn_Elongation` or `11_Weak_Txn` and has no `12_Repressed` overlap.
+- **Repressed:** The original gene overlaps `12_Repressed`, and none of its transcript TSSs overlaps `1_Active_Promoter` or `2_Weak_Promoter`.
 
 Configured candidate exclusions then make the final Active, Weak, and Repressed outputs mutually exclusive. The optional strict leftover group contains genes that entered none of the candidate sets.
 
@@ -74,8 +84,9 @@ Configured candidate exclusions then make the final Active, Weak, and Repressed 
 The selected options control which outputs are written:
 
 - candidate and final gene BED6 files;
-- final one-base TSS BED6 files;
-- a complete gene assignment table showing gene-body states, TSS states, and candidate and final membership;
+- final one-base selected-TSS BED6 files;
+- an assignment table with original and adjusted gene coordinates, selected transcript IDs, transcript-TSS counts and final membership;
+- a `<output-prefix>_selected_transcript_tss.tsv` table linking each selected transcript to its adjusted gene interval;
 - overlap/shared-category files; and
 - optional summary/Venn figures.
 
@@ -93,7 +104,7 @@ nucleosuite dac \
 
 ## Blacklist handling
 
-If `--blacklist-bed` is supplied, genes whose one-base TSS anchor overlaps the blacklist are excluded before classification.
+`--blacklist-bed` excludes genes whose original one-base gene TSS anchor overlaps the blacklist before classification.
 
 ## Plot customization
 

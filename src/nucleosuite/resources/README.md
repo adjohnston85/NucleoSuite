@@ -3,6 +3,8 @@
 The package includes an hg19/GM12878 resource collection for reproducible workflows:
 
 - `hg19/hg19_ensembl_genes.bed`
+- `hg19/hg19_ensembl87_transcript_tss.tsv.gz`
+- `hg19/Homo_sapiens.GRCh37.87.gtf.gz`
 - `hg19/wgEncodeBroadHmmGm12878HMM.bed`
 - `hg19/CTCF_fimo_MA0139.1_INTERSECT_ENCFF923ZBP_GM12878_CTCF_hg19.bed`
 - `hg19/hg19-blacklist.v2.bed.gz`
@@ -33,6 +35,9 @@ The CTCF resource contains JASPAR MA0139.1 motif sites found with FIMO and inter
 The default gene-set configuration defines Active candidates by `1_Active_Promoter` at the strand-aware TSS plus transcription-associated gene overlap, and Weak candidates by `2_Weak_Promoter` at the TSS plus weak/transcription-associated gene overlap. Both categories exclude genes with any `12_Repressed` overlap. Repressed candidates require `12_Repressed` within the gene and exclude genes with either promoter state at the TSS. The TSV supports optional TSS requirements and exclusions and optional gene-body state exclusions. Directed exclusions make the final categories mutually exclusive. `leftover_genes` contains genes that enter none of the candidate sets; genes removed because they enter competing candidates remain unassigned. Assignment outputs record both candidate and final membership.
 
 ## Gene annotation
+
+The release-87 GTF and a ready-to-use transcript TSS table are bundled. The TSS table contains 143,066 transcript records covering 19,383 of the 19,396 bundled genes. `gene-sets` automatically uses the bundled TSSs with the default rules.
+
 
 The bundled gene file was generated from Ensembl release 87
 `Homo_sapiens.GRCh37.87.gtf` (Aken et al., 2017) and contains six columns:

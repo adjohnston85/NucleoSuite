@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nucleosuite"
-version = "0.12.4"
+version = "0.12.6"
 description = "Nucleosome, chromatin and fragmentomics analysis from genomic sequencing data"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -50,7 +50,7 @@ nucleosuite = "nucleosuite.cli.main:main"
 package-dir = {"" = "src"}
 
 [tool.setuptools.package-data]
-nucleosuite = ["resources/*.sh", "resources/*.tsv", "resources/*.md", "resources/*.json", "resources/hg19/*.bed", "resources/hg19/*.bed.gz", "resources/expression/*.tsv", "resources/expression/*.tsv.gz"]
+nucleosuite = ["resources/*.sh", "resources/*.tsv", "resources/*.md", "resources/*.json", "resources/hg19/*.bed", "resources/hg19/*.bed.gz", "resources/hg19/*.gtf.gz", "resources/hg19/*.tsv.gz", "resources/expression/*.tsv", "resources/expression/*.tsv.gz"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
