@@ -71,9 +71,46 @@ nucleosuite distances sample_nucleosome_regions.bed \
   --output-prefix sample_spacing_by_state
 ```
 
-Standard state-stratified output assigns each peak to the state containing its selected position and groups pairs whose endpoint labels match.
+With `--state-bed`, the command analyses each original half-open state interval independently. A +1 comparison needs two peaks inside that interval; a +7 comparison needs eight. Neighbour counting restarts at each boundary, including between adjacent intervals bearing the same label. Distances from different intervals with the same label are pooled into one category distribution, and overlapping same-category intervals count identical pairs only once. Chromosome-wide `All` distributions retain their ordinary, unpartitioned definition.
 
-`--state-overlay-plot` restarts adjacency at each state interval, requiring both peaks to lie within the same ChromHMM segment.
+Each category receives its own multi-order distance table, summary, distance-distribution figure and NRL regression. The intervals can be ChromHMM segments or NucleoSuite's final transcript-aware gene intervals. For mutually exclusive gene categories, supply the `*_final_states.bed` file from `gene-sets` (the category label is column 4). The `final_tss/` BEDs contain one-base TSSs and are suited to TSS alignment rather than within-gene spacing.
+
+For example, to analyse nucleosome spacing within adjusted active, weak and repressed gene intervals:
+
+```bash
+PEAKS=/path/to/CH01_nucleosome_regions.bed
+GENE_STATES=/path/to/gm12878_gene_sets_final_states.bed
+
+nucleosuite distances "$PEAKS" \
+  --position-column 7 \
+  --state-bed "$GENE_STATES" \
+  --state-label-column 4 \
+  --min-distance 1 \
+  --max-distance 1500 \
+  --max-order 7 \
+  --scope combined_chromosomes \
+  --regression-scope combined \
+  --nrl-mode smoothed \
+  --count-smooth-window 21 \
+  --count-smooth-polyorder 2 \
+  --label-peaks \
+  --output-prefix CH01_within_gene_distances
+```
+
+The actual output prefix also includes the selected distance, order, smoothing and grouping parameters. For each threshold, separate category files are stored under `<threshold-prefix>_scorepctX_states/<category>/`:
+
+| File | Contents |
+|---|---|
+| `distances.tsv` | Category-specific +1 through +N distance counts and percentages. |
+| `summary.tsv` | Modal distances and descriptive statistics for each order. |
+| `distance_distribution.png` | Separately plotted category-specific order curves and peak markers. |
+| `state_nrl_regression_combined_chromosomes.tsv` | The order modes, fitted values and residuals for the category. |
+| `state_nrl_regression_combined_chromosomes.png` | The independent NRL fit for the category. |
+| `state_nrl_regression_summary.tsv` | NRL, intercept, R², orders and category identity. |
+
+The NRL regression uses only orders with a mode inside the requested `--min-distance` and `--max-distance` reporting range and requires at least two eligible orders. Categories without two eligible orders still have their distribution and summary files. `--regression-scope contig` or `both` additionally controls the per-contig regression output.
+
+`--state-overlay-plot` also writes a coloured, relative-percentage overlay of adjacent distances within state intervals. For the endpoint-label grouping method, use `--state-pair-mode endpoints` explicitly.
 
 ## Compare equal-sized score groups
 
@@ -193,7 +230,7 @@ See [Nucleosome repeat length](../ALGORITHMS.md#nucleosome-repeat-length) for th
 The requested options determine which outputs are written:
 
 - raw and percentage distance tables, zero-filled by default across the requested `--min-distance` to `--max-distance` reporting range;
-- per-state distance tables when `--state-bed` is used;
+- interval-contained, category-specific distributions, separate plots and separate NRL regressions when `--state-bed` is used;
 - score-threshold or score-bin outputs;
 - percentile-sweep figures plus per-figure curve and retained-peak tables suitable for faithful replotting;
 - NRL regression point tables, summaries, and plots for higher-order analysis; and

@@ -26,8 +26,10 @@ Distance orders
 ---------------
 For position-sorted retained peaks, order +1 compares adjacent peaks, +2
 compares peak i with peak i+2, and so on through ``--max-order``. Pooled
-"All" distributions include every valid pair. State-specific distributions
-include pairs whose two endpoint peaks have the same state label.
+"All" distributions include every valid pair. When a chromatin-state BED is
+provided, category distances are calculated independently inside each original
+state interval, restarting neighbour order at the interval boundary. Each
+category also receives its own plots and order-based NRL regression.
 
 Output
 ------
@@ -42,6 +44,9 @@ Each threshold produces:
 * ``<prefix>_scorepctX_duplicates.tsv``: duplicate retained peak positions,
   when duplicates are present.
 * ``<prefix>_scorepctX_filtered.bed``: optional retained peak records.
+* ``<prefix>_scorepctX_states/<category>/``: separate multi-order distance TSV,
+  summary TSV, distance plot and NRL regression TSV/plot for each category
+  present in ``--state-bed``.
 * ``<prefix>_percentile_sweep_*_count.png``: raw, unsmoothed count overlays for
   ``--pct-range`` or ``--pct-values``.
 * ``<prefix>_percentile_sweep_*_percentage.png``: independently normalized
@@ -226,6 +231,7 @@ class NRLRegression:
     slope: float
     intercept: float
     r_squared: float
+    state: str = "All"
 
 
 def open_text(path: str | Path, mode: str = "rt") -> TextIO:
@@ -873,6 +879,7 @@ def compute_distance_counts(
     max_distance: int,
     max_order: int,
     duplicate_policy: str,
+    include_endpoint_state_pairs: bool = True,
 ) -> DistanceResults:
     """Count peak distances for every order from +1 through ``max_order``."""
     if min_distance < 0:
@@ -925,9 +932,10 @@ def compute_distance_counts(
                 chrom_all[order][chrom][distance] += 1
                 genome_all[order][distance] += 1
 
-                # State-specific distributions follow the source scripts: endpoint
-                # states must match; intervening peaks may have other state labels.
-                if state_1 == state_2:
+                # Endpoint-based counting is available by explicit selection.
+                # The normal state BED workflow replaces these counters with
+                # order-wise, interval-contained counts after peak filtering.
+                if include_endpoint_state_pairs and state_1 == state_2:
                     chrom_state[order][chrom][state_1][distance] += 1
                     genome_state[order][state_1][distance] += 1
 
@@ -946,6 +954,80 @@ def compute_distance_counts(
         retained_by_chrom=retained_by_chrom,
         threshold_pass_count=pass_count,
         retained_count=retained_count,
+    )
+
+
+
+def compute_within_interval_state_counts(
+    retained_by_chrom: Mapping[str, Sequence[PeakRecord]],
+    state_indexes: Mapping[str, IntervalIndex],
+    *,
+    max_order: int,
+    category_rules=(),
+) -> tuple[dict[int, dict[str, dict[str, Counter[int]]]], dict[int, dict[str, Counter[int]]]]:
+    """Count every order independently within each original BED interval.
+
+    All records for an order, including its intermediate nucleosomes, lie in a
+    single half-open interval. Peaks shared by overlapping intervals with the
+    same category contribute any identical pair only once to that category.
+    No distance cutoff is applied: full-distribution mode detection precedes
+    output-range filtering, in line with the ordinary pooled calculation.
+    """
+    chrom_state: dict[int, dict[str, dict[str, Counter[int]]]] = defaultdict(
+        lambda: defaultdict(lambda: defaultdict(Counter))
+    )
+    genome_state: dict[int, dict[str, Counter[int]]] = defaultdict(
+        lambda: defaultdict(Counter))
+
+    canonical_peaks: dict[str, str | None] = {}
+    for chrom in retained_by_chrom:
+        key = canonical_contig_key(chrom)
+        if key in canonical_peaks and canonical_peaks[key] != chrom:
+            canonical_peaks[key] = None
+        else:
+            canonical_peaks[key] = chrom
+
+    for state_chrom, index in state_indexes.items():
+        peak_chrom = state_chrom if state_chrom in retained_by_chrom else canonical_peaks.get(
+            canonical_contig_key(state_chrom))
+        if peak_chrom is None or not retained_by_chrom.get(peak_chrom):
+            continue
+        positions = np.fromiter(
+            (record.position for record in retained_by_chrom[peak_chrom]),
+            dtype=np.int64, count=len(retained_by_chrom[peak_chrom]),
+        )
+        # Sorted original intervals permit an O(1) overlapping-interval check
+        # per pair: any previous interval of this category starts before the
+        # current one and has its furthest right endpoint in prior_end[label].
+        prior_end: dict[str, int] = {}
+        for interval in index.intervals:
+            state = categorize_state_name(interval.label, category_rules)
+            left = int(np.searchsorted(positions, interval.start, side="left"))
+            right = int(np.searchsorted(positions, interval.end, side="left"))
+            previous_right = prior_end.get(state, -1)
+            prior_end[state] = max(previous_right, interval.end)
+            if right - left < 2:
+                continue
+            contained = positions[left:right]
+            for order in range(1, min(max_order, contained.size - 1) + 1):
+                first_positions = contained[:-order]
+                last_positions = contained[order:]
+                # A preceding interval already counted a pair when its end is
+                # strictly after the last peak position; skip that repeat.
+                distances = last_positions - first_positions
+                keep = (distances > 0) & (last_positions >= previous_right)
+                selected = distances[keep]
+                if not selected.size:
+                    continue
+                values, counts = np.unique(selected, return_counts=True)
+                counts_by_distance = {int(d): int(n) for d, n in zip(values, counts)}
+                chrom_state[order][peak_chrom][state].update(counts_by_distance)
+                genome_state[order][state].update(counts_by_distance)
+
+    return (
+        {order: {chrom: dict(categories) for chrom, categories in chroms.items()}
+         for order, chroms in chrom_state.items()},
+        {order: dict(categories) for order, categories in genome_state.items()},
     )
 
 
@@ -1288,6 +1370,7 @@ def regress_order_peaks(
     *,
     scope: str,
     chromosome: str,
+    state: str = "All",
 ) -> NRLRegression:
     """Fit peak distance = intercept + NRL × order by ordinary least squares."""
     ordered = tuple(sorted(peaks, key=lambda peak: peak.order))
@@ -1312,6 +1395,7 @@ def regress_order_peaks(
         slope=float(slope),
         intercept=float(intercept),
         r_squared=float(r_squared),
+        state=state,
     )
 
 
@@ -1426,6 +1510,51 @@ def collect_nrl_regressions(
     return regressions
 
 
+
+def collect_state_nrl_regressions(
+    results: DistanceResults,
+    *,
+    state: str,
+    max_order: int,
+    include_chromosomes: bool,
+    include_genome: bool,
+    nrl_mode: str,
+    count_smooth_window: int,
+    count_smooth_polyorder: int,
+    min_distance: int,
+    max_distance: int,
+) -> list[NRLRegression]:
+    """Fit a separate regression from each category's interval-contained modes."""
+    grouped: dict[tuple[str, str], list[OrderPeak]] = defaultdict(list)
+    for order in range(1, max_order + 1):
+        candidates: list[tuple[str, str, Counter[int]]] = []
+        if include_genome:
+            candidates.append(("combined_chromosomes", ".", results.genome_state.get(order, {}).get(state, Counter())))
+        if include_chromosomes:
+            for chrom, categories in results.chrom_state.get(order, {}).items():
+                candidates.append(("chromosome", chrom, categories.get(state, Counter())))
+        for scope, chrom, counter in candidates:
+            if not counter:
+                continue
+            selected = select_order_peak_in_range(
+                counter, min_distance=min_distance, max_distance=max_distance,
+                nrl_mode=nrl_mode, count_smooth_window=count_smooth_window,
+                count_smooth_polyorder=count_smooth_polyorder,
+            )
+            if selected is not None:
+                grouped[(scope, chrom)].append(OrderPeak(
+                    order, selected.peak_distance, selected.peak_count, selected.total_pairs))
+    return [
+        regress_order_peaks(peaks, scope=scope, chromosome=chrom, state=state)
+        for (scope, chrom), peaks in sorted(
+            grouped.items(), key=lambda item: (
+                0 if item[0][0] == "combined_chromosomes" else 1,
+                natural_sort_key(item[0][1]),
+            ))
+        if len(peaks) >= 2
+    ]
+
+
 def _safe_output_token(value: str) -> str:
     """Return a filesystem-safe token while retaining recognizable contig names."""
     token = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._-")
@@ -1453,7 +1582,8 @@ def write_nrl_regression_tsv(path: str | Path, regression: NRLRegression) -> Non
     with path.open("wt", encoding="utf-8") as handle:
         handle.write(
             "scope\tchromosome\torder\tpeak_distance_bp\tpeak_count\t"
-            "total_pairs\tfitted_distance_bp\tresidual_bp\n"
+            "total_pairs\tfitted_distance_bp\tresidual_bp"
+            + ("\tstate" if regression.state != "All" else "") + "\n"
         )
         for peak in regression.peaks:
             fitted = regression.intercept + regression.slope * peak.order
@@ -1461,7 +1591,8 @@ def write_nrl_regression_tsv(path: str | Path, regression: NRLRegression) -> Non
             handle.write(
                 f"{regression.scope}\t{regression.chromosome}\t{peak.order}\t"
                 f"{peak.peak_distance}\t{peak.peak_count}\t{peak.total_pairs}\t"
-                f"{fitted:.6f}\t{residual:.6f}\n"
+                f"{fitted:.6f}\t{residual:.6f}"
+                + (f"\t{regression.state}" if regression.state != "All" else "") + "\n"
             )
 
 
@@ -1492,6 +1623,8 @@ def plot_nrl_regression(path: str | Path, regression: NRLRegression) -> Path:
     axis.set_xlabel("Neighbour order")
     axis.set_ylabel("Peak distance (bp)")
     scope_label = "Combined chromosomes" if regression.scope == "combined_chromosomes" else regression.chromosome
+    if regression.state != "All":
+        scope_label = f"{regression.state} · {scope_label}"
     axis.set_title(f"{scope_label} nucleosome repeat length regression")
     annotation = (
         f"NRL (slope) = {regression.slope:.3f} bp\n"
@@ -1534,9 +1667,11 @@ def write_nrl_regression_outputs(
     outputs: list[Path] = [summary_path]
 
     with summary_path.open("wt", encoding="utf-8") as summary_handle:
+        state_outputs = any(regression.state != "All" for regression in regressions)
         summary_handle.write(
             "scope\tchromosome\torders_used\tmin_order\tmax_order\t"
-            "nrl_bp\tintercept_bp\tr_squared\tpoints_tsv\tplot_png\n"
+            "nrl_bp\tintercept_bp\tr_squared\tpoints_tsv\tplot_png"
+            + ("\tstate" if state_outputs else "") + "\n"
         )
         for regression in regressions:
             stem = regression_output_stem(prefix, regression)
@@ -1552,7 +1687,8 @@ def write_nrl_regression_outputs(
                 f"{min(orders)}\t{max(orders)}\t{regression.slope:.6f}\t"
                 f"{regression.intercept:.6f}\t"
                 f"{_format_regression_value(regression.r_squared)}\t"
-                f"{tsv_path}\t{png_path}\n"
+                f"{tsv_path}\t{png_path}"
+                + (f"\t{regression.state}" if state_outputs else "") + "\n"
             )
     return outputs
 
@@ -1753,31 +1889,32 @@ def iter_distributions(
     include_chromosomes: bool,
     include_genome: bool,
     include_state_strata: bool,
+    state_filter: str | None = None,
 ) -> Iterable[tuple[int, str, str, str, Counter[int]]]:
     """Yield ``order, scope, chromosome, state, counter`` in stable order."""
     for order in range(1, max_order + 1):
         if include_chromosomes:
             for chrom in sorted(results.chrom_all.get(order, {}), key=natural_sort_key):
                 pooled = results.chrom_all[order][chrom]
-                if pooled:
+                if pooled and state_filter in (None, "All"):
                     yield order, "chromosome", chrom, "All", pooled
 
                 if include_state_strata:
                     state_counters = results.chrom_state.get(order, {}).get(chrom, {})
                     for state in sorted(state_counters, key=natural_sort_key):
                         counter = state_counters[state]
-                        if counter:
+                        if counter and (state_filter is None or state_filter == state):
                             yield order, "chromosome", chrom, state, counter
 
         if include_genome:
             pooled = results.genome_all.get(order, Counter())
-            if pooled:
+            if pooled and state_filter in (None, "All"):
                 yield order, "combined_chromosomes", ".", "All", pooled
 
             if include_state_strata:
                 for state in sorted(results.genome_state.get(order, {}), key=natural_sort_key):
                     counter = results.genome_state[order][state]
-                    if counter:
+                    if counter and (state_filter is None or state_filter == state):
                         yield order, "combined_chromosomes", ".", state, counter
 
 
@@ -1911,6 +2048,7 @@ def write_distribution_outputs(
     include_genome: bool,
     include_state_strata: bool,
     include_zero_distances: bool,
+    state_filter: str | None = None,
     count_smooth_window: int,
     count_smooth_polyorder: int,
     percent_smooth_window: int,
@@ -1947,6 +2085,7 @@ def write_distribution_outputs(
             include_chromosomes=include_chromosomes,
             include_genome=include_genome,
             include_state_strata=include_state_strata,
+            state_filter=state_filter,
         ):
             stats = summarize_distribution(
                 counter,
@@ -1993,6 +2132,7 @@ def plot_distance_distributions(
     peak_label_value: str = "x",
     peak_label_offset: float = 5.0,
     peak_distances: Mapping[int, int] | None = None,
+    state: str = "All",
 ) -> Path | None:
     """Plot the requested x-window from full neighbour-order distributions."""
     import csv
@@ -2005,7 +2145,7 @@ def plot_distance_distributions(
     grouped: dict[int, list[dict[str, str]]] = defaultdict(list)
     with Path(distance_path).open("rt", encoding="utf-8") as handle:
         for row in csv.DictReader(handle, delimiter="\t"):
-            if row["scope"] == "combined_chromosomes" and row["state"] == "All":
+            if row["scope"] == "combined_chromosomes" and row["state"] == state:
                 grouped[int(row["order"])].append(row)
     if not grouped:
         return None
@@ -2690,6 +2830,15 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         help="One-based RGB colour column used by the state overlay plot (default: 9).",
     )
     parser.add_argument(
+        "--state-pair-mode",
+        choices=("within-interval", "endpoints"),
+        default="within-interval",
+        help=("State-category distance method. 'within-interval' restarts order "
+              "for each individual BED interval and requires all participating "
+              "nucleosomes inside it (default); 'endpoints' pairs chromosome-wide "
+              "neighbours having matching endpoint labels."),
+    )
+    parser.add_argument(
         "--state-overlay-plot",
         action="store_true",
         help=(
@@ -3023,7 +3172,8 @@ def build_parser() -> argparse.ArgumentParser:
         prog="nucleosuite distances",
         description=(
             "Measure +1 through +N peak distances, optionally stratified by "
-            "chromatin state and filtered by score percentile."
+            "chromatin state and filtered by score percentile. State BEDs "
+            "produce within-interval category distributions and NRL regressions."
         ),
         formatter_class=NucleoSuiteHelpFormatter,
     )
@@ -3091,6 +3241,8 @@ def _run_serial(args: argparse.Namespace) -> int:
             validate_one_based_column(args.position_column, "--position-column")
         validate_one_based_column(args.state_label_column, "--state-label-column")
         validate_one_based_column(args.state_color_column, "--state-color-column")
+        if args.state_pair_mode != "within-interval" and state_path is None:
+            raise ValueError("--state-pair-mode requires --state-bed")
         if args.state_overlay_plot and state_path is None:
             raise ValueError("--state-overlay-plot requires --state-bed")
         validate_smoothing_arguments(args)
@@ -3263,7 +3415,14 @@ def _run_serial(args: argparse.Namespace) -> int:
                 max_distance=args.max_distance,
                 max_order=args.max_order,
                 duplicate_policy=args.duplicate_policy,
+                include_endpoint_state_pairs=(args.state_pair_mode == "endpoints"),
             )
+            if state_indexes is not None and args.state_pair_mode == "within-interval":
+                reporter.stage("Counting +1 through +N distances separately within each state interval")
+                results.chrom_state, results.genome_state = compute_within_interval_state_counts(
+                    results.retained_by_chrom, state_indexes,
+                    max_order=args.max_order, category_rules=category_rules,
+                )
 
             metadata_path = Path(f"{threshold_prefix}_metadata.tsv")
             distance_path = Path(f"{threshold_prefix}_distances.tsv")
@@ -3286,6 +3445,10 @@ def _run_serial(args: argparse.Namespace) -> int:
                 bin_tie_mode=args.bin_tie_mode,
                 nrl_mode=args.nrl_mode,
             )
+            if state_indexes is not None:
+                with metadata_path.open("at", encoding="utf-8") as metadata_handle:
+                    metadata_handle.write(f"state_pair_mode\t{args.state_pair_mode}\n")
+                    metadata_handle.write("state_interval_membership\t0_based_half_open_peak_position\n")
             distributions, rows = write_distribution_outputs(
                 results,
                 distance_path=distance_path,
@@ -3403,6 +3566,84 @@ def _run_serial(args: argparse.Namespace) -> int:
                     x_minor_tick=args.state_overlay_x_minor_tick,
                 )
                 output_count += len(overlay_outputs)
+
+            # An independently reported plot, full multi-order distribution,
+            # summary, and NRL regression per category. Each category's counts
+            # have already been isolated within the original BED intervals.
+            if state_indexes is not None:
+                available_states = sorted({
+                    state for categories in results.genome_state.values()
+                    for state, counter in categories.items() if counter
+                }, key=natural_sort_key)
+                used_tokens: set[str] = set()
+                for state in available_states:
+                    token = _safe_output_token(state)
+                    if token in used_tokens:
+                        import hashlib
+                        token += "_" + hashlib.sha256(state.encode("utf-8")).hexdigest()[:8]
+                    used_tokens.add(token)
+                    state_prefix = Path(f"{threshold_prefix}_states") / token
+                    state_prefix.mkdir(parents=True, exist_ok=True)
+                    state_distance_path = state_prefix / "distances.tsv"
+                    state_summary_path = state_prefix / "summary.tsv"
+                    write_distribution_outputs(
+                        results, distance_path=state_distance_path,
+                        summary_path=state_summary_path,
+                        max_order=args.max_order,
+                        include_chromosomes=include_chromosomes,
+                        include_genome=True,  # always provide category-wide plotting
+                        include_state_strata=True, state_filter=state,
+                        include_zero_distances=args.include_zero_distances,
+                        count_smooth_window=args.count_smooth_window,
+                        count_smooth_polyorder=args.count_smooth_polyorder,
+                        percent_smooth_window=args.percent_smooth_window,
+                        percent_smooth_polyorder=args.percent_smooth_polyorder,
+                        min_distance=args.min_distance, max_distance=args.max_distance,
+                    )
+                    category_modes: dict[int, int] = {}
+                    for order in range(1, args.max_order + 1):
+                        mode = select_order_peak_in_range(
+                            results.genome_state.get(order, {}).get(state, Counter()),
+                            min_distance=args.min_distance, max_distance=args.max_distance,
+                            nrl_mode=args.nrl_mode, count_smooth_window=args.count_smooth_window,
+                            count_smooth_polyorder=args.count_smooth_polyorder,
+                        )
+                        if mode is not None:
+                            category_modes[order] = mode.peak_distance
+                    category_plot = plot_path(state_prefix / "distance_distribution.png")
+                    plotted = plot_distance_distributions(
+                        state_distance_path, category_plot, state=state,
+                        nrl_mode=args.nrl_mode, min_distance=args.min_distance,
+                        max_distance=args.max_distance, label_peaks=args.label_peaks,
+                        peak_label_value=args.peak_label_value,
+                        peak_label_offset=args.peak_label_offset,
+                        peak_distances=category_modes,
+                    )
+                    if plotted is not None:
+                        from nucleosuite.plotting import write_plot_metadata
+                        write_plot_metadata(plotted, extra={
+                            "source_table": str(state_distance_path),
+                            "state": state,
+                            "state_pair_mode": args.state_pair_mode,
+                            "detected_plot_type": "distances",
+                        })
+                    state_regressions = []
+                    if args.max_order > 1:
+                        state_regressions = collect_state_nrl_regressions(
+                            results, state=state, max_order=args.max_order,
+                            include_chromosomes=args.regression_scope in {"contig", "both"},
+                            include_genome=args.regression_scope in {"combined", "both"},
+                            nrl_mode=args.nrl_mode,
+                            count_smooth_window=args.count_smooth_window,
+                            count_smooth_polyorder=args.count_smooth_polyorder,
+                            min_distance=args.min_distance, max_distance=args.max_distance,
+                        )
+                        write_nrl_regression_outputs(state_regressions, prefix=state_prefix / "state")
+                    reporter.stage(
+                        f"Category {state}: {sum(results.genome_state.get(o, {}).get(state, Counter()).total() for o in range(1, args.max_order + 1)):,} "
+                        f"distance pairs, {len(state_regressions)} NRL regressions; plots in {state_prefix}"
+                    )
+                    output_count += 2 + int(plotted is not None) + (1 + 2 * len(state_regressions) if state_regressions else 0)
 
             duplicate_path = Path(f"{threshold_prefix}_duplicates.tsv")
             duplicate_positions = write_duplicate_report(results.duplicates, duplicate_path)

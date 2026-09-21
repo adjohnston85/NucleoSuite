@@ -31,7 +31,7 @@ Each command page describes the calculation, a typical invocation, analysis opti
 - [`peak-score-frequency`](commands/peak-score-frequency.md) — compare peak-score distributions.
 - [`peak-states`](commands/peak-states.md) — count peaks and score-dependent enrichment across chromatin states.
 - [`compare-positions`](commands/compare-positions.md) — compare one main callset with positional callsets and optional BigWig score comparators.
-- [`distances`](commands/distances.md) — measure adjacent and higher-order peak spacing.
+- [`distances`](commands/distances.md) — measure adjacent and higher-order peak spacing, including interval-contained, state-specific distributions and NRL regressions.
 - [`flank-spacing`](commands/flank-spacing.md) — compare category-wise spacing between nucleosomes flanking reference sites and rank the distributions.
 - [`positive-runs`](commands/positive-runs.md) — measure continuous signal intervals above a threshold.
 

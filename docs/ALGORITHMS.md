@@ -659,7 +659,7 @@ then the order-$q$ distance from peak $i$ is
 d_{i,q}=p_{i+q}-p_i.
 ```
 
-Order 1 measures adjacent peaks. Order 2 skips one intervening peak, order 3 skips two, and so on.
+Order 1 measures adjacent peaks. Order 2 skips one intervening peak, order 3 skips two, and so on. Pooled distances are measured within each contig. With a chromatin-state BED, category distances are measured independently inside each original half-open BED interval: an order-$q$ pair requires all $q+1$ participating peaks inside the same interval, and orders restart at every interval boundary. Identical pairs covered by overlapping intervals of the same category contribute once. Counts are pooled by category after interval-contained comparisons, and each category has its own order-mode NRL regression.
 
 For a histogram count $H(d)$ over the retained distances, the percentage at distance $d$ is
 
