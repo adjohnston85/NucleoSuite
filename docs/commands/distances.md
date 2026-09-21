@@ -219,7 +219,18 @@ For each populated order, NucleoSuite first constructs the **complete positive-d
 
 In smoothed mode (`--nrl-mode smoothed`), the Savitzky-Golay window is controlled by `--count-smooth-window` and `--count-smooth-polyorder`, which default to 21 and 2. Smoothing is evaluated on the full distribution rather than on the plotted x-window, so the plot boundary cannot create a terminal smoothing peak. Use `--nrl-mode raw` to use the full raw-count mode instead.
 
-The retained in-range mode distance for each order is fitted against neighbour order. The slope of that fit is reported as the NRL estimate. For a well-ordered array, order 1 might peak near 185 bp, order 2 near 370 bp, and order 3 near 555 bp.
+The retained in-range mode distance for each eligible order is fitted against its **original neighbour order**. The slope is the NRL estimate. The default regression uses orders 1 through `--max-order`; use `--nrl-min-order 2` to exclude order 1 from the regression while retaining order 1 in the distribution tables, distribution plots, summary tables, and peak labels. For example:
+
+```bash
+nucleosuite distances peaks.bed \
+  --state-bed chromatin_states.bed \
+  --max-order 7 \
+  --nrl-min-order 2 \
+  --regression-scope combined \
+  --output-prefix spacing
+```
+
+This fits pooled and category-specific NRLs to original order numbers **2, 3, 4, 5, 6, 7**. The regression requires at least two populated in-range orders; with fewer, no regression is written for that population. For a well-ordered array, order 1 might peak near 185 bp, order 2 near 370 bp, and order 3 near 555 bp.
 
 When multiple neighbour orders are plotted together in smoothed mode, each smoothed order is a different colour and the corresponding raw distribution is retained in grey behind it. Peak markers represent the same full-distribution modes used for regression eligibility. Add `--label-peaks` to label displayed modes; `--peak-label-value x|y|both` controls whether the label shows the modal distance, count, or both.
 

@@ -1463,10 +1463,13 @@ def collect_nrl_regressions(
     count_smooth_polyorder: int = 2,
     min_distance: int = 1,
     max_distance: int = 1500,
+    nrl_min_order: int = 1,
 ) -> list[NRLRegression]:
     """Build pooled order-mode regressions from raw or smoothed count modes."""
     if nrl_mode not in {"raw", "smoothed"}:
         raise ValueError("--nrl-mode must be raw or smoothed")
+    if not 1 <= nrl_min_order <= max_order:
+        raise ValueError("--nrl-min-order must be between 1 and --max-order")
 
     def select(counter: Mapping[int, int]) -> OrderPeak | None:
         return select_order_peak_in_range(
@@ -1476,7 +1479,7 @@ def collect_nrl_regressions(
         )
     grouped: dict[tuple[str, str], list[OrderPeak]] = defaultdict(list)
 
-    for order in range(1, max_order + 1):
+    for order in range(nrl_min_order, max_order + 1):
         if include_genome:
             counter = results.genome_all.get(order, Counter())
             if counter:
@@ -1523,10 +1526,13 @@ def collect_state_nrl_regressions(
     count_smooth_polyorder: int,
     min_distance: int,
     max_distance: int,
+    nrl_min_order: int = 1,
 ) -> list[NRLRegression]:
     """Fit a separate regression from each category's interval-contained modes."""
+    if not 1 <= nrl_min_order <= max_order:
+        raise ValueError("--nrl-min-order must be between 1 and --max-order")
     grouped: dict[tuple[str, str], list[OrderPeak]] = defaultdict(list)
-    for order in range(1, max_order + 1):
+    for order in range(nrl_min_order, max_order + 1):
         candidates: list[tuple[str, str, Counter[int]]] = []
         if include_genome:
             candidates.append(("combined_chromosomes", ".", results.genome_state.get(order, {}).get(state, Counter())))
@@ -1936,6 +1942,7 @@ def write_threshold_metadata(
     duplicate_policy: str,
     bin_tie_mode: str = "split",
     nrl_mode: str = "smoothed",
+    nrl_min_order: int = 1,
 ) -> None:
     """Write analysis parameters as a two-column TSV file."""
     percentile_mode = (
@@ -2028,7 +2035,8 @@ def write_threshold_metadata(
         ("distance_counting_upper_limit", "none"),
         ("order_mode_detection_scope", "full_positive_distance_distribution"),
         ("max_order", max_order),
-        ("nrl_regression", f"{nrl_mode}_count_mode_by_order" if max_order > 1 else "disabled"),
+        ("nrl_min_order", nrl_min_order),
+        ("nrl_regression", f"{nrl_mode}_count_mode_by_order" if max_order - nrl_min_order + 1 > 1 else "disabled"),
     ]
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -3028,6 +3036,14 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
               "also produce neighbour-order peak-distance regressions for NRL estimation (default: 10)."),
     )
     parser.add_argument(
+        "--nrl-min-order",
+        type=int,
+        default=1,
+        help=("Minimum neighbour order included in pooled and state-specific NRL "
+              "regressions; distance distributions and mode labels still include "
+              "orders 1 through --max-order (default: 1)."),
+    )
+    parser.add_argument(
         "--nrl-mode",
         choices=("raw", "smoothed"),
         default="smoothed",
@@ -3212,6 +3228,8 @@ def _run_serial(args: argparse.Namespace) -> int:
             raise ValueError("--max-distance must be greater than or equal to --min-distance")
         if args.max_order < 1:
             raise ValueError("--max-order must be at least 1")
+        if not 1 <= args.nrl_min_order <= args.max_order:
+            raise ValueError("--nrl-min-order must be between 1 and --max-order")
         if args.min_length is not None and args.min_length < 1:
             raise ValueError("--min-length must be at least 1 bp")
         if args.max_length is not None and args.max_length < 1:
@@ -3444,6 +3462,7 @@ def _run_serial(args: argparse.Namespace) -> int:
                 duplicate_policy=args.duplicate_policy,
                 bin_tie_mode=args.bin_tie_mode,
                 nrl_mode=args.nrl_mode,
+                nrl_min_order=args.nrl_min_order,
             )
             if state_indexes is not None:
                 with metadata_path.open("at", encoding="utf-8") as metadata_handle:
@@ -3468,10 +3487,11 @@ def _run_serial(args: argparse.Namespace) -> int:
 
             regression_outputs: list[Path] = []
             regressions: list[NRLRegression] = []
-            if args.max_order > 1:
+            if args.max_order - args.nrl_min_order + 1 >= 2:
                 regressions = collect_nrl_regressions(
                     results,
                     max_order=args.max_order,
+                    nrl_min_order=args.nrl_min_order,
                     include_chromosomes=args.regression_scope in {"contig", "both"},
                     include_genome=args.regression_scope in {"combined", "both"},
                     nrl_mode=args.nrl_mode,
@@ -3628,9 +3648,10 @@ def _run_serial(args: argparse.Namespace) -> int:
                             "detected_plot_type": "distances",
                         })
                     state_regressions = []
-                    if args.max_order > 1:
+                    if args.max_order - args.nrl_min_order + 1 >= 2:
                         state_regressions = collect_state_nrl_regressions(
                             results, state=state, max_order=args.max_order,
+                            nrl_min_order=args.nrl_min_order,
                             include_chromosomes=args.regression_scope in {"contig", "both"},
                             include_genome=args.regression_scope in {"combined", "both"},
                             nrl_mode=args.nrl_mode,
